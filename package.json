@@ -14,7 +14,8 @@
     "download:mapbox-dem": "node downloader.js configs/mapbox-dem.config.json",
     "split": "node downloader.js split",
     "zip": "node zip-maker.js",
-    "upload": "node storj-uploader.js",
+    "upload": "node scripts/install-storj-uplink.js --if-missing && node storj-uploader.js",
+    "upload:install-uplink": "node scripts/install-storj-uplink.js",
     "make-directories": "node directory-maker.js",
     "download:mapbox-pbf-splits": "node downloader.js configs/mapbox-pbf-cig.config.json configs/mapbox-pbf-cmi.config.json configs/mapbox-pbf-kuh.config.json configs/mapbox-pbf-kyj.config.json configs/mapbox-pbf-mcs.config.json configs/mapbox-pbf-rhc.config.json",
     "clear-token-state": "node downloader.js clear-token-state"

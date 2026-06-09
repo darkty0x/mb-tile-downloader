@@ -9,6 +9,12 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const LOCAL_UPLINK_BIN = path.join(
+  __dirname,
+  "tools",
+  "uplink",
+  process.platform === "win32" ? "uplink.exe" : "uplink"
+);
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -105,7 +111,7 @@ function uplinkArgs(args) {
 }
 
 function runUplink(args, { allowFailure = false } = {}) {
-  const bin = process.env.STORJ_UPLINK_BIN || "uplink";
+  const bin = process.env.STORJ_UPLINK_BIN || (fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink");
   return new Promise((resolve, reject) => {
     const child = spawn(bin, uplinkArgs(args), {
       stdio: ["ignore", "pipe", "pipe"],
