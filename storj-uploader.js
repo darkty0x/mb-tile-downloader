@@ -15,6 +15,8 @@ const LOCAL_UPLINK_BIN = path.join(
   "uplink",
   process.platform === "win32" ? "uplink.exe" : "uplink"
 );
+const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
+const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -110,14 +112,14 @@ function remoteUrl(bucket, prefix, name) {
     : `sj://${bucket}/${encodedName}`;
 }
 
-function uplinkArgs(args, access) {
-  return access ? ["--access", access, ...args] : args;
+function uplinkArgs(args) {
+  return ["--config-dir", UPLINK_CONFIG_DIR, ...args];
 }
 
-function runUplink(args, { allowFailure = false, access = null } = {}) {
+function runUplink(args, { allowFailure = false } = {}) {
   const bin = fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink";
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, uplinkArgs(args, access), {
+    const child = spawn(bin, uplinkArgs(args), {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
@@ -150,8 +152,13 @@ function runUplink(args, { allowFailure = false, access = null } = {}) {
   });
 }
 
-async function remoteExists(url, access) {
-  const result = await runUplink(["ls", url], { allowFailure: true, access });
+async function ensureAccessConfigured(access) {
+  await fsp.mkdir(UPLINK_CONFIG_DIR, { recursive: true });
+  await runUplink(["access", "import", UPLINK_ACCESS_NAME, access, "--force", "--use"]);
+}
+
+async function remoteExists(url) {
+  const result = await runUplink(["ls", url], { allowFailure: true });
   return result.code === 0;
 }
 
@@ -176,7 +183,7 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
     return "dry-run";
   }
 
-  if (await remoteExists(url, access)) {
+  if (await remoteExists(url)) {
     console.log(`SKIP remote exists: ${archive.name}`);
     if (!keepLocal) {
       await fsp.rm(archive.filePath, { force: true });
@@ -186,8 +193,8 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
   }
 
   console.log(`UPLOAD: ${archive.name} size=${archive.size} -> ${url}`);
-  await runUplink(["cp", archive.filePath, url], { access });
-  if (!(await remoteExists(url, access))) {
+  await runUplink(["cp", archive.filePath, url]);
+  if (!(await remoteExists(url))) {
     throw new Error(`Remote verification failed after upload: ${url}`);
   }
   if (!keepLocal) {
@@ -211,6 +218,10 @@ async function main() {
   console.log(`Archive directory: ${opts.archiveDir}`);
   console.log(`Storj target: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
   console.log(`Completed ZIPs: ${archives.length}`);
+
+  if (!opts.dryRun && archives.length > 0) {
+    await ensureAccessConfigured(opts.access);
+  }
 
   let uploaded = 0;
   let skipped = 0;

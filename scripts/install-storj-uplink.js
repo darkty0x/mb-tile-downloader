@@ -131,13 +131,18 @@ async function main() {
   const ifMissing = process.argv.includes("--if-missing");
   const localPath = localExecutablePath();
 
-  if (await executableWorks(localPath)) {
+  if (fs.existsSync(localPath)) {
     console.log(`Storj uplink already installed: ${localPath}`);
     return;
   }
 
   if (ifMissing && await commandWorks("uplink")) {
     console.log("Storj uplink already available on PATH");
+    return;
+  }
+
+  if (ifMissing && process.platform !== "win32") {
+    console.log("Storj uplink not installed locally; continuing because bundled install is only required on Windows.");
     return;
   }
 
