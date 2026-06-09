@@ -55,7 +55,8 @@ function printUsage(exitCode = 0) {
       "Environment:",
       "  STORJ_BUCKET          required unless --bucket is provided",
       "  STORJ_PREFIX          remote folder/prefix",
-      "  STORJ_ACCESS          required unless --access is provided",
+      "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
+      "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
       "",
       "Uplink binary:",
       "  Uses bundled tools/uplink/uplink.exe on Windows, or PATH uplink fallback.",
@@ -95,6 +96,7 @@ function parseArgs(argv) {
   opts.bucket = opts.bucket || process.env.STORJ_BUCKET;
   opts.prefix = opts.prefix ?? process.env.STORJ_PREFIX ?? "";
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
+  opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
   return opts;
 }
 
@@ -112,15 +114,44 @@ function remoteUrl(bucket, prefix, name) {
     : `sj://${bucket}/${encodedName}`;
 }
 
+function parseStorjCredentials({ access, passphrase }) {
+  const rawAccess = String(access || "").trim();
+  if (!rawAccess) {
+    throw new Error("STORJ_ACCESS is required, or pass --access=grant");
+  }
+
+  const parts = rawAccess.split(/\s+/).filter(Boolean);
+  if (parts.length === 2 && /@[^:\s]+:\d+$/.test(parts[0])) {
+    const setupPassphrase = String(passphrase || "").trim();
+    if (!setupPassphrase) {
+      throw new Error(
+        "STORJ_ACCESS contains satellite address + API key. Set STORJ_PASSPHRASE to configure uplink from those two values, or replace STORJ_ACCESS with a serialized Access Grant."
+      );
+    }
+    return {
+      type: "api-key",
+      satellite: parts[0],
+      apiKey: parts[1],
+      passphrase: setupPassphrase,
+    };
+  }
+
+  if (/\s/.test(rawAccess)) {
+    throw new Error("STORJ_ACCESS must be one serialized Access Grant value without spaces.");
+  }
+
+  return { type: "access-grant", access: rawAccess };
+}
+
 function uplinkArgs(args) {
   return ["--config-dir", UPLINK_CONFIG_DIR, ...args];
 }
 
-function runUplink(args, { allowFailure = false } = {}) {
+function runUplink(args, { allowFailure = false, input = null } = {}) {
   const bin = fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink";
   return new Promise((resolve, reject) => {
     const child = spawn(bin, uplinkArgs(args), {
-      stdio: ["ignore", "pipe", "pipe"],
+      stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
     });
     let stdout = "";
@@ -131,6 +162,8 @@ function runUplink(args, { allowFailure = false } = {}) {
     child.stderr.on("data", (chunk) => {
       stderr += chunk;
     });
+    if (input !== null) child.stdin.end(input);
+    else child.stdin.end();
     child.on("error", (err) => {
       const installHint =
         process.platform === "win32"
@@ -152,9 +185,24 @@ function runUplink(args, { allowFailure = false } = {}) {
   });
 }
 
-async function ensureAccessConfigured(access) {
+async function ensureAccessConfigured(credentials) {
   await fsp.mkdir(UPLINK_CONFIG_DIR, { recursive: true });
-  await runUplink(["access", "import", UPLINK_ACCESS_NAME, access, "--force", "--use"]);
+  if (credentials.type === "access-grant") {
+    await runUplink(["access", "import", UPLINK_ACCESS_NAME, credentials.access, "--force", "--use"]);
+    return;
+  }
+
+  const input = [
+    UPLINK_ACCESS_NAME,
+    credentials.apiKey,
+    credentials.satellite,
+    credentials.passphrase,
+    credentials.passphrase,
+    "N",
+    "N",
+    "",
+  ].join("\n");
+  await runUplink(["setup", "--force", "--use"], { input });
 }
 
 async function remoteExists(url) {
@@ -210,17 +258,17 @@ async function main() {
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
   }
-  if (!opts.access) {
-    throw new Error("STORJ_ACCESS is required, or pass --access=grant");
-  }
-
   const archives = await listCompletedArchives(opts.archiveDir);
   console.log(`Archive directory: ${opts.archiveDir}`);
   console.log(`Storj target: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
   console.log(`Completed ZIPs: ${archives.length}`);
 
   if (!opts.dryRun && archives.length > 0) {
-    await ensureAccessConfigured(opts.access);
+    const credentials = parseStorjCredentials({
+      access: opts.access,
+      passphrase: opts.passphrase,
+    });
+    await ensureAccessConfigured(credentials);
   }
 
   let uploaded = 0;
