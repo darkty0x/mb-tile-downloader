@@ -1,0 +1,7 @@
+.env
+.tile-state
+/configs
+.DS_Store
+/node_modules
+/outputs
+/reports
