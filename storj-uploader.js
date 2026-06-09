@@ -120,9 +120,15 @@ function runUplink(args, { allowFailure = false } = {}) {
       stderr += chunk;
     });
     child.on("error", (err) => {
+      const installHint =
+        process.platform === "win32"
+          ? "Install it with: winget install -e --id Storj.Uplink, then reopen PowerShell."
+          : process.platform === "darwin"
+            ? "Install it with: brew install storj-uplink."
+            : "Install Storj Uplink CLI and make sure uplink is on PATH.";
       reject(
         new Error(
-          `Failed to run ${bin}. Install Storj uplink CLI or set STORJ_UPLINK_BIN. Original error: ${err.message}`
+          `Failed to run ${bin}. ${installHint} Or set STORJ_UPLINK_BIN to the full uplink executable path. Original error: ${err.message}`
         )
       );
     });
