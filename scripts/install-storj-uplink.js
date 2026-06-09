@@ -21,7 +21,7 @@ function printUsage(exitCode = 0) {
       "Usage: node scripts/install-storj-uplink.js [--if-missing]",
       "",
       "Options:",
-      "  --if-missing  Skip install when STORJ_UPLINK_BIN, local uplink, or PATH uplink works.",
+      "  --if-missing  Skip install when local uplink or PATH uplink works.",
       "",
     ].join("\n")
   );
@@ -130,11 +130,6 @@ async function main() {
   if (process.argv.includes("--help") || process.argv.includes("-h")) printUsage(0);
   const ifMissing = process.argv.includes("--if-missing");
   const localPath = localExecutablePath();
-
-  if (process.env.STORJ_UPLINK_BIN && await executableWorks(process.env.STORJ_UPLINK_BIN)) {
-    console.log(`Storj uplink already configured: ${process.env.STORJ_UPLINK_BIN}`);
-    return;
-  }
 
   if (await executableWorks(localPath)) {
     console.log(`Storj uplink already installed: ${localPath}`);

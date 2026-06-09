@@ -48,13 +48,15 @@ function printUsage(exitCode = 0) {
       "",
       "Upload completed ZIP archives to Storj, then delete local ZIPs after remote verification.",
       "",
-      `Usage: node ${cmd} [--archive-dir=path] [--bucket=name] [--prefix=path] [--dry-run] [--keep-local]`,
+      `Usage: node ${cmd} [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local]`,
       "",
       "Environment:",
       "  STORJ_BUCKET          required unless --bucket is provided",
-      "  STORJ_PREFIX          optional remote folder/prefix",
-      "  STORJ_ACCESS          optional uplink access grant or configured access name",
-      "  STORJ_UPLINK_BIN      optional uplink binary path, default: uplink",
+      "  STORJ_PREFIX          remote folder/prefix",
+      "  STORJ_ACCESS          required unless --access is provided",
+      "",
+      "Uplink binary:",
+      "  Uses bundled tools/uplink/uplink.exe on Windows, or PATH uplink fallback.",
       "",
       "Behavior:",
       "  - uploads only completed .zip files",
@@ -71,6 +73,7 @@ function parseArgs(argv) {
     archiveDir: path.join(__dirname, "archives"),
     bucket: null,
     prefix: null,
+    access: null,
     dryRun: false,
     keepLocal: false,
   };
@@ -82,12 +85,14 @@ function parseArgs(argv) {
     else if (arg.startsWith("--archive-dir=")) opts.archiveDir = arg.slice("--archive-dir=".length);
     else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
     else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
+    else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
   opts.archiveDir = path.resolve(opts.archiveDir);
   opts.bucket = opts.bucket || process.env.STORJ_BUCKET;
   opts.prefix = opts.prefix ?? process.env.STORJ_PREFIX ?? "";
+  opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   return opts;
 }
 
@@ -105,15 +110,14 @@ function remoteUrl(bucket, prefix, name) {
     : `sj://${bucket}/${encodedName}`;
 }
 
-function uplinkArgs(args) {
-  const access = process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
+function uplinkArgs(args, access) {
   return access ? ["--access", access, ...args] : args;
 }
 
-function runUplink(args, { allowFailure = false } = {}) {
-  const bin = process.env.STORJ_UPLINK_BIN || (fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink");
+function runUplink(args, { allowFailure = false, access = null } = {}) {
+  const bin = fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink";
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, uplinkArgs(args), {
+    const child = spawn(bin, uplinkArgs(args, access), {
       stdio: ["ignore", "pipe", "pipe"],
       env: process.env,
     });
@@ -134,7 +138,7 @@ function runUplink(args, { allowFailure = false } = {}) {
             : "Install Storj Uplink CLI and make sure uplink is on PATH.";
       reject(
         new Error(
-          `Failed to run ${bin}. ${installHint} Or set STORJ_UPLINK_BIN to the full uplink executable path. Original error: ${err.message}`
+          `Failed to run ${bin}. ${installHint} Original error: ${err.message}`
         )
       );
     });
@@ -146,8 +150,8 @@ function runUplink(args, { allowFailure = false } = {}) {
   });
 }
 
-async function remoteExists(url) {
-  const result = await runUplink(["ls", url], { allowFailure: true });
+async function remoteExists(url, access) {
+  const result = await runUplink(["ls", url], { allowFailure: true, access });
   return result.code === 0;
 }
 
@@ -165,14 +169,14 @@ async function listCompletedArchives(archiveDir) {
   return archives;
 }
 
-async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }) {
+async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLocal }) {
   const url = remoteUrl(bucket, prefix, archive.name);
   if (dryRun) {
     console.log(`DRY RUN upload: ${archive.filePath} -> ${url}`);
     return "dry-run";
   }
 
-  if (await remoteExists(url)) {
+  if (await remoteExists(url, access)) {
     console.log(`SKIP remote exists: ${archive.name}`);
     if (!keepLocal) {
       await fsp.rm(archive.filePath, { force: true });
@@ -182,8 +186,8 @@ async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }) {
   }
 
   console.log(`UPLOAD: ${archive.name} size=${archive.size} -> ${url}`);
-  await runUplink(["cp", archive.filePath, url]);
-  if (!(await remoteExists(url))) {
+  await runUplink(["cp", archive.filePath, url], { access });
+  if (!(await remoteExists(url, access))) {
     throw new Error(`Remote verification failed after upload: ${url}`);
   }
   if (!keepLocal) {
@@ -198,6 +202,9 @@ async function main() {
   const opts = parseArgs(process.argv);
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
+  }
+  if (!opts.access) {
+    throw new Error("STORJ_ACCESS is required, or pass --access=grant");
   }
 
   const archives = await listCompletedArchives(opts.archiveDir);
