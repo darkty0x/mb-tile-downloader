@@ -205,9 +205,21 @@ async function ensureAccessConfigured(credentials) {
   await runUplink(["setup", "--force", "--use"], { input });
 }
 
-async function remoteExists(url) {
+function uplinkListContainsObject(stdout, name) {
+  return stdout
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .some((line) => {
+      const normalized = line.replace(/\\/g, "/");
+      return normalized === name || normalized.endsWith(`/${name}`) || normalized.endsWith(` ${name}`);
+    });
+}
+
+async function remoteExists(url, name) {
   const result = await runUplink(["ls", url], { allowFailure: true });
-  return result.code === 0;
+  if (result.code !== 0) return false;
+  return uplinkListContainsObject(result.stdout, name);
 }
 
 async function listCompletedArchives(archiveDir) {
@@ -231,7 +243,7 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
     return "dry-run";
   }
 
-  if (await remoteExists(url)) {
+  if (await remoteExists(url, archive.name)) {
     console.log(`SKIP remote exists: ${archive.name}`);
     if (!keepLocal) {
       await fsp.rm(archive.filePath, { force: true });
@@ -242,7 +254,7 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
 
   console.log(`UPLOAD: ${archive.name} size=${archive.size} -> ${url}`);
   await runUplink(["cp", archive.filePath, url]);
-  if (!(await remoteExists(url))) {
+  if (!(await remoteExists(url, archive.name))) {
     throw new Error(`Remote verification failed after upload: ${url}`);
   }
   if (!keepLocal) {

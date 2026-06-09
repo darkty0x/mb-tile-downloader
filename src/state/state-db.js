@@ -145,6 +145,62 @@ export class TileStateDb {
       );
   }
 
+  markArchivedTiles(range) {
+    const tx = this.db.transaction(() => {
+      this.db
+        .prepare(
+          `INSERT INTO ranges (
+             job_name, config_hash, layer, range_index, label,
+             expected, present, missing, status, verified_at, updated_at
+           )
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'archived', NULL, CURRENT_TIMESTAMP)
+           ON CONFLICT(job_name, config_hash, layer, range_index)
+           DO UPDATE SET
+             status='archived',
+             present=0,
+             missing=excluded.missing,
+             verified_at=NULL,
+             updated_at=CURRENT_TIMESTAMP`
+        )
+        .run(
+          range.jobName,
+          range.configHash,
+          range.layer,
+          range.rangeIndex,
+          range.label,
+          range.expected,
+          range.expected
+        );
+
+      this.db
+        .prepare(
+          `UPDATE rows
+           SET status='archived',
+               failed=expected,
+               verified_at=NULL,
+               updated_at=CURRENT_TIMESTAMP
+           WHERE job_name=?
+             AND config_hash=?
+             AND layer=?
+             AND z=?
+             AND x BETWEEN ? AND ?
+             AND y_start=?
+             AND y_end=?`
+        )
+        .run(
+          range.jobName,
+          range.configHash,
+          range.layer,
+          range.z,
+          range.xStart,
+          range.xEnd,
+          range.yStart,
+          range.yEnd
+        );
+    });
+    tx();
+  }
+
   markRowComplete(row) {
     this.#upsertRow({ ...row, status: "complete", verifiedAt: new Date().toISOString() });
   }

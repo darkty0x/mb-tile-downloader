@@ -7,6 +7,9 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 
+import { loadConfig } from "./src/config/config-loader.js";
+import { TileStateDb } from "./src/state/state-db.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
@@ -18,6 +21,31 @@ const ZIP_VERSION = 20;
 const ZIP64_VERSION = 45;
 const ZIP_FLAG_UTF8 = 0x0800;
 const DEFAULT_ZIP_WRITE_BUFFER_BYTES = 256 * 1024 * 1024;
+
+function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
+  let raw;
+  try {
+    raw = fs.readFileSync(envPath, "utf8");
+  } catch {
+    return;
+  }
+
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const idx = trimmed.indexOf("=");
+    if (idx === -1) continue;
+    const key = trimmed.slice(0, idx).trim();
+    let value = trimmed.slice(idx + 1).trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    if (key && process.env[key] === undefined) process.env[key] = value;
+  }
+}
 
 function printUsage(exitCode = 0) {
   const cmd = path.basename(process.argv[1] || "zip-maker.js");
@@ -716,6 +744,40 @@ async function cleanupArchiveRuntimeFiles({ tmpPath, progressPath }) {
   await Promise.all(paths.map((filePath) => fsp.rm(filePath, { force: true }).catch(() => {})));
 }
 
+function downloaderStateDbPath(config) {
+  return path.resolve(
+    path.join(config.configDir, "..", ".tile-state", `${config.jobName}.sqlite`)
+  );
+}
+
+async function openDownloaderState(sourceConfigPath) {
+  try {
+    const config = await loadConfig(sourceConfigPath, { env: process.env });
+    const dbPath = downloaderStateDbPath(config);
+    return {
+      config,
+      dbPath,
+      db: new TileStateDb(dbPath),
+    };
+  } catch (err) {
+    console.warn(`Downloader state invalidation disabled: ${err.message}`);
+    return null;
+  }
+}
+
+function markArchivedSourceDeleted(downloaderState, item) {
+  if (!downloaderState || !item.rangeState) return;
+  downloaderState.db.markArchivedTiles({
+    jobName: downloaderState.config.jobName,
+    configHash: downloaderState.config.configHash,
+    layer: downloaderState.config.layer,
+    ...item.rangeState,
+  });
+  console.log(
+    `  ${item.name}: downloader SQLite marked archived/deleted in ${downloaderState.dbPath}`
+  );
+}
+
 async function cleanupCompletedRunFiles({ archiveDir, stateFile }) {
   await Promise.all([
     fsp.rm(path.join(archiveDir, "archive-run-manifest.jsonl"), { force: true }).catch(() => {}),
@@ -908,6 +970,7 @@ async function archiveRange({
 }
 
 async function main() {
+  loadDotEnvIfPresent();
   const opts = parseArgs(process.argv);
   const configDir = path.dirname(opts.configPath);
   const archiveConfig = (await loadJsonIfExists(opts.configPath, {})) || {};
@@ -966,6 +1029,7 @@ async function main() {
         ? [sourceConfig.layer]
         : ["satellite"];
   const state = (await loadJsonIfExists(stateFile, { completed: [] })) || { completed: [] };
+  const downloaderState = opts.dryRun ? null : await openDownloaderState(sourceConfigPath);
 
   try {
     await fsp.mkdir(archiveDir, { recursive: true });
@@ -1019,7 +1083,8 @@ async function main() {
 
   for (const layer of layers) {
     const defaults = layerDefaults(layer, { ...sourceConfig, ...archiveConfig });
-    for (const range of ranges) {
+    for (let rangeIdx = 0; rangeIdx < ranges.length; rangeIdx++) {
+      const range = ranges[rangeIdx];
       for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
         const task = {
           outputDir,
@@ -1051,6 +1116,16 @@ async function main() {
           tmpPath,
           progressPath,
           signature: taskSignature(task),
+          rangeState: {
+            rangeIndex: rangeIdx + 1,
+            label: range.label,
+            z,
+            xStart: range.xStart,
+            xEnd: range.xEnd,
+            yStart: range.yStart,
+            yEnd: range.yEnd,
+            expected: (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
+          },
         };
         const existingTask = taskByArchivePath.get(archivePath);
         if (existingTask) {
@@ -1069,83 +1144,89 @@ async function main() {
   }
   console.log(`Duplicate ranges skipped: ${duplicateSkipped}`);
 
-  await runPool(taskItems, archiveConcurrency, async (item) => {
-    const { name, task, archivePath, tmpPath, progressPath } = item;
+  try {
+    await runPool(taskItems, archiveConcurrency, async (item) => {
+      const { name, task, archivePath, tmpPath, progressPath } = item;
 
-    const existingArchive = await getArchiveFileInfo(archivePath);
-    if (existingArchive.exists) {
-      if (!existingArchive.isFile || existingArchive.size <= 0) {
-        throw new Error(
-          `Refusing to treat invalid archive path as complete: ${archivePath} isFile=${existingArchive.isFile} size=${existingArchive.size}`
-        );
-      }
-      console.log(
-        `SKIP existing: ${name} path=${archivePath} size=${existingArchive.size} mtime=${existingArchive.mtime}`
-      );
-      await appendManifest(archiveDir, {
-        event: "skip-existing",
-        archivePath,
-        size: existingArchive.size,
-        mtime: existingArchive.mtime,
-      });
-      await cleanupArchiveRuntimeFiles({ tmpPath, progressPath });
-      if (deleteExistingArchivedSources) {
-        console.log(`  ${name}: deleting source files for verified existing archive`);
-        await removeRangeFiles(task, deleteConcurrency);
-        await appendManifest(archiveDir, {
-          event: "delete-existing-source",
-          archivePath,
-          layer: task.layer,
-          z: task.z,
-          xStart: task.xStart,
-          xEnd: task.xEnd,
-        });
-      } else if (deleteAfterArchive) {
+      const existingArchive = await getArchiveFileInfo(archivePath);
+      if (existingArchive.exists) {
+        if (!existingArchive.isFile || existingArchive.size <= 0) {
+          throw new Error(
+            `Refusing to treat invalid archive path as complete: ${archivePath} isFile=${existingArchive.isFile} size=${existingArchive.size}`
+          );
+        }
         console.log(
-          `  ${name}: source delete skipped for pre-existing archive; set deleteExistingArchivedSources=true to enable`
+          `SKIP existing: ${name} path=${archivePath} size=${existingArchive.size} mtime=${existingArchive.mtime}`
         );
+        await appendManifest(archiveDir, {
+          event: "skip-existing",
+          archivePath,
+          size: existingArchive.size,
+          mtime: existingArchive.mtime,
+        });
+        await cleanupArchiveRuntimeFiles({ tmpPath, progressPath });
+        if (deleteExistingArchivedSources) {
+          console.log(`  ${name}: deleting source files for verified existing archive`);
+          await removeRangeFiles(task, deleteConcurrency);
+          markArchivedSourceDeleted(downloaderState, item);
+          await appendManifest(archiveDir, {
+            event: "delete-existing-source",
+            archivePath,
+            layer: task.layer,
+            z: task.z,
+            xStart: task.xStart,
+            xEnd: task.xEnd,
+          });
+        } else if (deleteAfterArchive) {
+          console.log(
+            `  ${name}: source delete skipped for pre-existing archive; set deleteExistingArchivedSources=true to enable`
+          );
+        }
+        skipped++;
+        return;
       }
-      skipped++;
-      return;
-    }
 
-    const complete = await isRangeComplete(task);
-    if (!complete.complete && opts.onlyComplete) {
-      console.log(
-        `WAIT incomplete: ${name} have=${complete.files} missing=${complete.missing} first=${complete.firstMissing || "n/a"}`
-      );
-      incomplete++;
-      return;
-    }
+      const complete = await isRangeComplete(task);
+      if (!complete.complete && opts.onlyComplete) {
+        console.log(
+          `WAIT incomplete: ${name} have=${complete.files} missing=${complete.missing} first=${complete.firstMissing || "n/a"}`
+        );
+        incomplete++;
+        return;
+      }
 
-    console.log(`ARCHIVE: ${name} files=${complete.files} tmp=${tmpPath}`);
-    await archiveRange({
-      task,
-      archivePath,
-      tmpPath,
-      progressPath,
-      archiveName: name,
-      dryRun: opts.dryRun,
-      deleteAfterArchive,
-      deleteConcurrency,
-      progressEveryFiles,
-      progressEveryMs,
-      zipReadMode,
-      zipWriteBufferBytes,
-      state,
-      stateFile,
-      archiveDir,
+      console.log(`ARCHIVE: ${name} files=${complete.files} tmp=${tmpPath}`);
+      await archiveRange({
+        task,
+        archivePath,
+        tmpPath,
+        progressPath,
+        archiveName: name,
+        dryRun: opts.dryRun,
+        deleteAfterArchive,
+        deleteConcurrency,
+        progressEveryFiles,
+        progressEveryMs,
+        zipReadMode,
+        zipWriteBufferBytes,
+        state,
+        stateFile,
+        archiveDir,
+      });
+      if (deleteAfterArchive) markArchivedSourceDeleted(downloaderState, item);
+      archived++;
     });
-    archived++;
-  });
 
-  if (!opts.dryRun && incomplete === 0) {
-    await cleanupCompletedRunFiles({ archiveDir, stateFile });
+    if (!opts.dryRun && incomplete === 0) {
+      await cleanupCompletedRunFiles({ archiveDir, stateFile });
+    }
+
+    console.log(
+      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
+    );
+  } finally {
+    downloaderState?.db.close();
   }
-
-  console.log(
-    `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
-  );
 }
 
 main().catch((err) => {

@@ -89,3 +89,71 @@ test("tracks completed range verification by config hash and range index", async
   );
   db.close();
 });
+
+test("archived tile source invalidates range and row resume state", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "state-db-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const key = {
+    jobName: "archive",
+    configHash: "hash",
+    layer: "vector",
+    z: 5,
+    x: 27,
+    yStart: 19,
+    yEnd: 19,
+  };
+  db.markRowComplete({
+    ...key,
+    expected: 1,
+    downloaded: 1,
+    missing: 0,
+    failed: 0,
+  });
+  db.markRangeVerified({
+    jobName: "archive",
+    configHash: "hash",
+    layer: "vector",
+    rangeIndex: 1,
+    label: "r",
+    expected: 1,
+    present: 1,
+    missing: 0,
+  });
+
+  assert.equal(db.shouldSkipRow(key), true);
+  assert.equal(
+    db.shouldSkipRange({
+      jobName: "archive",
+      configHash: "hash",
+      layer: "vector",
+      rangeIndex: 1,
+    }),
+    true
+  );
+
+  db.markArchivedTiles({
+    jobName: "archive",
+    configHash: "hash",
+    layer: "vector",
+    rangeIndex: 1,
+    label: "r",
+    z: 5,
+    xStart: 27,
+    xEnd: 27,
+    yStart: 19,
+    yEnd: 19,
+    expected: 1,
+  });
+
+  assert.equal(db.shouldSkipRow(key), false);
+  assert.equal(
+    db.shouldSkipRange({
+      jobName: "archive",
+      configHash: "hash",
+      layer: "vector",
+      rangeIndex: 1,
+    }),
+    false
+  );
+  db.close();
+});

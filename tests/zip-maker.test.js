@@ -7,6 +7,9 @@ import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 
+import { loadConfig } from "../src/config/config-loader.js";
+import { TileStateDb } from "../src/state/state-db.js";
+
 const execFileAsync = promisify(execFile);
 
 test("zip-maker uses downloader config output.dir, layer, and tile extension", async () => {
@@ -239,6 +242,74 @@ test("zip-maker deletes only archived y files and keeps sibling y files", async 
   await assert.rejects(() => stat(path.join(rowDir, "1264.vector.pbf")), /ENOENT/);
   await assert.rejects(() => stat(path.join(rowDir, "1265.vector.pbf")), /ENOENT/);
   await stat(path.join(rowDir, "1266.vector.pbf"));
+});
+
+test("zip-maker invalidates downloader sqlite when archived source files are deleted", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const configDir = path.join(dir, "configs");
+  const tilesDir = path.join(configDir, "tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "satellite", "1", "0"), { recursive: true });
+  await writeFile(path.join(tilesDir, "satellite", "1", "0", "0.jpg"), "tile");
+
+  const configPath = path.join(configDir, "esri.config.json");
+  await mkdir(configDir, { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "sqlite-archive",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      output: { dir: "./tiles" },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+    })
+  );
+
+  const loaded = await loadConfig(configPath, { env: {} });
+  const stateDbPath = path.join(dir, ".tile-state", "sqlite-archive.sqlite");
+  let db = new TileStateDb(stateDbPath);
+  const key = {
+    jobName: loaded.jobName,
+    configHash: loaded.configHash,
+    layer: loaded.layer,
+    z: 1,
+    x: 0,
+    yStart: 0,
+    yEnd: 0,
+  };
+  db.markRowComplete({ ...key, expected: 1, downloaded: 1, missing: 0, failed: 0 });
+  db.markRangeVerified({
+    jobName: loaded.jobName,
+    configHash: loaded.configHash,
+    layer: loaded.layer,
+    rangeIndex: 1,
+    label: loaded.ranges[0].label,
+    expected: 1,
+    present: 1,
+    missing: 0,
+  });
+  db.close();
+
+  await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  db = new TileStateDb(stateDbPath);
+  assert.equal(db.shouldSkipRow(key), false);
+  assert.equal(
+    db.shouldSkipRange({
+      jobName: loaded.jobName,
+      configHash: loaded.configHash,
+      layer: loaded.layer,
+      rangeIndex: 1,
+    }),
+    false
+  );
+  db.close();
 });
 
 test("zip-maker removes runtime temp files after successful archive", async () => {
