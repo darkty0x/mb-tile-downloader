@@ -9,6 +9,30 @@ import { mkdtemp } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
 
+test("storj uploader defaults uploads into archives folder", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const archivePath = path.join(archivesDir, "tiles_vector_1_000000-000000_y000000-000000.zip");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(archivePath, "zip");
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-uploader.js",
+      `--archive-dir=${archivesDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "" } }
+  );
+
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/archives\/tiles_vector_1_000000-000000_y000000-000000\.zip/
+  );
+});
+
 test("storj uploader does not treat empty uplink ls output as remote existing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");
