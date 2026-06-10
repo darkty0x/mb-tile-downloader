@@ -14,7 +14,7 @@
     "download:mapbox-dem": "node scripts/watchdog.js -- node downloader.js configs/mapbox-dem.config.json",
     "split": "node downloader.js split",
     "zip": "node scripts/watchdog.js -- node zip-maker.js",
-    "upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js configs/13-mapbox-pbf.config.json",
+    "upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
     "storj-download": "node scripts/install-storj-uplink.js --if-missing && node storj-downloader.js",
     "upload:install-uplink": "node scripts/install-storj-uplink.js",
     "make-directories": "node directory-maker.js",

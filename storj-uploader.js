@@ -3,6 +3,7 @@
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
@@ -18,6 +19,7 @@ const LOCAL_UPLINK_BIN = path.join(
 const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
 const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_STORJ_PREFIX = "archives";
+const MANIFEST_NAME = "archives-manifest.json";
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -65,7 +67,8 @@ function printUsage(exitCode = 0) {
       "Behavior:",
       "  - uploads only completed .zip files",
       "  - skips upload when the same remote object already exists",
-      "  - deletes the local zip only after the remote object is confirmed",
+      "  - keeps local zips skipped by remote-exists because size/hash is not proven",
+      "  - deletes the local zip only after this run uploads and confirms the remote object",
       "",
     ].join("\n")
   );
@@ -260,10 +263,7 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
 
   if (await remoteExists(url, archive.name)) {
     console.log(`SKIP remote exists: ${archive.name}`);
-    if (!keepLocal) {
-      await fsp.rm(archive.filePath, { force: true });
-      console.log(`  deleted local: ${archive.filePath}`);
-    }
+    console.log(`  kept local: ${archive.filePath}`);
     return "skipped";
   }
 
@@ -277,6 +277,38 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
     console.log(`  deleted local: ${archive.filePath}`);
   }
   return "uploaded";
+}
+
+async function uploadManifest({ archives, bucket, prefix, dryRun }) {
+  if (archives.length === 0) return;
+  const manifest = {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    bucket,
+    prefix: normalizePrefix(prefix),
+    files: archives.map((archive) => ({
+      name: archive.name,
+      size: archive.size,
+    })),
+  };
+  const url = remoteUrl(bucket, prefix, MANIFEST_NAME);
+  if (dryRun) {
+    console.log(`DRY RUN manifest: ${url}`);
+    return;
+  }
+
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "storj-manifest-"));
+  const tmpPath = path.join(tmpDir, MANIFEST_NAME);
+  try {
+    await fsp.writeFile(tmpPath, `${JSON.stringify(manifest, null, 2)}\n`);
+    console.log(`MANIFEST: ${MANIFEST_NAME} files=${archives.length} -> ${url}`);
+    await runUplink(["cp", tmpPath, url]);
+    if (!(await remoteExists(url, MANIFEST_NAME))) {
+      throw new Error(`Remote manifest verification failed after upload: ${url}`);
+    }
+  } finally {
+    await fsp.rm(tmpDir, { recursive: true, force: true });
+  }
 }
 
 function shareTargetUrl(bucket, prefix) {
@@ -296,7 +328,7 @@ async function printShareLink({ bucket, prefix, dryRun }) {
     return;
   }
 
-  const result = await runUplink(["share", "--url", "--readonly", target], {
+  const result = await runUplink(["share", "--url", "--readonly", "--not-after=none", target], {
     allowFailure: true,
   });
   if (result.code !== 0) {
@@ -344,7 +376,9 @@ async function main() {
     else if (result === "skipped") skipped++;
   }
 
-  console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${opts.keepLocal ? archives.length : 0}`);
+  await uploadManifest({ archives, bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
+  const remainingLocal = opts.keepLocal ? archives.length : skipped;
+  console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${remainingLocal}`);
   await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
 }
 

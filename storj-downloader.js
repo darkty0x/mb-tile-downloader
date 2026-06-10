@@ -23,6 +23,9 @@ const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_DOWNLOAD_DIR = path.join(__dirname, "download");
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
 const DEFAULT_FILE_NAME_TEMPLATE = "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
+const MANIFEST_NAME = "archives-manifest.json";
+const SHARE_FETCH_ATTEMPTS = 4;
+const SHARE_FETCH_TIMEOUT_MS = 120_000;
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -398,11 +401,79 @@ function parseSharedZipNames(html) {
   return [...names].sort((a, b) => a.localeCompare(b));
 }
 
+function isRetryableShareFailure(err) {
+  if (err?.name === "AbortError") return true;
+  return /fetch failed|ECONNRESET|ETIMEDOUT|EAI_AGAIN|ENOTFOUND|EPIPE|network/i.test(String(err?.message || err));
+}
+
+function isRetryableShareStatus(status) {
+  return status === 408 || status === 409 || status === 425 || status === 429 || status >= 500;
+}
+
+async function wait(ms) {
+  await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function fetchShare(url, { attempts = SHARE_FETCH_ATTEMPTS, timeoutMs = SHARE_FETCH_TIMEOUT_MS } = {}) {
+  let lastError;
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      const response = await fetch(url, { signal: controller.signal });
+      clearTimeout(timeout);
+      if (!isRetryableShareStatus(response.status) || attempt === attempts) {
+        return response;
+      }
+      lastError = new Error(`Share request failed ${response.status} ${response.statusText}: ${url}`);
+    } catch (err) {
+      clearTimeout(timeout);
+      if (!isRetryableShareFailure(err) || attempt === attempts) throw err;
+      lastError = err;
+    }
+    await wait(Math.min(1000 * 2 ** (attempt - 1), 10_000));
+  }
+  throw lastError || new Error(`Share request failed: ${url}`);
+}
+
+async function loadShareManifest(share) {
+  if (process.env.STORJ_SHARE_MANIFEST_JSON) {
+    return JSON.parse(process.env.STORJ_SHARE_MANIFEST_JSON);
+  }
+  if (process.env.STORJ_SHARE_LIST_HTML) return null;
+
+  const url = shareRawUrl(share, MANIFEST_NAME);
+  const response = await fetchShare(url);
+  if (response.status === 404) return null;
+  if (!response.ok) {
+    throw new Error(`Share manifest failed ${response.status} ${response.statusText}: ${url}`);
+  }
+  return response.json();
+}
+
+function archivesFromShareManifest(manifest) {
+  const files = Array.isArray(manifest?.files) ? manifest.files : [];
+  const names = files
+    .map((file) => String(file?.name || "").trim())
+    .filter((name) => name.toLowerCase().endsWith(".zip"));
+  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
+}
+
 async function listShareArchives(share) {
+  const manifest = await loadShareManifest(share);
+  const manifestNames = archivesFromShareManifest(manifest);
+  if (manifestNames.length > 0) {
+    const folder = safeFolderName(share.prefix.split("/").filter(Boolean).at(-1) || share.bucket);
+    return manifestNames.map((name) => ({
+      name,
+      rangeFolder: folder,
+    }));
+  }
+
   const url = shareBrowseUrl(share);
   let html = process.env.STORJ_SHARE_LIST_HTML;
   if (!html) {
-    const response = await fetch(url);
+    const response = await fetchShare(url);
     if (!response.ok) {
       throw new Error(`Share listing failed ${response.status} ${response.statusText}: ${url}`);
     }
@@ -477,22 +548,39 @@ async function downloadArchiveFromShare({ archive, share, downloadDir, dryRun })
   }
 
   await fsp.mkdir(localDir, { recursive: true });
-  await fsp.rm(tmpPath, { force: true }).catch(() => {});
   console.log(`DOWNLOAD: ${url} -> ${localPath}`);
-  const response = await fetch(url);
-  if (response.status === 404) {
+  let lastMissing = false;
+  for (let attempt = 1; attempt <= SHARE_FETCH_ATTEMPTS; attempt++) {
+    await fsp.rm(tmpPath, { force: true }).catch(() => {});
+    const response = await fetchShare(url);
+    if (response.status === 404) {
+      lastMissing = true;
+      break;
+    }
+    if (!response.ok || !response.body) {
+      const err = new Error(`Share download failed ${response.status} ${response.statusText}: ${url}`);
+      if (!isRetryableShareStatus(response.status) || attempt === SHARE_FETCH_ATTEMPTS) throw err;
+      await wait(Math.min(1000 * 2 ** (attempt - 1), 10_000));
+      continue;
+    }
+    try {
+      await pipeline(response.body, fs.createWriteStream(tmpPath));
+      if (!(await localZipComplete(tmpPath))) {
+        throw new Error(`Downloaded file is missing or empty: ${tmpPath}`);
+      }
+      await fsp.rename(tmpPath, localPath);
+      return "downloaded";
+    } catch (err) {
+      await fsp.rm(tmpPath, { force: true }).catch(() => {});
+      if (!isRetryableShareFailure(err) || attempt === SHARE_FETCH_ATTEMPTS) throw err;
+      await wait(Math.min(1000 * 2 ** (attempt - 1), 10_000));
+    }
+  }
+  if (lastMissing) {
     console.log(`MISSING remote: ${url}`);
     return "missing";
   }
-  if (!response.ok || !response.body) {
-    throw new Error(`Share download failed ${response.status} ${response.statusText}: ${url}`);
-  }
-  await pipeline(response.body, fs.createWriteStream(tmpPath));
-  if (!(await localZipComplete(tmpPath))) {
-    throw new Error(`Downloaded file is missing or empty: ${tmpPath}`);
-  }
-  await fsp.rename(tmpPath, localPath);
-  return "downloaded";
+  throw new Error(`Share download failed after retries: ${url}`);
 }
 
 async function main() {

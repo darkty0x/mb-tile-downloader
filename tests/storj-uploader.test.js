@@ -1,13 +1,21 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import os from "node:os";
 import path from "node:path";
 import { mkdtemp } from "node:fs/promises";
 
 const execFileAsync = promisify(execFile);
+
+test("package upload script does not force a downloader config", async () => {
+  const pkg = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
+  assert.equal(
+    pkg.scripts.upload,
+    "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js"
+  );
+});
 
 test("storj uploader defaults uploads into archives folder", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
@@ -148,7 +156,7 @@ test("storj uploader configures api-key credentials without interactive setup", 
         "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
         "if (args.includes('setup')) process.exit(9);",
         "if (args.includes('create')) process.exit(0);",
-        "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); process.exit(0); }",
+        "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); console.log('archives-manifest.json'); process.exit(0); }",
         "if (args.includes('cp')) process.exit(0);",
         "process.exit(0);",
       ].join("\n"),
@@ -220,7 +228,7 @@ test("storj uploader prints share link after upload", async () => {
         "const args = process.argv.slice(2);",
         "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
         "if (args.includes('import')) process.exit(0);",
-        "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); process.exit(0); }",
+        "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); console.log('archives-manifest.json'); process.exit(0); }",
         "if (args.includes('cp')) process.exit(0);",
         "if (args.includes('share')) { console.log('URL       : https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/'); process.exit(0); }",
         "process.exit(0);",
@@ -246,7 +254,7 @@ test("storj uploader prints share link after upload", async () => {
     const calls = await import("node:fs/promises").then(({ readFile }) =>
       readFile(callsPath, "utf8")
     );
-    assert.match(calls, /share --url --readonly sj:\/\/mapbox\/13-mapbox-pbf\//);
+    assert.match(calls, /share --url --readonly --not-after=none sj:\/\/mapbox\/13-mapbox-pbf\//);
     assert.match(stdout, /Share link: https:\/\/link\.storjshare\.io\/s\/testshare\/mapbox\/13-mapbox-pbf\//);
     assert.match(stdout, /Raw link prefix: https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\//);
   } finally {
