@@ -184,17 +184,22 @@ async function ensureAccessConfigured(credentials) {
     return;
   }
 
-  const input = [
-    UPLINK_ACCESS_NAME,
-    credentials.apiKey,
-    credentials.satellite,
-    credentials.passphrase,
-    credentials.passphrase,
-    "N",
-    "N",
-    "",
-  ].join("\n");
-  await runUplink(["setup", "--force", "--use"], { input });
+  await runUplink(
+    [
+      "access",
+      "create",
+      "--satellite-address",
+      credentials.satellite,
+      "--api-key",
+      credentials.apiKey,
+      "--passphrase-stdin",
+      "--import-as",
+      UPLINK_ACCESS_NAME,
+      "--force",
+      "--use",
+    ],
+    { input: `${credentials.passphrase}\n` }
+  );
 }
 
 function uplinkListContainsObject(stdout, name) {
