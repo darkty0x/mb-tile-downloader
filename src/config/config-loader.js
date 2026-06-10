@@ -102,7 +102,7 @@ function resolvePlatformPath(config, baseKey, configDir, fallback) {
 function providerDefaults(provider, format) {
   if (provider === "esri") {
     return {
-      layer: "satellite",
+      layer: "esri-satellite",
       format: format || "jpg",
       url: {
         template:

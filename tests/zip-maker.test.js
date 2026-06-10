@@ -45,6 +45,37 @@ test("zip-maker uses downloader config output.dir, layer, and tile extension", a
   assert.doesNotMatch(stdout, /WAIT incomplete/);
 });
 
+test("zip-maker uses esri-satellite layer in archive names", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "esri-satellite", "5", "27"), { recursive: true });
+  await writeFile(path.join(tilesDir, "esri-satellite", "5", "27", "19.jpg"), "tile");
+
+  const configPath = path.join(dir, "13-esri-satellite.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-esri-satellite",
+      provider: "esri",
+      layer: "esri-satellite",
+      format: "jpg",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(stdout, /Layers: esri-satellite/);
+  assert.match(stdout, /DRY RUN: would zip 1 files -> .*tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/);
+});
+
 test("zip-maker names archives uniquely when ranges share z and x but differ by y", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");

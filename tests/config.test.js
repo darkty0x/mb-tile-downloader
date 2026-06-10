@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -86,4 +86,16 @@ test("rejects coordinates outside the slippy-map bounds for a zoom", () => {
       }),
     /outside valid tile bounds/
   );
+});
+
+test("Esri World Imagery configs use separate layer folder and xyz rows", async () => {
+  for (const configPath of [
+    "configs/esri-satellite.config.json",
+    "configs/13-esri-satellite.config.json",
+  ]) {
+    const raw = JSON.parse(await readFile(configPath, "utf8"));
+    assert.equal(raw.provider, "esri");
+    assert.equal(raw.layer, "esri-satellite");
+    assert.equal(raw.tile?.yScheme, "xyz");
+  }
 });

@@ -3,10 +3,11 @@
 
 import fs from "node:fs";
 import fsp from "node:fs/promises";
-import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+
+import { normalizeRanges } from "./src/config/config-loader.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -19,7 +20,9 @@ const LOCAL_UPLINK_BIN = path.join(
 const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
 const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_STORJ_PREFIX = "archives";
-const MANIFEST_NAME = "archives-manifest.json";
+const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
+const DEFAULT_FILE_NAME_TEMPLATE = "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
+const LEGACY_MANIFEST_NAME = "archives-manifest.json";
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -66,6 +69,7 @@ function printUsage(exitCode = 0) {
       "",
       "Behavior:",
       "  - uploads only completed .zip files",
+      "  - when configPath is provided, uploads only ZIPs expected by that config",
       "  - skips upload when the same remote object already exists",
       "  - keeps local zips skipped by remote-exists because size/hash is not proven",
       "  - deletes the local zip only after this run uploads and confirms the remote object",
@@ -119,6 +123,32 @@ function remoteUrl(bucket, prefix, name) {
   return cleanPrefix
     ? `sj://${bucket}/${cleanPrefix}/${encodedName}`
     : `sj://${bucket}/${encodedName}`;
+}
+
+function pad(value, width) {
+  return String(value).padStart(width, "0");
+}
+
+function archiveFileName(template, { layer, z, xStart, xEnd, yStart, yEnd, xPadWidth }) {
+  return template
+    .replaceAll("{layer}", layer)
+    .replaceAll("{z}", String(z))
+    .replaceAll("{xStart}", pad(xStart, xPadWidth))
+    .replaceAll("{xEnd}", pad(xEnd, xPadWidth))
+    .replaceAll("{xStartRaw}", String(xStart))
+    .replaceAll("{xEndRaw}", String(xEnd))
+    .replaceAll("{yStart}", pad(yStart, xPadWidth))
+    .replaceAll("{yEnd}", pad(yEnd, xPadWidth))
+    .replaceAll("{yStartRaw}", String(yStart))
+    .replaceAll("{yEndRaw}", String(yEnd));
+}
+
+function isDownloaderConfig(config) {
+  return Boolean(config?.provider && Array.isArray(config?.ranges));
+}
+
+async function loadJson(filePath) {
+  return JSON.parse(await fsp.readFile(filePath, "utf8"));
 }
 
 function parseStorjCredentials({ access, passphrase }) {
@@ -248,10 +278,83 @@ async function listCompletedArchives(archiveDir) {
   return archives;
 }
 
-async function loadConfigJobName(configPath) {
+async function loadArchivePlan(configPath) {
   if (!configPath) return null;
-  const raw = JSON.parse(await fsp.readFile(configPath, "utf8"));
-  return raw.jobName || path.basename(configPath, ".json");
+  const rawConfig = await loadJson(configPath);
+  const configDir = path.dirname(configPath);
+  const directDownloaderConfig = isDownloaderConfig(rawConfig);
+  const hasArchivePlanInputs =
+    directDownloaderConfig ||
+    rawConfig.sourceConfigPath ||
+    Array.isArray(rawConfig.ranges) ||
+    Array.isArray(rawConfig.layers) ||
+    rawConfig.fileNameTemplate;
+  if (!hasArchivePlanInputs) {
+    return {
+      sourceConfigPath: null,
+      jobName: rawConfig.jobName || path.basename(configPath, ".json"),
+      expectedNames: null,
+    };
+  }
+  const sourceConfigPath = directDownloaderConfig
+    ? configPath
+    : path.resolve(configDir, rawConfig.sourceConfigPath || DEFAULT_SOURCE_CONFIG);
+  const sourceConfig = directDownloaderConfig ? rawConfig : await loadJson(sourceConfigPath);
+  const rangeConfig =
+    !directDownloaderConfig && Array.isArray(rawConfig.ranges) && rawConfig.ranges.length > 0
+      ? rawConfig
+      : sourceConfig;
+  const ranges = normalizeRanges(rangeConfig);
+  if (ranges.length === 0) {
+    throw new Error("No ranges found. Add ranges to the config.");
+  }
+
+  const layers =
+    !directDownloaderConfig && Array.isArray(rawConfig.layers) && rawConfig.layers.length > 0
+      ? rawConfig.layers
+      : sourceConfig.layer
+        ? [sourceConfig.layer]
+        : [sourceConfig.provider === "mapbox" ? "vector" : "esri-satellite"];
+  const fileNameTemplate = rawConfig.fileNameTemplate || DEFAULT_FILE_NAME_TEMPLATE;
+  const xPadWidth = Number(rawConfig.xPadWidth || 6);
+  const expectedNames = new Set();
+
+  for (const layer of layers) {
+    for (const range of ranges) {
+      for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
+        expectedNames.add(
+          archiveFileName(fileNameTemplate, {
+            layer,
+            z,
+            xStart: range.xStart,
+            xEnd: range.xEnd,
+            yStart: range.yStart,
+            yEnd: range.yEnd,
+            xPadWidth,
+          })
+        );
+      }
+    }
+  }
+
+  return {
+    sourceConfigPath,
+    jobName: sourceConfig.jobName || rawConfig.jobName || path.basename(configPath, ".json"),
+    expectedNames: [...expectedNames],
+  };
+}
+
+function filterArchivesByPlan(archives, plan) {
+  if (!plan?.expectedNames) return { archives, missing: [] };
+  const byName = new Map(archives.map((archive) => [archive.name, archive]));
+  const filtered = [];
+  const missing = [];
+  for (const name of plan.expectedNames) {
+    const archive = byName.get(name);
+    if (archive) filtered.push(archive);
+    else missing.push(name);
+  }
+  return { archives: filtered, missing };
 }
 
 async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLocal }) {
@@ -279,41 +382,18 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
   return "uploaded";
 }
 
-async function uploadManifest({ archives, bucket, prefix, dryRun }) {
-  if (archives.length === 0) return;
-  const manifest = {
-    version: 1,
-    createdAt: new Date().toISOString(),
-    bucket,
-    prefix: normalizePrefix(prefix),
-    files: archives.map((archive) => ({
-      name: archive.name,
-      size: archive.size,
-    })),
-  };
-  const url = remoteUrl(bucket, prefix, MANIFEST_NAME);
-  if (dryRun) {
-    console.log(`DRY RUN manifest: ${url}`);
-    return;
-  }
-
-  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "storj-manifest-"));
-  const tmpPath = path.join(tmpDir, MANIFEST_NAME);
-  try {
-    await fsp.writeFile(tmpPath, `${JSON.stringify(manifest, null, 2)}\n`);
-    console.log(`MANIFEST: ${MANIFEST_NAME} files=${archives.length} -> ${url}`);
-    await runUplink(["cp", tmpPath, url]);
-    if (!(await remoteExists(url, MANIFEST_NAME))) {
-      throw new Error(`Remote manifest verification failed after upload: ${url}`);
-    }
-  } finally {
-    await fsp.rm(tmpDir, { recursive: true, force: true });
-  }
-}
-
 function shareTargetUrl(bucket, prefix) {
   const cleanPrefix = normalizePrefix(prefix);
   return cleanPrefix ? `sj://${bucket}/${cleanPrefix}/` : `sj://${bucket}/`;
+}
+
+async function removeLegacyManifest({ bucket, prefix, dryRun }) {
+  const url = remoteUrl(bucket, prefix, LEGACY_MANIFEST_NAME);
+  if (dryRun) return;
+  if (!(await remoteExists(url, LEGACY_MANIFEST_NAME))) return;
+  const result = await runUplink(["rm", url], { allowFailure: true });
+  if (result.code === 0) console.log(`REMOVED legacy manifest: ${url}`);
+  else console.warn(`Legacy manifest cleanup failed for ${url}: ${result.stderr || result.stdout}`);
 }
 
 function extractShareUrl(output) {
@@ -352,13 +432,22 @@ async function main() {
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
   }
-  const configJobName = await loadConfigJobName(opts.configPath);
-  opts.prefix = opts.prefix || configJobName || process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX;
-  const archives = await listCompletedArchives(opts.archiveDir);
+  const plan = await loadArchivePlan(opts.configPath);
+  opts.prefix = opts.prefix || plan?.jobName || process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX;
+  const allArchives = await listCompletedArchives(opts.archiveDir);
+  const { archives, missing } = filterArchivesByPlan(allArchives, plan);
   console.log(`Archive directory: ${opts.archiveDir}`);
   if (opts.configPath) console.log(`Config: ${opts.configPath}`);
   console.log(`Storj target: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
-  console.log(`Completed ZIPs: ${archives.length}`);
+  console.log(`Completed ZIPs: ${allArchives.length}`);
+  if (plan) {
+    if (plan.expectedNames) {
+      console.log(`Config ZIPs planned: ${plan.expectedNames.length}`);
+      console.log(`Config ZIPs available: ${archives.length}`);
+      console.log(`Config ZIPs missing: ${missing.length}`);
+    }
+    for (const name of missing) console.log(`MISSING local archive: ${name}`);
+  }
 
   if (!opts.dryRun && archives.length > 0) {
     const credentials = parseStorjCredentials({
@@ -366,6 +455,7 @@ async function main() {
       passphrase: opts.passphrase,
     });
     await ensureAccessConfigured(credentials);
+    await removeLegacyManifest({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
   }
 
   let uploaded = 0;
@@ -376,10 +466,10 @@ async function main() {
     else if (result === "skipped") skipped++;
   }
 
-  await uploadManifest({ archives, bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
   const remainingLocal = opts.keepLocal ? archives.length : skipped;
   console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${remainingLocal}`);
   await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
+  if (missing.length > 0) process.exitCode = 1;
 }
 
 main().catch((err) => {

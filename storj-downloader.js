@@ -23,7 +23,6 @@ const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_DOWNLOAD_DIR = path.join(__dirname, "download");
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
 const DEFAULT_FILE_NAME_TEMPLATE = "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
-const MANIFEST_NAME = "archives-manifest.json";
 const SHARE_FETCH_ATTEMPTS = 4;
 const SHARE_FETCH_TIMEOUT_MS = 120_000;
 
@@ -436,40 +435,7 @@ async function fetchShare(url, { attempts = SHARE_FETCH_ATTEMPTS, timeoutMs = SH
   throw lastError || new Error(`Share request failed: ${url}`);
 }
 
-async function loadShareManifest(share) {
-  if (process.env.STORJ_SHARE_MANIFEST_JSON) {
-    return JSON.parse(process.env.STORJ_SHARE_MANIFEST_JSON);
-  }
-  if (process.env.STORJ_SHARE_LIST_HTML) return null;
-
-  const url = shareRawUrl(share, MANIFEST_NAME);
-  const response = await fetchShare(url);
-  if (response.status === 404) return null;
-  if (!response.ok) {
-    throw new Error(`Share manifest failed ${response.status} ${response.statusText}: ${url}`);
-  }
-  return response.json();
-}
-
-function archivesFromShareManifest(manifest) {
-  const files = Array.isArray(manifest?.files) ? manifest.files : [];
-  const names = files
-    .map((file) => String(file?.name || "").trim())
-    .filter((name) => name.toLowerCase().endsWith(".zip"));
-  return [...new Set(names)].sort((a, b) => a.localeCompare(b));
-}
-
 async function listShareArchives(share) {
-  const manifest = await loadShareManifest(share);
-  const manifestNames = archivesFromShareManifest(manifest);
-  if (manifestNames.length > 0) {
-    const folder = safeFolderName(share.prefix.split("/").filter(Boolean).at(-1) || share.bucket);
-    return manifestNames.map((name) => ({
-      name,
-      rangeFolder: folder,
-    }));
-  }
-
   const url = shareBrowseUrl(share);
   let html = process.env.STORJ_SHARE_LIST_HTML;
   if (!html) {

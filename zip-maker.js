@@ -54,7 +54,7 @@ function printUsage(exitCode = 0) {
       "",
       "Create one fast ZIP archive for each complete tile range.",
       "",
-      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--keep] [--layer=satellite|vector] [--archive-dir=path] [--tiles-dir=path]`,
+      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path]`,
       "",
       "Default layout:",
       "  source tiles: <outputDir>/<layer>/<z>/<x>/<y>.<ext>",
@@ -270,12 +270,12 @@ function layerDefaults(layer, config = {}) {
     };
   }
 
-  if (layer === "satellite") {
+  if (layer === "satellite" || layer === "esri-satellite") {
     return {
       extension: String(
         config.tile?.extension || config.url?.extension || config.tileExtension || config.satelliteExtension || "jpg"
       ).toLowerCase(),
-      root: config.layer || "satellite",
+      root: config.layer || layer,
     };
   }
 

@@ -15,6 +15,7 @@ test("package upload script does not force a downloader config", async () => {
     pkg.scripts.upload,
     "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js"
   );
+  assert.equal(pkg.scripts["storj-upload"], pkg.scripts.upload);
 });
 
 test("storj uploader defaults uploads into archives folder", async () => {
@@ -66,6 +67,52 @@ test("storj uploader uses config jobName as remote folder when config is provide
     stdout,
     /sj:\/\/mapbox\/13-mapbox-pbf\/tiles_vector_1_000000-000000_y000000-000000\.zip/
   );
+});
+
+test("storj uploader filters local archives by downloader config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-esri-satellite.config.json");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    path.join(archivesDir, "tiles_esri-satellite_5_000027-000027_y000019-000019.zip"),
+    "zip"
+  );
+  await writeFile(
+    path.join(archivesDir, "tiles_satellite_5_000027-000027_y000019-000019.zip"),
+    "wrong-provider"
+  );
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-esri-satellite",
+      provider: "esri",
+      layer: "esri-satellite",
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-uploader.js",
+      configPath,
+      `--archive-dir=${archivesDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "archives" } }
+  );
+
+  assert.match(stdout, /Storj target: sj:\/\/mapbox\/13-esri-satellite/);
+  assert.match(stdout, /Config ZIPs planned: 1/);
+  assert.match(stdout, /Config ZIPs available: 1/);
+  assert.match(stdout, /Config ZIPs missing: 0/);
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/13-esri-satellite\/tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/
+  );
+  assert.doesNotMatch(stdout, /tiles_satellite_5_000027-000027_y000019-000019\.zip/);
 });
 
 test("storj uploader does not treat empty uplink ls output as remote existing", async () => {

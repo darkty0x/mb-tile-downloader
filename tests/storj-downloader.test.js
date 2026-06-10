@@ -198,34 +198,3 @@ test("storj downloader accepts share URL as only positional argument without con
     /https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\/tiles_vector_1_000000-000000_y000000-000000\.zip/
   );
 });
-
-test("storj downloader prefers share manifest over HTML scraping", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-downloader-"));
-  const { stdout } = await execFileAsync(
-    process.execPath,
-    [
-      "storj-downloader.js",
-      "https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/",
-      `--download-dir=${path.join(dir, "download")}`,
-      "--dry-run",
-    ],
-    {
-      cwd: path.resolve("."),
-      env: {
-        ...process.env,
-        STORJ_SHARE_MANIFEST_JSON: JSON.stringify({
-          files: [
-            { name: "tiles_vector_2_000000-000000_y000001-000001.zip", size: 123 },
-          ],
-        }),
-        STORJ_SHARE_LIST_HTML: "",
-      },
-    }
-  );
-
-  assert.match(stdout, /Archive files planned: 1/);
-  assert.match(
-    stdout,
-    /https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\/tiles_vector_2_000000-000000_y000001-000001\.zip/
-  );
-});
