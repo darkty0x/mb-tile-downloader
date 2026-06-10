@@ -229,36 +229,22 @@ async function ensureAccessConfigured(credentials) {
     return;
   }
 
-  try {
-    await runUplink(
-      [
-        "access",
-        "create",
-        "--satellite-address",
-        credentials.satellite,
-        "--api-key",
-        credentials.apiKey,
-        "--passphrase-stdin",
-        "--import-as",
-        UPLINK_ACCESS_NAME,
-        "--force",
-        "--use",
-      ],
-      { input: `${credentials.passphrase}\n` }
-    );
-  } catch (err) {
-    if (/Unauthorized API credentials|permission denied/i.test(String(err?.message || err))) {
-      throw new Error(
-        [
-          "Storj API key was rejected by the satellite as unauthorized.",
-          `Satellite: ${credentials.satellite}`,
-          "Create a new Storj API key in the same project that owns STORJ_BUCKET, then set STORJ_ACCESS=\"<satellite-address> <api-key>\" and STORJ_PASSPHRASE.",
-          "Alternatively set STORJ_ACCESS to one serialized Access Grant value.",
-        ].join(" ")
-      );
-    }
-    throw err;
-  }
+  await runUplink(
+    [
+      "access",
+      "create",
+      "--satellite-address",
+      credentials.satellite,
+      "--api-key",
+      credentials.apiKey,
+      "--passphrase-stdin",
+      "--import-as",
+      UPLINK_ACCESS_NAME,
+      "--force",
+      "--use",
+    ],
+    { input: `${credentials.passphrase}\n` }
+  );
 }
 
 function uplinkListContainsObject(stdout, name) {
