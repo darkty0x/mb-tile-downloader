@@ -15,7 +15,7 @@
     "split": "node downloader.js split",
     "zip": "node scripts/watchdog.js -- node zip-maker.js",
     "upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
-    "download:archives": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-downloader.js",
+    "download:archives": "node scripts/install-storj-uplink.js --if-missing && node storj-downloader.js",
     "upload:install-uplink": "node scripts/install-storj-uplink.js",
     "make-directories": "node directory-maker.js",
     "download:mapbox-pbf-splits": "node scripts/watchdog.js -- node downloader.js configs/mapbox-pbf-cig.config.json configs/mapbox-pbf-cmi.config.json configs/mapbox-pbf-kuh.config.json configs/mapbox-pbf-kyj.config.json configs/mapbox-pbf-mcs.config.json configs/mapbox-pbf-rhc.config.json",

@@ -85,10 +85,42 @@ const NON_RESTARTABLE_PATTERNS = [
   /STORJ_ACCESS is required/i,
   /STORJ_ACCESS must be one serialized Access Grant value/i,
   /invalid access grant format/i,
+  /MISSING remote:/i,
+  /Done\..*\bmissing=[1-9]\d*/i,
 ];
 
 function containsNonRestartableFailure(output) {
   return NON_RESTARTABLE_PATTERNS.some((pattern) => pattern.test(output));
+}
+
+const RESTARTABLE_PATTERNS = [
+  /JavaScript heap out of memory/i,
+  /Reached heap limit/i,
+  /Allocation failed/i,
+  /\bECONNRESET\b/i,
+  /\bETIMEDOUT\b/i,
+  /\bEAI_AGAIN\b/i,
+  /\bENOTFOUND\b/i,
+  /\bECONNREFUSED\b/i,
+  /\bEPIPE\b/i,
+  /socket hang up/i,
+  /network timeout/i,
+  /fetch failed/i,
+  /Remote verification failed after upload/i,
+  /Tiles failed:\s*[1-9]\d*/i,
+];
+
+function containsRestartableFailure(output) {
+  return RESTARTABLE_PATTERNS.some((pattern) => pattern.test(output));
+}
+
+function shouldRestart({ result, timedOut, output }) {
+  if (timedOut) return { restart: true, reason: "stalled/no-output" };
+  if (result.error) return { restart: true, reason: "spawn-error" };
+  if (result.signal) return { restart: true, reason: `signal-${result.signal}` };
+  if (result.code === 134 || result.code === 137) return { restart: true, reason: `crash-code-${result.code}` };
+  if (containsRestartableFailure(output)) return { restart: true, reason: "restartable-output" };
+  return { restart: false, reason: `exit-code-${result.code ?? "unknown"}` };
 }
 
 function sleep(ms) {
@@ -171,6 +203,14 @@ async function runWatched(opts) {
       process.exit(result.code || 1);
     }
 
+    const decision = shouldRestart({ result, timedOut, output: outputTail });
+    if (!decision.restart) {
+      console.error(
+        `[watchdog] command stopped with ${decision.reason}; not restartable, stopping`
+      );
+      process.exit(result.code || 1);
+    }
+
     restarts++;
     if (opts.maxRestarts > 0 && restarts > opts.maxRestarts) {
       console.error(`[watchdog] max restarts exceeded: ${opts.maxRestarts}`);
@@ -179,7 +219,7 @@ async function runWatched(opts) {
 
     const runtimeSec = Math.round((Date.now() - startedAt.getTime()) / 1000);
     console.error(
-      `[watchdog] command stopped code=${result.code ?? "null"} signal=${result.signal ?? "none"} runtime=${runtimeSec}s; restarting in ${opts.restartDelayMs}ms`
+      `[watchdog] command stopped code=${result.code ?? "null"} signal=${result.signal ?? "none"} reason=${decision.reason} runtime=${runtimeSec}s; restarting in ${opts.restartDelayMs}ms`
     );
     await sleep(opts.restartDelayMs);
   }

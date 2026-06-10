@@ -24,12 +24,39 @@ test("storj uploader defaults uploads into archives folder", async () => {
       "--bucket=mapbox",
       "--dry-run",
     ],
-    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "" } }
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "archives" } }
   );
 
   assert.match(
     stdout,
     /sj:\/\/mapbox\/archives\/tiles_vector_1_000000-000000_y000000-000000\.zip/
+  );
+});
+
+test("storj uploader uses config jobName as remote folder when config is provided", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-mapbox-pbf.config.json");
+  const archivePath = path.join(archivesDir, "tiles_vector_1_000000-000000_y000000-000000.zip");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(archivePath, "zip");
+  await writeFile(configPath, JSON.stringify({ jobName: "13-mapbox-pbf" }));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-uploader.js",
+      configPath,
+      `--archive-dir=${archivesDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "archives" } }
+  );
+
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/13-mapbox-pbf\/tiles_vector_1_000000-000000_y000000-000000\.zip/
   );
 });
 

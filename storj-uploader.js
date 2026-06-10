@@ -51,11 +51,11 @@ function printUsage(exitCode = 0) {
       "",
       "Upload completed ZIP archives to Storj, then delete local ZIPs after remote verification.",
       "",
-      `Usage: node ${cmd} [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local]`,
+      `Usage: node ${cmd} [configPath] [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local]`,
       "",
       "Environment:",
       "  STORJ_BUCKET          required unless --bucket is provided",
-      `  STORJ_PREFIX          remote folder/prefix, default ${DEFAULT_STORJ_PREFIX}`,
+      `  STORJ_PREFIX          remote folder/prefix only when no configPath is provided; configPath defaults to jobName`,
       "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
       "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
       "",
@@ -80,6 +80,7 @@ function parseArgs(argv) {
     access: null,
     dryRun: false,
     keepLocal: false,
+    configPath: null,
   };
 
   for (const arg of argv.slice(2)) {
@@ -90,12 +91,14 @@ function parseArgs(argv) {
     else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
     else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
     else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
+    else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
+  if (opts.configPath) opts.configPath = path.resolve(opts.configPath);
   opts.archiveDir = path.resolve(opts.archiveDir);
   opts.bucket = opts.bucket || process.env.STORJ_BUCKET;
-  opts.prefix = opts.prefix ?? (process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX);
+  opts.prefix = opts.prefix ?? null;
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
   return opts;
@@ -237,6 +240,12 @@ async function listCompletedArchives(archiveDir) {
   return archives;
 }
 
+async function loadConfigJobName(configPath) {
+  if (!configPath) return null;
+  const raw = JSON.parse(await fsp.readFile(configPath, "utf8"));
+  return raw.jobName || path.basename(configPath, ".json");
+}
+
 async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLocal }) {
   const url = remoteUrl(bucket, prefix, archive.name);
   if (dryRun) {
@@ -271,8 +280,11 @@ async function main() {
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
   }
+  const configJobName = await loadConfigJobName(opts.configPath);
+  opts.prefix = opts.prefix || configJobName || process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX;
   const archives = await listCompletedArchives(opts.archiveDir);
   console.log(`Archive directory: ${opts.archiveDir}`);
+  if (opts.configPath) console.log(`Config: ${opts.configPath}`);
   console.log(`Storj target: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
   console.log(`Completed ZIPs: ${archives.length}`);
 

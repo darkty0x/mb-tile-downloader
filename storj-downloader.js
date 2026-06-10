@@ -19,7 +19,6 @@ const LOCAL_UPLINK_BIN = path.join(
 );
 const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
 const UPLINK_ACCESS_NAME = "mb-tile-downloader";
-const DEFAULT_STORJ_PREFIX = "archives";
 const DEFAULT_DOWNLOAD_DIR = path.join(__dirname, "download");
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
 const DEFAULT_FILE_NAME_TEMPLATE = "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
@@ -63,7 +62,7 @@ function printUsage(exitCode = 0) {
       "",
       "Environment:",
       "  STORJ_BUCKET          required unless --bucket is provided",
-      `  STORJ_PREFIX          remote folder/prefix, default ${DEFAULT_STORJ_PREFIX}`,
+      "  --prefix              optional remote folder override; default is config jobName",
       "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
       "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
       "",
@@ -97,7 +96,7 @@ function parseArgs(argv) {
   opts.configPath = path.resolve(opts.configPath);
   opts.downloadDir = path.resolve(opts.downloadDir);
   opts.bucket = opts.bucket || process.env.STORJ_BUCKET;
-  opts.prefix = opts.prefix ?? (process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX);
+  opts.prefix = opts.prefix ?? null;
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
   return opts;
@@ -306,7 +305,7 @@ async function loadArchivePlan(configPath) {
     }
   }
 
-  return { sourceConfigPath, layers, ranges, archives };
+  return { sourceConfigPath, jobName: sourceConfig.jobName || rawConfig.jobName || path.basename(configPath, ".json"), layers, ranges, archives };
 }
 
 async function localZipComplete(filePath) {
@@ -356,10 +355,11 @@ async function main() {
   if (!opts.bucket) throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
 
   const plan = await loadArchivePlan(opts.configPath);
+  const prefix = opts.prefix || plan.jobName;
   console.log(`Config: ${opts.configPath}`);
   console.log(`Source config: ${plan.sourceConfigPath}`);
   console.log(`Download directory: ${opts.downloadDir}`);
-  console.log(`Storj source: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
+  console.log(`Storj source: sj://${opts.bucket}/${normalizePrefix(prefix)}`);
   console.log(`Ranges: ${plan.ranges.length}`);
   console.log(`Archive files planned: ${plan.archives.length}`);
 
@@ -375,7 +375,7 @@ async function main() {
   let skipped = 0;
   let missing = 0;
   for (const archive of plan.archives) {
-    const result = await downloadArchive({ archive, ...opts });
+    const result = await downloadArchive({ archive, ...opts, prefix });
     if (result === "downloaded") downloaded++;
     else if (result === "skipped") skipped++;
     else if (result === "missing") missing++;

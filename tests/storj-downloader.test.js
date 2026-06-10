@@ -16,7 +16,7 @@ test("storj downloader places archives under configured range id folders", async
   await writeFile(
     configPath,
     JSON.stringify({
-      jobName: "restore-test",
+      jobName: "13-mapbox-pbf",
       provider: "mapbox",
       layer: "vector",
       ranges: [
@@ -41,12 +41,12 @@ test("storj downloader places archives under configured range id folders", async
       "--bucket=mapbox",
       "--dry-run",
     ],
-    { cwd: path.resolve(".") }
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "archives" } }
   );
 
   assert.match(
     stdout,
-    /sj:\/\/mapbox\/archives\/tiles_vector_5_000027-000027_y000019-000019\.zip -> .*mcs-range-001.*tiles_vector_5_000027-000027_y000019-000019\.zip/
+    /sj:\/\/mapbox\/13-mapbox-pbf\/tiles_vector_5_000027-000027_y000019-000019\.zip -> .*mcs-range-001.*tiles_vector_5_000027-000027_y000019-000019\.zip/
   );
 });
 
