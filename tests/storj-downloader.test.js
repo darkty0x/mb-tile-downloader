@@ -129,3 +129,72 @@ test("storj downloader downloads missing local archive into range id folder", as
     }
   }
 });
+
+test("storj downloader accepts share URL and downloads all configured archives", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-downloader-"));
+  const downloadDir = path.join(dir, "download");
+  const configPath = path.join(dir, "config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-mapbox-pbf",
+      provider: "mapbox",
+      layer: "vector",
+      ranges: [
+        {
+          id: "range-share",
+          zoom: 5,
+          xStart: 27,
+          xEnd: 27,
+          yStart: 19,
+          yEnd: 19,
+        },
+      ],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-downloader.js",
+      configPath,
+      "https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/",
+      `--download-dir=${downloadDir}`,
+      "--dry-run",
+    ],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(
+    stdout,
+    /https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\/tiles_vector_5_000027-000027_y000019-000019\.zip -> .*range-share/
+  );
+});
+
+test("storj downloader accepts share URL as only positional argument without config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-downloader-"));
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-downloader.js",
+      "https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/",
+      `--download-dir=${path.join(dir, "download")}`,
+      "--dry-run",
+    ],
+    {
+      cwd: path.resolve("."),
+      env: {
+        ...process.env,
+        STORJ_SHARE_LIST_HTML:
+          '<a href="/raw/testshare/mapbox/13-mapbox-pbf/tiles_vector_1_000000-000000_y000000-000000.zip">tiles_vector_1_000000-000000_y000000-000000.zip</a>',
+      },
+    }
+  );
+
+  assert.doesNotMatch(stdout, /Config:/);
+  assert.match(stdout, /Archive files planned: 1/);
+  assert.match(
+    stdout,
+    /https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\/tiles_vector_1_000000-000000_y000000-000000\.zip/
+  );
+});

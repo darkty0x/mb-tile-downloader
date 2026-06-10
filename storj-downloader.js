@@ -6,6 +6,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import { pipeline } from "node:stream/promises";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 
@@ -55,7 +56,8 @@ function printUsage(exitCode = 0) {
       "",
       "Download ZIP archives from Storj for the ranges in a downloader config.",
       "",
-      `Usage: node ${cmd} <configPath> [--download-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run]`,
+      `Usage: node ${cmd} <shareUrl> [--download-dir=path] [--dry-run]`,
+      `       node ${cmd} <configPath> [shareUrl] [--share-url=url] [--download-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run]`,
       "",
       "Default layout:",
       "  local files: <repo>/download/range-000001/<zip-file>",
@@ -78,6 +80,7 @@ function parseArgs(argv) {
     bucket: null,
     prefix: null,
     access: null,
+    shareUrl: null,
     dryRun: false,
   };
 
@@ -88,18 +91,47 @@ function parseArgs(argv) {
     else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
     else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
     else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
+    else if (arg.startsWith("--share-url=")) opts.shareUrl = arg.slice("--share-url=".length);
+    else if (!arg.startsWith("-") && !opts.configPath && /^https:\/\/link\.storjshare\.io\//i.test(arg)) opts.shareUrl = arg;
     else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
+    else if (!arg.startsWith("-") && !opts.shareUrl) opts.shareUrl = arg;
     else throw new Error(`Unknown argument: ${arg}`);
   }
 
-  if (!opts.configPath) throw new Error("configPath is required");
-  opts.configPath = path.resolve(opts.configPath);
+  if (!opts.configPath && !opts.shareUrl) throw new Error("shareUrl or configPath is required");
+  if (opts.configPath) opts.configPath = path.resolve(opts.configPath);
   opts.downloadDir = path.resolve(opts.downloadDir);
   opts.bucket = opts.bucket || process.env.STORJ_BUCKET;
   opts.prefix = opts.prefix ?? null;
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
   return opts;
+}
+
+function parseShareUrl(value) {
+  if (!value) return null;
+  let url;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new Error(`Invalid share URL: ${value}`);
+  }
+  if (url.hostname !== "link.storjshare.io") {
+    throw new Error(`Share URL must use link.storjshare.io: ${value}`);
+  }
+  const parts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+  const mode = parts.shift();
+  if (mode !== "s" && mode !== "raw") {
+    throw new Error(`Share URL path must start with /s/ or /raw/: ${value}`);
+  }
+  const token = parts.shift();
+  const bucket = parts.shift();
+  if (!token || !bucket) throw new Error(`Share URL must include token and bucket: ${value}`);
+  return {
+    token,
+    bucket,
+    prefix: parts.join("/").replace(/^\/+|\/+$/g, ""),
+  };
 }
 
 function normalizePrefix(prefix) {
@@ -114,6 +146,27 @@ function remoteUrl(bucket, prefix, name) {
   return cleanPrefix
     ? `sj://${bucket}/${cleanPrefix}/${encodedName}`
     : `sj://${bucket}/${encodedName}`;
+}
+
+function shareRawUrl(share, relativeName) {
+  const pathParts = [share.bucket, share.prefix, relativeName]
+    .filter(Boolean)
+    .join("/")
+    .split("/")
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `https://link.storjshare.io/raw/${share.token}/${pathParts}`;
+}
+
+function shareBrowseUrl(share) {
+  const pathParts = [share.bucket, share.prefix]
+    .filter(Boolean)
+    .join("/")
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+  return `https://link.storjshare.io/s/${share.token}/${pathParts}${pathParts ? "/" : ""}`;
 }
 
 function parseStorjCredentials({ access, passphrase }) {
@@ -313,6 +366,59 @@ async function loadArchivePlan(configPath) {
   return { sourceConfigPath, jobName: sourceConfig.jobName || rawConfig.jobName || path.basename(configPath, ".json"), layers, ranges, archives };
 }
 
+function decodeHtml(value) {
+  return String(value || "")
+    .replace(/&amp;/g, "&")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">");
+}
+
+function zipNameFromHref(href) {
+  const clean = decodeHtml(href).split(/[?#]/)[0];
+  const parts = clean.split("/").filter(Boolean);
+  const last = parts.at(-1);
+  return last && last.toLowerCase().endsWith(".zip") ? decodeURIComponent(last) : null;
+}
+
+function parseSharedZipNames(html) {
+  const names = new Set();
+  const hrefPattern = /\bhref=["']([^"']+\.zip(?:[?#][^"']*)?)["']/gi;
+  for (const match of html.matchAll(hrefPattern)) {
+    const name = zipNameFromHref(match[1]);
+    if (name) names.add(name);
+  }
+
+  const textPattern = /([\w.-]+\.zip)/gi;
+  for (const match of html.matchAll(textPattern)) {
+    names.add(decodeHtml(match[1]));
+  }
+
+  return [...names].sort((a, b) => a.localeCompare(b));
+}
+
+async function listShareArchives(share) {
+  const url = shareBrowseUrl(share);
+  let html = process.env.STORJ_SHARE_LIST_HTML;
+  if (!html) {
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Share listing failed ${response.status} ${response.statusText}: ${url}`);
+    }
+    html = await response.text();
+  }
+  const names = parseSharedZipNames(html);
+  if (names.length === 0) {
+    throw new Error(`No ZIP files found in share listing: ${url}`);
+  }
+  const folder = safeFolderName(share.prefix.split("/").filter(Boolean).at(-1) || share.bucket);
+  return names.map((name) => ({
+    name,
+    rangeFolder: folder,
+  }));
+}
+
 async function localZipComplete(filePath) {
   try {
     const stat = await fsp.stat(filePath);
@@ -354,21 +460,77 @@ async function downloadArchive({ archive, bucket, prefix, downloadDir, dryRun })
   return "downloaded";
 }
 
+async function downloadArchiveFromShare({ archive, share, downloadDir, dryRun }) {
+  const url = shareRawUrl(share, archive.name);
+  const localDir = path.join(downloadDir, archive.rangeFolder);
+  const localPath = path.join(localDir, archive.name);
+  const tmpPath = `${localPath}.tmp`;
+
+  if (await localZipComplete(localPath)) {
+    console.log(`SKIP local exists: ${archive.rangeFolder}/${archive.name}`);
+    return "skipped";
+  }
+
+  if (dryRun) {
+    console.log(`DRY RUN download: ${url} -> ${localPath}`);
+    return "dry-run";
+  }
+
+  await fsp.mkdir(localDir, { recursive: true });
+  await fsp.rm(tmpPath, { force: true }).catch(() => {});
+  console.log(`DOWNLOAD: ${url} -> ${localPath}`);
+  const response = await fetch(url);
+  if (response.status === 404) {
+    console.log(`MISSING remote: ${url}`);
+    return "missing";
+  }
+  if (!response.ok || !response.body) {
+    throw new Error(`Share download failed ${response.status} ${response.statusText}: ${url}`);
+  }
+  await pipeline(response.body, fs.createWriteStream(tmpPath));
+  if (!(await localZipComplete(tmpPath))) {
+    throw new Error(`Downloaded file is missing or empty: ${tmpPath}`);
+  }
+  await fsp.rename(tmpPath, localPath);
+  return "downloaded";
+}
+
 async function main() {
   loadDotEnvIfPresent();
   const opts = parseArgs(process.argv);
-  if (!opts.bucket) throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
+  const share = parseShareUrl(opts.shareUrl);
+  let plan;
+  if (opts.configPath) {
+    plan = await loadArchivePlan(opts.configPath);
+  } else if (share) {
+    plan = {
+      sourceConfigPath: null,
+      jobName: share.prefix || share.bucket,
+      layers: [],
+      ranges: [],
+      archives: await listShareArchives(share),
+    };
+  } else {
+    throw new Error("shareUrl or configPath is required");
+  }
 
-  const plan = await loadArchivePlan(opts.configPath);
-  const prefix = opts.prefix || plan.jobName;
-  console.log(`Config: ${opts.configPath}`);
-  console.log(`Source config: ${plan.sourceConfigPath}`);
+  const prefix = opts.prefix || share?.prefix || plan.jobName;
+  const bucket = opts.bucket || share?.bucket || process.env.STORJ_BUCKET;
+  if (!bucket) throw new Error("STORJ_BUCKET is required, pass --bucket=name, or pass a share URL");
+  if (opts.configPath) {
+    console.log(`Config: ${opts.configPath}`);
+    console.log(`Source config: ${plan.sourceConfigPath}`);
+  }
   console.log(`Download directory: ${opts.downloadDir}`);
-  console.log(`Storj source: sj://${opts.bucket}/${normalizePrefix(prefix)}`);
-  console.log(`Ranges: ${plan.ranges.length}`);
+  if (share) {
+    console.log(`Share source: https://link.storjshare.io/s/${share.token}/${share.bucket}/${normalizePrefix(share.prefix)}`);
+  } else {
+    console.log(`Storj source: sj://${bucket}/${normalizePrefix(prefix)}`);
+  }
+  if (opts.configPath) console.log(`Ranges: ${plan.ranges.length}`);
   console.log(`Archive files planned: ${plan.archives.length}`);
 
-  if (!opts.dryRun && plan.archives.length > 0) {
+  if (!share && !opts.dryRun && plan.archives.length > 0) {
     const credentials = parseStorjCredentials({
       access: opts.access,
       passphrase: opts.passphrase,
@@ -380,7 +542,9 @@ async function main() {
   let skipped = 0;
   let missing = 0;
   for (const archive of plan.archives) {
-    const result = await downloadArchive({ archive, ...opts, prefix });
+    const result = share
+      ? await downloadArchiveFromShare({ archive, share, downloadDir: opts.downloadDir, dryRun: opts.dryRun })
+      : await downloadArchive({ archive, ...opts, bucket, prefix });
     if (result === "downloaded") downloaded++;
     else if (result === "skipped") skipped++;
     else if (result === "missing") missing++;

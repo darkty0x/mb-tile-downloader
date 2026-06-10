@@ -279,6 +279,41 @@ async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLoca
   return "uploaded";
 }
 
+function shareTargetUrl(bucket, prefix) {
+  const cleanPrefix = normalizePrefix(prefix);
+  return cleanPrefix ? `sj://${bucket}/${cleanPrefix}/` : `sj://${bucket}/`;
+}
+
+function extractShareUrl(output) {
+  const match = String(output || "").match(/https:\/\/link\.storjshare\.io\/\S+/);
+  return match ? match[0].trim() : null;
+}
+
+async function printShareLink({ bucket, prefix, dryRun }) {
+  const target = shareTargetUrl(bucket, prefix);
+  if (dryRun) {
+    console.log(`Share link: dry-run skipped for ${target}`);
+    return;
+  }
+
+  const result = await runUplink(["share", "--url", "--readonly", target], {
+    allowFailure: true,
+  });
+  if (result.code !== 0) {
+    console.warn(`Share link: failed to create for ${target}: ${result.stderr || result.stdout}`);
+    return;
+  }
+
+  const shareUrl = extractShareUrl(`${result.stdout}\n${result.stderr}`);
+  if (!shareUrl) {
+    console.warn(`Share link: uplink did not print a URL for ${target}`);
+    return;
+  }
+
+  console.log(`Share link: ${shareUrl}`);
+  console.log(`Raw link prefix: ${shareUrl.replace("/s/", "/raw/")}`);
+}
+
 async function main() {
   loadDotEnvIfPresent();
   const opts = parseArgs(process.argv);
@@ -310,6 +345,7 @@ async function main() {
   }
 
   console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${opts.keepLocal ? archives.length : 0}`);
+  await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
 }
 
 main().catch((err) => {

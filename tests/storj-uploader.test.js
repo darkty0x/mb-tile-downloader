@@ -186,3 +186,73 @@ test("storj uploader configures api-key credentials without interactive setup", 
     }
   }
 });
+
+test("storj uploader prints share link after upload", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-mapbox-pbf.config.json");
+  const toolsDir = path.join(path.resolve("."), "tools", "uplink");
+  const callsPath = path.join(dir, "uplink-calls.txt");
+  const archivePath = path.join(archivesDir, "tiles_vector_1_000000-000000_y000000-000000.zip");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(archivePath, "zip");
+  await writeFile(configPath, JSON.stringify({ jobName: "13-mapbox-pbf" }));
+
+  const fakeUplink = path.join(toolsDir, process.platform === "win32" ? "uplink.exe" : "uplink");
+  const original = path.join(
+    toolsDir,
+    process.platform === "win32" ? "uplink.exe.real-test" : "uplink.real-test"
+  );
+  let renamed = false;
+  try {
+    await mkdir(toolsDir, { recursive: true });
+    try {
+      await stat(fakeUplink);
+      await import("node:fs/promises").then(({ rename }) => rename(fakeUplink, original));
+      renamed = true;
+    } catch {}
+
+    await writeFile(
+      fakeUplink,
+      [
+        "#!/usr/bin/env node",
+        "import fs from 'node:fs';",
+        "const args = process.argv.slice(2);",
+        "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
+        "if (args.includes('import')) process.exit(0);",
+        "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); process.exit(0); }",
+        "if (args.includes('cp')) process.exit(0);",
+        "if (args.includes('share')) { console.log('URL       : https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/'); process.exit(0); }",
+        "process.exit(0);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        "storj-uploader.js",
+        configPath,
+        `--archive-dir=${archivesDir}`,
+        "--bucket=mapbox",
+        "--access=1FakeSerializedAccessGrant",
+      ],
+      {
+        cwd: path.resolve("."),
+        env: { ...process.env, UPLINK_CALLS_PATH: callsPath },
+      }
+    );
+
+    const calls = await import("node:fs/promises").then(({ readFile }) =>
+      readFile(callsPath, "utf8")
+    );
+    assert.match(calls, /share --url --readonly sj:\/\/mapbox\/13-mapbox-pbf\//);
+    assert.match(stdout, /Share link: https:\/\/link\.storjshare\.io\/s\/testshare\/mapbox\/13-mapbox-pbf\//);
+    assert.match(stdout, /Raw link prefix: https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\//);
+  } finally {
+    await import("node:fs/promises").then(({ rm }) => rm(fakeUplink, { force: true }));
+    if (renamed) {
+      await import("node:fs/promises").then(({ rename }) => rename(original, fakeUplink));
+    }
+  }
+});
