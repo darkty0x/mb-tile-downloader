@@ -84,6 +84,8 @@ const NON_RESTARTABLE_PATTERNS = [
   /must be a positive integer/i,
   /STORJ_ACCESS is required/i,
   /STORJ_ACCESS must be one serialized Access Grant value/i,
+  /Storj API key was rejected by the satellite as unauthorized/i,
+  /Unauthorized API credentials/i,
   /invalid access grant format/i,
   /MISSING remote:/i,
   /Done\..*\bmissing=[1-9]\d*/i,
