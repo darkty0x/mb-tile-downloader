@@ -336,7 +336,7 @@ async function loadArchivePlan(configPath) {
     ? rawConfig.layers
     : sourceConfig.layer
       ? [sourceConfig.layer]
-      : [sourceConfig.provider === "mapbox" ? "vector" : "satellite"];
+      : [sourceConfig.provider === "mapbox" ? "vector" : "esri-satellite"];
   const fileNameTemplate = rawConfig.fileNameTemplate || DEFAULT_FILE_NAME_TEMPLATE;
   const xPadWidth = Number(rawConfig.xPadWidth || 6);
   const archives = [];

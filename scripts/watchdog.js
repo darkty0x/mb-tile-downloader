@@ -87,6 +87,7 @@ const NON_RESTARTABLE_PATTERNS = [
   /invalid access grant format/i,
   /MISSING remote:/i,
   /Done\..*\bmissing=[1-9]\d*/i,
+  /Tiles failed:\s*[1-9]\d*/i,
 ];
 
 function containsNonRestartableFailure(output) {
@@ -107,7 +108,6 @@ const RESTARTABLE_PATTERNS = [
   /network timeout/i,
   /fetch failed/i,
   /Remote verification failed after upload/i,
-  /Tiles failed:\s*[1-9]\d*/i,
 ];
 
 function containsRestartableFailure(output) {

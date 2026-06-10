@@ -449,7 +449,7 @@ async function main() {
     for (const name of missing) console.log(`MISSING local archive: ${name}`);
   }
 
-  if (!opts.dryRun && archives.length > 0) {
+  if (!opts.dryRun && (archives.length > 0 || opts.configPath)) {
     const credentials = parseStorjCredentials({
       access: opts.access,
       passphrase: opts.passphrase,
@@ -468,8 +468,12 @@ async function main() {
 
   const remainingLocal = opts.keepLocal ? archives.length : skipped;
   console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${remainingLocal}`);
-  await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
-  if (missing.length > 0) process.exitCode = 1;
+  if (missing.length > 0) {
+    console.log("Share link: skipped because config upload is incomplete");
+    process.exitCode = 1;
+  } else {
+    await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
+  }
 }
 
 main().catch((err) => {

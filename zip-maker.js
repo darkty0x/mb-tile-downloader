@@ -1221,10 +1221,11 @@ async function main() {
       await cleanupCompletedRunFiles({ archiveDir, stateFile });
     }
 
-    console.log(
-      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
-    );
-  } finally {
+	    console.log(
+	      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
+	    );
+	    if (incomplete > 0) process.exitCode = 1;
+	  } finally {
     downloaderState?.db.close();
   }
 }

@@ -50,6 +50,37 @@ test("storj downloader places archives under configured range id folders", async
   );
 });
 
+test("storj downloader defaults Esri archive names to esri-satellite", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-downloader-"));
+  const downloadDir = path.join(dir, "download");
+  const configPath = path.join(dir, "config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-esri-satellite",
+      provider: "esri",
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-downloader.js",
+      configPath,
+      `--download-dir=${downloadDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/13-esri-satellite\/tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/
+  );
+});
+
 test("storj downloader downloads missing local archive into range id folder", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-downloader-"));
   const downloadDir = path.join(dir, "download");

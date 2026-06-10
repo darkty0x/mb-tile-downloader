@@ -169,3 +169,45 @@ test("watchdog does not restart missing remote archive results", async () => {
 
   assert.equal(await readFile(marker, "utf8"), "1");
 });
+
+test("watchdog does not restart deterministic tile failure summaries", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "watchdog-"));
+  const marker = path.join(dir, "attempts.txt");
+  await writeFile(marker, "0");
+  const script = [
+    "const fs = require('node:fs');",
+    "const marker = process.env.WATCHDOG_TEST_MARKER;",
+    "const attempts = Number(fs.readFileSync(marker, 'utf8'));",
+    "fs.writeFileSync(marker, String(attempts + 1));",
+    "console.log('Summary:');",
+    "console.log('  Tiles failed: 10462');",
+    "process.exit(1);",
+  ].join(" ");
+
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        [
+          "scripts/watchdog.js",
+          "--idle-ms=0",
+          "--restart-delay-ms=1",
+          "--max-restarts=2",
+          "--",
+          process.execPath,
+          "-e",
+          script,
+        ],
+        {
+          cwd: path.resolve("."),
+          env: { ...process.env, WATCHDOG_TEST_MARKER: marker },
+        }
+      ),
+    (err) => {
+      assert.match(err.stderr, /non-restartable failure detected/);
+      return true;
+    }
+  );
+
+  assert.equal(await readFile(marker, "utf8"), "1");
+});

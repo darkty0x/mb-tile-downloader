@@ -115,6 +115,44 @@ test("storj uploader filters local archives by downloader config", async () => {
   assert.doesNotMatch(stdout, /tiles_satellite_5_000027-000027_y000019-000019\.zip/);
 });
 
+test("storj uploader does not share incomplete config uploads", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-esri-satellite.config.json");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-esri-satellite",
+      provider: "esri",
+      layer: "esri-satellite",
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        [
+          "storj-uploader.js",
+          configPath,
+          `--archive-dir=${archivesDir}`,
+          "--bucket=mapbox",
+          "--dry-run",
+        ],
+        { cwd: path.resolve(".") }
+      ),
+    (err) => {
+      assert.match(err.stdout, /Config ZIPs missing: 1/);
+      assert.match(err.stdout, /MISSING local archive: tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/);
+      assert.match(err.stdout, /Share link: skipped because config upload is incomplete/);
+      assert.doesNotMatch(err.stdout, /dry-run skipped for sj:\/\/mapbox\/13-esri-satellite\//);
+      return true;
+    }
+  );
+});
+
 test("storj uploader does not treat empty uplink ls output as remote existing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");
@@ -234,6 +272,81 @@ test("storj uploader configures api-key credentials without interactive setup", 
     assert.match(calls, /access create .*--passphrase-stdin .*--import-as mb-tile-downloader .*--force .*--use/);
     assert.doesNotMatch(calls, /\bsetup\b/);
     assert.match(stdout, /SKIP remote exists/);
+  } finally {
+    await import("node:fs/promises").then(({ rm }) => rm(fakeUplink, { force: true }));
+    if (renamed) {
+      await import("node:fs/promises").then(({ rename }) => rename(original, fakeUplink));
+    }
+  }
+});
+
+test("storj uploader removes legacy manifest for config run with no local zips", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-esri-satellite.config.json");
+  const toolsDir = path.join(path.resolve("."), "tools", "uplink");
+  const callsPath = path.join(dir, "uplink-calls.txt");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-esri-satellite",
+      provider: "esri",
+      layer: "esri-satellite",
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const fakeUplink = path.join(toolsDir, process.platform === "win32" ? "uplink.exe" : "uplink");
+  const original = path.join(
+    toolsDir,
+    process.platform === "win32" ? "uplink.exe.real-test" : "uplink.real-test"
+  );
+  let renamed = false;
+  try {
+    await mkdir(toolsDir, { recursive: true });
+    try {
+      await stat(fakeUplink);
+      await import("node:fs/promises").then(({ rename }) => rename(fakeUplink, original));
+      renamed = true;
+    } catch {}
+
+    await writeFile(
+      fakeUplink,
+      [
+        "#!/usr/bin/env node",
+        "import fs from 'node:fs';",
+        "const args = process.argv.slice(2);",
+        "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
+        "if (args.includes('import')) process.exit(0);",
+        "if (args.includes('ls')) { console.log('archives-manifest.json'); process.exit(0); }",
+        "if (args.includes('rm')) process.exit(0);",
+        "process.exit(0);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    await assert.rejects(
+      () =>
+        execFileAsync(
+          process.execPath,
+          [
+            "storj-uploader.js",
+            configPath,
+            `--archive-dir=${archivesDir}`,
+            "--bucket=mapbox",
+            "--access=1FakeSerializedAccessGrant",
+          ],
+          {
+            cwd: path.resolve("."),
+            env: { ...process.env, UPLINK_CALLS_PATH: callsPath },
+          }
+        ),
+      /Command failed/
+    );
+
+    const calls = await readFile(callsPath, "utf8");
+    assert.match(calls, /rm sj:\/\/mapbox\/13-esri-satellite\/archives-manifest\.json/);
   } finally {
     await import("node:fs/promises").then(({ rm }) => rm(fakeUplink, { force: true }));
     if (renamed) {
