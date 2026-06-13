@@ -1,6 +1,9 @@
 import dns from "node:dns";
 import os from "node:os";
 
+const ORIGINAL_FETCH = Symbol.for("tile-downloader.original-fetch");
+const WRAPPED_FETCH = Symbol.for("tile-downloader.wrapped-fetch");
+
 const PLATFORM_LIMITS = {
   linux: {
     os: "linux",
@@ -43,9 +46,73 @@ function parsePositiveInt(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function firstDefinedEnv(env, lowerKey, upperKey) {
+  const lower = env?.[lowerKey];
+  if (typeof lower === "string" && lower.trim()) return lower.trim();
+  const upper = env?.[upperKey];
+  if (typeof upper === "string" && upper.trim()) return upper.trim();
+  return "";
+}
+
 function providerConcurrencyCap(provider, env = process.env) {
   if (provider !== "esri") return null;
   return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY) ?? 64;
+}
+
+export function resolveProxyEnvironment(env = process.env) {
+  return {
+    httpProxy: firstDefinedEnv(env, "http_proxy", "HTTP_PROXY"),
+    httpsProxy: firstDefinedEnv(env, "https_proxy", "HTTPS_PROXY"),
+    noProxy: firstDefinedEnv(env, "no_proxy", "NO_PROXY"),
+  };
+}
+
+function hasProxyEnvironment(proxyEnv) {
+  return Boolean(proxyEnv.httpProxy || proxyEnv.httpsProxy);
+}
+
+function defaultPort(protocol) {
+  return protocol === "http:" ? "80" : protocol === "https:" ? "443" : "";
+}
+
+export function shouldBypassProxy(urlLike, noProxy) {
+  if (!noProxy || !String(noProxy).trim()) return false;
+  const rules = String(noProxy)
+    .split(/[,\s]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  if (rules.includes("*")) return true;
+
+  const url = urlLike instanceof URL ? urlLike : new URL(String(urlLike));
+  const hostname = url.hostname.toLowerCase();
+  const port = url.port || defaultPort(url.protocol);
+
+  return rules.some((rule) => {
+    const normalized = rule.toLowerCase();
+    const portIdx = normalized.lastIndexOf(":");
+    const hasPort = portIdx > -1 && normalized.indexOf("]") === -1;
+    const hostRule = hasPort ? normalized.slice(0, portIdx) : normalized;
+    const portRule = hasPort ? normalized.slice(portIdx + 1) : "";
+    if (portRule && portRule !== port) return false;
+
+    const stripped = hostRule.replace(/^\*\./, "").replace(/^\./, "");
+    if (!stripped) return false;
+    return hostname === stripped || hostname.endsWith(`.${stripped}`);
+  });
+}
+
+function buildAgentOptions(profile) {
+  return {
+    connections: profile.dispatcherConnections,
+    pipelining: profile.dispatcherPipelining,
+    connect: {
+      timeout: 30_000,
+      autoSelectFamily: true,
+      autoSelectFamilyAttemptTimeout: 250,
+    },
+    keepAliveTimeout: 60_000,
+    keepAliveMaxTimeout: 120_000,
+  };
 }
 
 export function getPlatformKey(platform = process.platform) {
@@ -115,23 +182,55 @@ export function buildPlatformProfile({
 }
 
 export async function configureNetworking(profile) {
+  let env = process.env;
+  let runtime = {};
+  if (arguments.length >= 2 && arguments[1]) env = arguments[1];
+  if (arguments.length >= 3 && arguments[2]) runtime = arguments[2];
+
   dns.setDefaultResultOrder("ipv4first");
 
   try {
-    const undici = await import("undici");
-    undici.setGlobalDispatcher(
-      new undici.Agent({
-        connections: profile.dispatcherConnections,
-        pipelining: profile.dispatcherPipelining,
-        connect: {
-          timeout: 30_000,
-          autoSelectFamily: true,
-          autoSelectFamilyAttemptTimeout: 250,
-        },
-        keepAliveTimeout: 60_000,
-        keepAliveMaxTimeout: 120_000,
-      })
-    );
+    const undici = runtime.undici || (await import("undici"));
+    const targetGlobal = runtime.targetGlobal || globalThis;
+    const agentOptions = buildAgentOptions(profile);
+    const directAgent = new undici.Agent(agentOptions);
+    undici.setGlobalDispatcher(directAgent);
+
+    const proxyEnv = resolveProxyEnvironment(env);
+    const baseFetch =
+      runtime.fetchImpl ||
+      targetGlobal[ORIGINAL_FETCH] ||
+      targetGlobal.fetch?.bind(targetGlobal);
+    if (typeof baseFetch !== "function") return;
+
+    if (!hasProxyEnvironment(proxyEnv) || typeof undici.EnvHttpProxyAgent !== "function") {
+      if (targetGlobal[ORIGINAL_FETCH]) {
+        targetGlobal.fetch = targetGlobal[ORIGINAL_FETCH];
+        delete targetGlobal[ORIGINAL_FETCH];
+        delete targetGlobal[WRAPPED_FETCH];
+      }
+      return;
+    }
+
+    const proxyAgent = new undici.EnvHttpProxyAgent({
+      ...agentOptions,
+      httpProxy: proxyEnv.httpProxy || undefined,
+      httpsProxy: proxyEnv.httpsProxy || undefined,
+      noProxy: proxyEnv.noProxy || undefined,
+    });
+    targetGlobal[ORIGINAL_FETCH] = baseFetch;
+    targetGlobal.fetch = async (input, init = {}) => {
+      const isRequest =
+        typeof Request !== "undefined" && input instanceof Request;
+      const url = isRequest ? input.url : String(input);
+      const dispatcher =
+        shouldBypassProxy(url, proxyEnv.noProxy) ? directAgent : proxyAgent;
+      return undici.fetch(input, {
+        ...init,
+        dispatcher: init.dispatcher || dispatcher,
+      });
+    };
+    targetGlobal[WRAPPED_FETCH] = true;
   } catch {
     // Node fetch remains usable without undici installed as a dependency.
   }

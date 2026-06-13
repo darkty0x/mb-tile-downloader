@@ -243,7 +243,7 @@ async function runOneConfig(configPath, opts) {
   const stateDb = new TileStateDb(stateDbPath);
 
   try {
-    await configureNetworking(config.platformProfile);
+    await configureNetworking(config.platformProfile, process.env);
     console.log("");
     console.log(`Config: ${config.configPath}`);
     console.log(`Job: ${config.jobName}`);

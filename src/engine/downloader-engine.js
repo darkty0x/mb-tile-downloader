@@ -21,6 +21,15 @@ function parseNonNegativeInt(value) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
 function tileRetryFloor(providerName) {
   if (providerName === "esri") {
     return parsePositiveInt(process.env.TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES) ?? 3;
@@ -38,12 +47,30 @@ function retryDelayMs(baseMs, attempt) {
   return exponential + jitter;
 }
 
+function esriBlockThreshold(env = process.env) {
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD) ?? 3;
+}
+
+function esriCooldownMs(env = process.env) {
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_COOLDOWN_MS) ?? 10 * 60 * 1000;
+}
+
+function esriBlockWindowMs(env = process.env) {
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS) ?? 60 * 1000;
+}
+
+function esriCooldownEnabled(env = process.env) {
+  const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_ENABLE_COOLDOWN);
+  return explicit ?? true;
+}
+
 function createProgressReporter(enabled) {
   if (!enabled) {
     return {
       rangeStart() {},
       rowDone() {},
       rowRetry() {},
+      providerBlocked() {},
       verifyStart() {},
       verifyProgress() {},
       rangeVerified() {},
@@ -100,6 +127,14 @@ function createProgressReporter(enabled) {
         true
       );
     },
+    providerBlocked({ provider, status, count, threshold, cooldownMs }) {
+      line(
+        `  ⏸ ${provider} temporary block detected status=${status} hits=${count}/${threshold} cooldown=${Math.round(
+          cooldownMs / 1000
+        )}s`,
+        true
+      );
+    },
     verifyStart({ rangeIndex, rangeCount, rows, tiles }) {
       line(`  🔍 verifying range ${rangeIndex}/${rangeCount} rows=${rows} tiles=${tiles}`, true);
     },
@@ -114,6 +149,60 @@ function createProgressReporter(enabled) {
         `  ✔ range ${rangeIndex}/${rangeCount} verified present=${verified.present}/${verified.expected} missing=${verified.missing} elapsed=${elapsed.toFixed(1)}s`,
         true
       );
+    },
+  };
+}
+
+function createProviderRuntime({ providerName, env = process.env, sleepImpl = sleep, progress }) {
+  if (providerName !== "esri" || !esriCooldownEnabled(env)) {
+    return {
+      async waitIfBlocked() {},
+      noteResponse() {
+        return false;
+      },
+      noteSuccess() {},
+    };
+  }
+
+  const threshold = esriBlockThreshold(env);
+  const cooldownMs = esriCooldownMs(env);
+  const windowMs = esriBlockWindowMs(env);
+  let blockedUntil = 0;
+  const recentBlocks = [];
+
+  function prune(now) {
+    while (recentBlocks.length > 0 && now - recentBlocks[0].at > windowMs) {
+      recentBlocks.shift();
+    }
+  }
+
+  return {
+    async waitIfBlocked() {
+      const now = Date.now();
+      if (blockedUntil <= now) return;
+      await sleepImpl(blockedUntil - now);
+    },
+    noteResponse(status) {
+      if (status !== 403 && status !== 429) return false;
+      const now = Date.now();
+      prune(now);
+      recentBlocks.push({ at: now, status });
+      if (recentBlocks.length < threshold) return false;
+      const nextBlockedUntil = now + cooldownMs;
+      if (nextBlockedUntil > blockedUntil) {
+        blockedUntil = nextBlockedUntil;
+        progress.providerBlocked({
+          provider: providerName,
+          status,
+          count: recentBlocks.length,
+          threshold,
+          cooldownMs,
+        });
+      }
+      return true;
+    },
+    noteSuccess() {
+      recentBlocks.length = 0;
     },
   };
 }
@@ -187,8 +276,10 @@ async function readResponseBuffer(resp) {
 async function downloadOneTile({
   config,
   provider,
+  providerRuntime,
   tokenPool,
   fetchImpl,
+  sleepImpl,
   z,
   x,
   y,
@@ -210,6 +301,7 @@ async function downloadOneTile({
   let requestAttempt = 0;
   while (networkAttempt < maxRetries) {
     try {
+      await providerRuntime.waitIfBlocked();
       await fsp.rm(tmpPath, { force: true });
       const tokenUsed = tokenPool ? tokenPool.current() : null;
       const attempt = requestAttempt;
@@ -246,8 +338,10 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
+        const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status);
+        if (blocked) return "blocked";
         networkAttempt++;
-        if (networkAttempt < maxRetries) await sleep(retryDelayMs(backoffMs, networkAttempt));
+        if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
         continue;
       }
       if (classified.status === "fatal") return "failed";
@@ -263,12 +357,13 @@ async function downloadOneTile({
       const st = await fsp.stat(tmpPath);
       if (!st.isFile() || st.size === 0) throw new Error("empty tile");
       await fsp.rename(tmpPath, finalPath);
+      providerRuntime.noteSuccess();
       return "downloaded";
     } catch (err) {
       await fsp.rm(tmpPath, { force: true }).catch(() => {});
       if (/All Mapbox access tokens/.test(String(err?.message))) throw err;
       networkAttempt++;
-      if (networkAttempt < maxRetries) await sleep(retryDelayMs(backoffMs, networkAttempt));
+      if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
     }
   }
 
@@ -278,9 +373,11 @@ async function downloadOneTile({
 async function processRow({
   config,
   provider,
+  providerRuntime,
   tokenPool,
   stateDb,
   fetchImpl,
+  sleepImpl,
   forceVerify,
   progress,
   rangeIndex,
@@ -322,7 +419,9 @@ async function processRow({
         pass,
         maxPasses: maxRecoveryPasses,
       });
-      await sleep(retryDelayMs(Math.max(250, Number(config.performance?.retryBackoffMs || 150)), pass));
+      await sleepImpl(
+        retryDelayMs(Math.max(250, Number(config.performance?.retryBackoffMs || 150)), pass)
+      );
     }
 
     const ys = [...pending];
@@ -343,8 +442,10 @@ async function processRow({
         const result = await downloadOneTile({
           config,
           provider,
+          providerRuntime,
           tokenPool,
           fetchImpl,
+          sleepImpl,
           z,
           x,
           y,
@@ -467,6 +568,7 @@ export async function runDownloadJob({
   stateDb,
   env = process.env,
   fetchImpl = globalThis.fetch,
+  sleepImpl = sleep,
   dryRun = false,
   forceVerify = false,
   onRangeVerified,
@@ -500,6 +602,12 @@ export async function runDownloadJob({
   let rangesVerified = 0;
   let rangesSkippedVerified = 0;
   const reporter = createProgressReporter(progress && !dryRun);
+  const providerRuntime = createProviderRuntime({
+    providerName: config.provider,
+    env,
+    sleepImpl,
+    progress: reporter,
+  });
   const rows = [...iterRows(config.ranges)];
   rowsPlanned = rows.length;
   tilesPlanned = rows.reduce((sum, row) => sum + row.yEnd - row.yStart + 1, 0);
@@ -566,9 +674,11 @@ export async function runDownloadJob({
             const result = await processRow({
               config,
               provider,
+              providerRuntime,
               tokenPool,
               stateDb,
               fetchImpl,
+              sleepImpl,
               forceVerify,
               progress: reporter,
               rangeIndex,

@@ -375,6 +375,66 @@ test("row recovery retries failed tiles before range verification", async () => 
   db.close();
 });
 
+test("Esri enters cooldown after repeated temporary block responses", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  let fetches = 0;
+  const sleeps = [];
+
+  await withEnv(
+    {
+      TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD: "2",
+      TILE_DOWNLOADER_ESRI_COOLDOWN_MS: "50",
+      TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS: "1000",
+      TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
+      TILE_DOWNLOADER_ROW_RECOVERY_PASSES: "1",
+    },
+    async () => {
+      const result = await runDownloadJob({
+        config: {
+          jobName: "esri-cooldown",
+          provider: "esri",
+          layer: "satellite",
+          format: "jpg",
+          configHash: "hash",
+          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+          tile: { extension: "jpg", yScheme: "xyz" },
+          url: { template: "https://example.test/{z}/{y}/{x}" },
+          ranges: [
+            { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+          ],
+          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+          performance: { maxRetries: 1, retryBackoffMs: 1 },
+          verifyAfterDownload: true,
+        },
+        stateDb: db,
+        progress: false,
+        env: {
+          TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD: "2",
+          TILE_DOWNLOADER_ESRI_COOLDOWN_MS: "50",
+          TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS: "1000",
+          TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
+        },
+        sleepImpl: async (ms) => {
+          sleeps.push(ms);
+        },
+        fetchImpl: async () => {
+          fetches++;
+          if (fetches <= 2) return new Response("blocked", { status: 403 });
+          return new Response("tile");
+        },
+      });
+
+      assert.equal(result.tilesDownloaded, 1);
+      assert.equal(result.tilesFailed, 0);
+      assert.equal(fetches, 3);
+      assert.ok(sleeps.some((ms) => ms >= 50));
+    }
+  );
+
+  db.close();
+});
+
 test("stale temp files for a tile are removed before retrying", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
