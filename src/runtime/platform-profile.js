@@ -485,8 +485,8 @@ function buildProxyDispatcher(undici, proxyUrl, agentOptions, proxyEnv, protocol
 
 function createProxyRotationState(proxyEnv) {
   const states = {
-    http: 0,
-    https: 0,
+    http: Math.floor(Math.random() * 2_147_483_647),
+    https: Math.floor(Math.random() * 2_147_483_647),
   };
   const failureState = {
     http: new Map(),
@@ -529,7 +529,8 @@ function createProxyRotationState(proxyEnv) {
 
     cleanupFailures(key);
 
-    let index = states[key];
+    let index = (states[key] + Math.floor(Math.random() * candidates.length)) % candidates.length;
+    states[key] = index;
     for (let offset = 0; offset < candidates.length; offset++) {
       const candidate = candidates[index];
       index = (index + 1) % candidates.length;

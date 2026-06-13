@@ -6,6 +6,21 @@ import { promises as fsp } from "node:fs";
 
 import { configureNetworking } from "../src/runtime/platform-profile.js";
 
+async function withDeterministicRandom(values, fn) {
+  const originalRandom = Math.random;
+  let index = 0;
+  Math.random = () => {
+    const value = values[index % values.length];
+    index += 1;
+    return value;
+  };
+  try {
+    return await fn();
+  } finally {
+    Math.random = originalRandom;
+  }
+}
+
 function createFakeUndici() {
   const state = {
     dispatcher: null,
@@ -95,8 +110,10 @@ test("configureNetworking rotates across HTTPS_PROXY list for successive request
     { undici, targetGlobal }
   );
 
-  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
-  await targetGlobal.fetch("https://api.mapbox.com/styles/v1/mapbox/streets-v12");
+  await withDeterministicRandom([0, 0.99], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+    await targetGlobal.fetch("https://api.mapbox.com/styles/v1/mapbox/streets-v12");
+  });
 
   assert.equal(undici.state.fetchCalls.length, 2);
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://primary-proxy:8080");
@@ -133,8 +150,10 @@ test("configureNetworking loads proxy list from a proxy API and rotates against 
     { undici, targetGlobal, fetchImpl }
   );
 
-  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
-  await targetGlobal.fetch("https://api.mapbox.com/styles/v1/mapbox/streets-v12");
+  await withDeterministicRandom([0, 0.99], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+    await targetGlobal.fetch("https://api.mapbox.com/styles/v1/mapbox/streets-v12");
+  });
 
   assert.equal(apiCalls, 1);
   assert.equal(undici.state.fetchCalls.length, 2);
