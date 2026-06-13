@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { runDownloadJob } from "../src/engine/downloader-engine.js";
+import { PROXY_INFO_SYMBOL } from "../src/runtime/platform-profile.js";
 import { TileStateDb } from "../src/state/state-db.js";
 
 async function withEnv(values, fn) {
@@ -429,6 +430,70 @@ test("Esri enters cooldown after repeated temporary block responses", async () =
       assert.equal(result.tilesFailed, 0);
       assert.equal(fetches, 3);
       assert.ok(sleeps.some((ms) => ms >= 50));
+    }
+  );
+
+  db.close();
+});
+
+test("Esri 403/429 responses mark the proxy as blocked for configured duration", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const marked = [];
+  const blockMs = 24 * 60 * 60 * 1000;
+  const proxyUrl = "https://blocked.proxy.example:8080";
+  const proxyRotation = {
+    markProxyBlocked(proxy, ms) {
+      marked.push({ proxy, ms });
+    },
+  };
+
+  await withEnv(
+    {
+      TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD: "1",
+      TILE_DOWNLOADER_ESRI_COOLDOWN_MS: "10",
+      TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS: "1000",
+      TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
+      TILE_DOWNLOADER_ESRI_PROXY_BLOCK_MS: String(blockMs),
+      TILE_DOWNLOADER_ROW_RECOVERY_PASSES: "0",
+    },
+    async () => {
+      const result = await runDownloadJob({
+        config: {
+          jobName: "esri-proxy-block",
+          provider: "esri",
+          layer: "satellite",
+          format: "jpg",
+          configHash: "hash",
+          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+          tile: { extension: "jpg", yScheme: "xyz" },
+          url: { template: "https://example.test/{z}/{y}/{x}" },
+          ranges: [
+            { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+          ],
+          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+          performance: { maxRetries: 1, retryBackoffMs: 1 },
+        },
+        stateDb: db,
+        progress: false,
+        env: process.env,
+        proxyRotation,
+        fetchImpl: async () => {
+          const response = new Response("blocked", { status: 403 });
+          response[PROXY_INFO_SYMBOL] = {
+            proxy: proxyUrl,
+            protocol: "https:",
+            url: "https://example.test/1/1/1",
+          };
+          return response;
+        },
+      });
+
+      assert.equal(marked.length, 1);
+      assert.equal(marked[0].proxy, proxyUrl);
+      assert.equal(marked[0].ms, blockMs);
+      assert.equal(result.tilesFailed, 1);
+      assert.equal(result.tilesDownloaded, 0);
     }
   );
 

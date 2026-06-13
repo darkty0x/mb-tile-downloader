@@ -6,6 +6,7 @@ import { pipeline } from "node:stream/promises";
 
 import { MapboxTokenPool, loadMapboxTokensFromEnv } from "../auth/mapbox-token-pool.js";
 import { createProvider } from "../providers/index.js";
+import { PROXY_INFO_SYMBOL } from "../runtime/platform-profile.js";
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -57,6 +58,10 @@ function esriCooldownMs(env = process.env) {
 
 function esriBlockWindowMs(env = process.env) {
   return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS) ?? 60 * 1000;
+}
+
+function esriProxyBlockMs(env = process.env) {
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_PROXY_BLOCK_MS) ?? 24 * 60 * 60 * 1000;
 }
 
 function esriCooldownEnabled(env = process.env) {
@@ -153,7 +158,13 @@ function createProgressReporter(enabled) {
   };
 }
 
-function createProviderRuntime({ providerName, env = process.env, sleepImpl = sleep, progress }) {
+function createProviderRuntime({
+  providerName,
+  env = process.env,
+  sleepImpl = sleep,
+  progress,
+  proxyRotation,
+}) {
   if (providerName !== "esri" || !esriCooldownEnabled(env)) {
     return {
       async waitIfBlocked() {},
@@ -167,6 +178,7 @@ function createProviderRuntime({ providerName, env = process.env, sleepImpl = sl
   const threshold = esriBlockThreshold(env);
   const cooldownMs = esriCooldownMs(env);
   const windowMs = esriBlockWindowMs(env);
+  const proxyBlockMs = esriProxyBlockMs(env);
   let blockedUntil = 0;
   const recentBlocks = [];
 
@@ -182,8 +194,11 @@ function createProviderRuntime({ providerName, env = process.env, sleepImpl = sl
       if (blockedUntil <= now) return;
       await sleepImpl(blockedUntil - now);
     },
-    noteResponse(status) {
+    noteResponse(status, proxy = null) {
       if (status !== 403 && status !== 429) return false;
+      if (proxy && proxyRotation?.markProxyBlocked) {
+        proxyRotation.markProxyBlocked(proxy, proxyBlockMs);
+      }
       const now = Date.now();
       prune(now);
       recentBlocks.push({ at: now, status });
@@ -325,6 +340,7 @@ async function downloadOneTile({
               }
             : undefined,
       });
+      const proxy = resp?.[PROXY_INFO_SYMBOL]?.proxy || null;
       const classified = provider.classifyResponse(resp);
 
       if (classified.status === "token-invalid" || classified.status === "token-exhausted") {
@@ -338,7 +354,7 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
-        const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status);
+        const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy);
         if (blocked) return "blocked";
         networkAttempt++;
         if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -572,6 +588,7 @@ export async function runDownloadJob({
   dryRun = false,
   forceVerify = false,
   onRangeVerified,
+  proxyRotation,
   progress = true,
 } = {}) {
   if (!config) throw new Error("config is required");
@@ -607,6 +624,7 @@ export async function runDownloadJob({
     env,
     sleepImpl,
     progress: reporter,
+    proxyRotation,
   });
   const rows = [...iterRows(config.ranges)];
   rowsPlanned = rows.length;

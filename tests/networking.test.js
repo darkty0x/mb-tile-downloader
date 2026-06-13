@@ -195,6 +195,117 @@ test("configureNetworking uses default hardcoded proxy source URL when env is no
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
+test("configureNetworking follows proxy API pagination when the first page has no usable candidates", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const requests = [];
+  const apiBase = "https://proxy.example/api/proxies";
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    if (url.startsWith(apiBase)) {
+      requests.push(url);
+      const payload =
+        url.includes("page=2")
+          ? { hasMore: false, data: [{ ip: "203.0.113.2", port: "8080", protocol: "https", responseTime: 20 }] }
+          : { hasMore: true, data: [{ ip: "198.51.100.1", port: "8080", protocol: "https", responseTime: 250 }] };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(requests.length, 2);
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://203.0.113.2:8080");
+});
+
+test("configureNetworking loads shared blacklist entries and skips blocked proxy candidates", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tile-proxy-blacklist-"));
+  const blacklistPath = path.join(tmpDir, "proxy-blacklist.json");
+  const blockedUntil = Date.now() + 60 * 60_000;
+  const payload = {
+    version: 1,
+    updatedAt: Date.now(),
+    proxies: [
+      {
+        protocol: "https",
+        proxy: "https://198.51.100.1:8080",
+        blockedUntil,
+      },
+    ],
+  };
+  await fsp.writeFile(blacklistPath, JSON.stringify(payload), "utf8");
+
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
+      GEONODE_PROXY_BLACKLIST_PATH: blacklistPath,
+    },
+    { undici, targetGlobal }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://203.0.113.2:8080");
+});
+
+test("configureNetworking persists proxy blocks to shared blacklist", async () => {
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tile-proxy-blacklist-"));
+  const blacklistPath = path.join(tmpDir, "proxy-blacklist.json");
+  const firstUndici = createFakeUndici();
+  const firstTarget = { fetch: async () => new Response("direct") };
+  const firstRotation = await configureNetworking(
+    profile(),
+    {
+      GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
+      GEONODE_PROXY_BLACKLIST_PATH: blacklistPath,
+    },
+    { undici: firstUndici, targetGlobal: firstTarget }
+  );
+
+  assert.ok(firstRotation);
+  firstRotation.markProxyBlocked("https://198.51.100.1:8080", 60 * 60_000);
+  await new Promise((resolve) => setTimeout(resolve, 30));
+
+  const persisted = JSON.parse(await fsp.readFile(blacklistPath, "utf8"));
+  assert.equal(persisted.version, 1);
+  assert.equal(
+    persisted.proxies.some((entry) => entry.proxy === "https://198.51.100.1:8080"),
+    true
+  );
+
+  const secondUndici = createFakeUndici();
+  const secondTarget = { fetch: async () => new Response("direct") };
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
+      GEONODE_PROXY_BLACKLIST_PATH: blacklistPath,
+    },
+    { undici: secondUndici, targetGlobal: secondTarget }
+  );
+
+  await secondTarget.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  assert.equal(secondUndici.state.fetchCalls.length, 1);
+  assert.equal(secondUndici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://203.0.113.2:8080");
+});
+
 test("configureNetworking uses cached proxy API list when the API is not reachable", async () => {
   const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tile-proxy-cache-"));
   const cachePath = path.join(tmpDir, "proxy-list-cache.json");

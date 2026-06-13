@@ -14,6 +14,16 @@ import { TileStateDb } from "./src/state/state-db.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_MAX_OLD_SPACE_MB = 8192;
+const PROXY_RUNTIME_PROXY_ENV_KEYS = new Set([
+  "HTTP_PROXY",
+  "HTTPS_PROXY",
+  "http_proxy",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+  "NO_PROXY",
+  "no_proxy",
+]);
 
 function ensureDownloaderHeapLimit() {
   if (process.env.TILE_DOWNLOADER_HEAP_REEXEC === "1") return;
@@ -57,6 +67,14 @@ function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
     }
     if (key && process.env[key] === undefined) process.env[key] = value;
   }
+}
+
+function stripProcessProxyEnv(env = process.env) {
+  const sanitized = { ...env };
+  for (const key of PROXY_RUNTIME_PROXY_ENV_KEYS) {
+    delete sanitized[key];
+  }
+  return sanitized;
 }
 
 function printUsage(exitCode = 0) {
@@ -241,9 +259,10 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: process.env });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
+  const proxyRuntimeEnv = stripProcessProxyEnv(process.env);
 
   try {
-    await configureNetworking(config.platformProfile, process.env);
+    const proxyRotation = await configureNetworking(config.platformProfile, proxyRuntimeEnv);
     console.log("");
     console.log(`Config: ${config.configPath}`);
     console.log(`Job: ${config.jobName}`);
@@ -278,6 +297,7 @@ async function runOneConfig(configPath, opts) {
       env: process.env,
       dryRun: opts.dryRun,
       forceVerify: opts.forceVerify || opts.validate,
+      proxyRotation,
     });
 
     console.log("Summary:");
