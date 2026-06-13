@@ -69,6 +69,24 @@ test("Esri provider supports TMS request y conversion", () => {
   );
 });
 
+test("Esri provider treats temporary access blocks as retryable", () => {
+  const provider = createEsriProvider({
+    layer: "satellite",
+    tile: { extension: "jpg" },
+    url: { template: "https://example.test/tile/{z}/{y}/{x}" },
+  });
+
+  assert.deepEqual(provider.classifyResponse({ status: 403, ok: false }), {
+    status: "retry",
+    retry: true,
+  });
+  assert.deepEqual(provider.classifyResponse({ status: 429, ok: false }), {
+    status: "retry",
+    retry: true,
+  });
+});
+
+
 test("Esri provider accepts comma-separated unavailable tile hashes", () => {
   const hash = "9eafd300d61393184a4abc1d458564cfd1cd9b6f9c4e9c74687045c0a0e5b858";
   const provider = createEsriProvider({

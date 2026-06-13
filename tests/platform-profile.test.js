@@ -43,3 +43,46 @@ test("uses conservative Windows filesystem concurrency", () => {
   assert.equal(profile.maxRowsInFlight, 1);
   assert.equal(profile.pathFlavor, "windows");
 });
+
+test("caps Esri concurrency below public ArcGIS block thresholds", () => {
+  const profile = buildPlatformProfile({
+    platform: "win32",
+    provider: "esri",
+    cpuCount: 12,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: {},
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 64);
+  assert.equal(profile.perRowConcurrency, 64);
+  assert.equal(profile.wasConcurrencyCapped, true);
+});
+
+test("keeps Mapbox platform concurrency uncapped by Esri limits", () => {
+  const profile = buildPlatformProfile({
+    platform: "win32",
+    provider: "mapbox",
+    cpuCount: 12,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: {},
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 4096);
+  assert.equal(profile.perRowConcurrency, 4096);
+});
+
+test("allows explicit Esri concurrency override from environment", () => {
+  const profile = buildPlatformProfile({
+    platform: "linux",
+    provider: "esri",
+    cpuCount: 16,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: { TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY: "128" },
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 128);
+  assert.equal(profile.perRowConcurrency, 128);
+});

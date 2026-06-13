@@ -180,6 +180,8 @@ export async function loadConfig(configPath, options = {}) {
     requestedConcurrency: performance.maxConcurrentRequests,
     requestedRows: performance.maxRowsInFlight,
     requestTimeoutMs: performance.requestTimeoutMs,
+    provider,
+    env: options.env || process.env,
   });
   const jobName = raw.jobName || `${provider}-${layer}-${format}`;
 

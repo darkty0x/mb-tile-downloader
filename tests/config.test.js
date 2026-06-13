@@ -99,3 +99,14 @@ test("Esri World Imagery configs use separate layer folder and xyz rows", async 
     assert.equal(raw.tile?.yScheme, "xyz");
   }
 });
+
+test("loaded Esri configs are capped independently of requested config concurrency", async () => {
+  const config = await loadConfig("configs/13-esri-satellite.config.json", {
+    env: {},
+    platform: "win32",
+  });
+
+  assert.equal(config.performance.maxConcurrentRequests, 4096);
+  assert.equal(config.platformProfile.maxConcurrentRequests, 64);
+  assert.equal(config.platformProfile.perRowConcurrency, 64);
+});

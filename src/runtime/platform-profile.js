@@ -43,6 +43,11 @@ function parsePositiveInt(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
+function providerConcurrencyCap(provider, env = process.env) {
+  if (provider !== "esri") return null;
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY) ?? 64;
+}
+
 export function getPlatformKey(platform = process.platform) {
   if (platform === "darwin") return "darwin";
   if (platform === "win32") return "win32";
@@ -55,6 +60,8 @@ export function buildPlatformProfile({
   requestedConcurrency,
   requestedRows,
   requestTimeoutMs,
+  provider,
+  env = process.env,
 } = {}) {
   const limits = PLATFORM_LIMITS[getPlatformKey(platform)];
   const cpus =
@@ -69,11 +76,15 @@ export function buildPlatformProfile({
     limits.defaultMax
   );
   const requested = parsePositiveInt(requestedConcurrency) ?? defaultConcurrency;
-  const maxConcurrentRequests = clamp(
+  const platformCappedConcurrency = clamp(
     requested,
     1,
     limits.maxConcurrentRequests
   );
+  const providerCap = providerConcurrencyCap(provider, env);
+  const maxConcurrentRequests = providerCap
+    ? Math.min(platformCappedConcurrency, providerCap)
+    : platformCappedConcurrency;
 
   const defaultRows = clamp(Math.ceil(cpus / 2), 1, limits.maxRowsInFlight);
   const requestedRowCount = parsePositiveInt(requestedRows) ?? defaultRows;

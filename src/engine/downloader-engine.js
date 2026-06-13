@@ -21,7 +21,10 @@ function parseNonNegativeInt(value) {
   return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
 }
 
-function tileRetryFloor() {
+function tileRetryFloor(providerName) {
+  if (providerName === "esri") {
+    return parsePositiveInt(process.env.TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES) ?? 3;
+  }
   return parsePositiveInt(process.env.TILE_DOWNLOADER_MIN_TILE_RETRIES) ?? 10;
 }
 
@@ -197,7 +200,7 @@ async function downloadOneTile({
   await removeStaleTempFiles(finalPath);
   const tmpPath = `${finalPath}.tmp-${process.pid}`;
   const maxRetries = Math.max(
-    tileRetryFloor(),
+    tileRetryFloor(provider.name),
     Number(config.performance?.maxRetries || 3)
   );
   const backoffMs = Math.max(1, Number(config.performance?.retryBackoffMs || 150));
@@ -221,7 +224,14 @@ async function downloadOneTile({
       });
       const resp = await fetchImpl(url, {
         signal: AbortSignal.timeout(timeoutMs),
-        headers: provider.name === "esri" ? { "user-agent": "tile-downloader" } : undefined,
+        headers:
+          provider.name === "esri"
+            ? {
+                "user-agent":
+                  "Mozilla/5.0 (compatible; tile-downloader/1.0; +https://www.arcgis.com)",
+                accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+              }
+            : undefined,
       });
       const classified = provider.classifyResponse(resp);
 

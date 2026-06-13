@@ -53,7 +53,14 @@ export function createEsriProvider(config) {
     },
     classifyResponse(resp) {
       if (resp.status === 404) return { status: "missing", retry: false };
-      if (resp.status === 408 || resp.status === 409 || resp.status === 425 || resp.status === 429 || resp.status >= 500) {
+      if (
+        resp.status === 403 ||
+        resp.status === 408 ||
+        resp.status === 409 ||
+        resp.status === 425 ||
+        resp.status === 429 ||
+        resp.status >= 500
+      ) {
         return { status: "retry", retry: true };
       }
       if (resp.ok) return { status: "downloaded", retry: false };
