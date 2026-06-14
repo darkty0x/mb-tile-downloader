@@ -7,6 +7,7 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
+import os from "node:os";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 
@@ -18,7 +19,6 @@ const LOCAL_UPLINK_BIN = path.join(
   "uplink",
   process.platform === "win32" ? "uplink.exe" : "uplink"
 );
-const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
 const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_DOWNLOAD_DIR = path.join(__dirname, "download");
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
@@ -65,10 +65,12 @@ function printUsage(exitCode = 0) {
       "  local files: <repo>/download/range-000001/<zip-file>",
       "",
       "Environment:",
-      "  STORJ_BUCKET          required unless --bucket is provided",
-      "  --prefix              optional remote folder override; default is config jobName",
-      "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
-      "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
+  "  STORJ_BUCKET          required unless --bucket is provided",
+  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: per-user app config folder)",
+  "  --prefix                  optional remote folder override; default is config jobName",
+  "  --uplink-config-dir=<path> override the uplink config directory",
+  "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
+  "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
       "",
     ].join("\n")
   );
@@ -92,6 +94,7 @@ function parseArgs(argv) {
     else if (arg.startsWith("--download-dir=")) opts.downloadDir = arg.slice("--download-dir=".length);
     else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
     else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
+    else if (arg.startsWith("--uplink-config-dir=")) opts.uplinkConfigDir = arg.slice("--uplink-config-dir=".length);
     else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
     else if (arg.startsWith("--share-url=")) opts.shareUrl = arg.slice("--share-url=".length);
     else if (!arg.startsWith("-") && !opts.configPath && /^https:\/\/link\.storjshare\.io\//i.test(arg)) opts.shareUrl = arg;
@@ -107,7 +110,18 @@ function parseArgs(argv) {
   opts.prefix = opts.prefix ?? null;
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
+  opts.uplinkConfigDir = resolveUplinkConfigDir(opts.uplinkConfigDir);
   return opts;
+}
+
+function resolveUplinkConfigDir(value) {
+  if (value) return path.resolve(value);
+  const envDir = process.env.STORJ_UPLINK_CONFIG_DIR;
+  if (envDir && String(envDir).trim()) return path.resolve(envDir);
+  const home = os.homedir();
+  return process.platform === "win32"
+    ? path.join(home, "AppData", "Local", "mb-tile-downloader", "storj")
+    : path.join(home, ".config", "mb-tile-downloader", "storj");
 }
 
 function parseShareUrl(value) {
@@ -200,14 +214,38 @@ function parseStorjCredentials({ access, passphrase }) {
   return { type: "access-grant", access: rawAccess };
 }
 
-function uplinkArgs(args) {
-  return ["--config-dir", UPLINK_CONFIG_DIR, ...args];
+function uplinkArgs(args, configDir) {
+  return ["--config-dir", configDir, ...args];
 }
 
-function runUplink(args, { allowFailure = false, input = null } = {}) {
-  const bin = fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink";
+function commandWorks(command) {
+  return new Promise((resolve) => {
+    const child = spawn(command, ["version"], { stdio: "ignore", env: process.env });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+}
+
+let cachedUplinkBinary = null;
+async function resolveUplinkBinary() {
+  if (cachedUplinkBinary) return cachedUplinkBinary;
+  if (await commandWorks(LOCAL_UPLINK_BIN)) {
+    cachedUplinkBinary = LOCAL_UPLINK_BIN;
+    return cachedUplinkBinary;
+  }
+  if (await commandWorks("uplink")) {
+    cachedUplinkBinary = "uplink";
+    return cachedUplinkBinary;
+  }
+  throw new Error(
+    "No working Storj uplink binary found. Run 'node scripts/install-storj-uplink.js --if-missing' to install."
+  );
+}
+
+async function runUplink(args, { allowFailure = false, input = null, configDir } = {}) {
+  const bin = await resolveUplinkBinary();
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, uplinkArgs(args), {
+    const child = spawn(bin, uplinkArgs(args, configDir), {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
     });
@@ -232,10 +270,10 @@ function runUplink(args, { allowFailure = false, input = null } = {}) {
   });
 }
 
-async function ensureAccessConfigured(credentials) {
-  await fsp.mkdir(UPLINK_CONFIG_DIR, { recursive: true });
+async function ensureAccessConfigured(credentials, configDir) {
+  await fsp.mkdir(configDir, { recursive: true });
   if (credentials.type === "access-grant") {
-    await runUplink(["access", "import", UPLINK_ACCESS_NAME, credentials.access, "--force", "--use"]);
+    await runUplink(["access", "import", UPLINK_ACCESS_NAME, credentials.access, "--force", "--use"], { configDir });
     return;
   }
 
@@ -253,7 +291,7 @@ async function ensureAccessConfigured(credentials) {
       "--force",
       "--use",
     ],
-    { input: `${credentials.passphrase}\n` }
+    { input: `${credentials.passphrase}\n`, configDir }
   );
 }
 
@@ -268,8 +306,8 @@ function uplinkListContainsObject(stdout, name) {
     });
 }
 
-async function remoteExists(url, name) {
-  const result = await runUplink(["ls", url], { allowFailure: true });
+async function remoteExists(url, name, configDir) {
+  const result = await runUplink(["ls", url], { allowFailure: true, configDir });
   if (result.code !== 0) return false;
   return uplinkListContainsObject(result.stdout, name);
 }
@@ -465,7 +503,7 @@ async function localZipComplete(filePath) {
   }
 }
 
-async function downloadArchive({ archive, bucket, prefix, downloadDir, dryRun }) {
+async function downloadArchive({ archive, bucket, prefix, downloadDir, dryRun }, configDir) {
   const remote = remoteUrl(bucket, prefix, archive.name);
   const localDir = path.join(downloadDir, archive.rangeFolder);
   const localPath = path.join(localDir, archive.name);
@@ -481,7 +519,7 @@ async function downloadArchive({ archive, bucket, prefix, downloadDir, dryRun })
     return "dry-run";
   }
 
-  if (!(await remoteExists(remote, archive.name))) {
+  if (!(await remoteExists(remote, archive.name, configDir))) {
     console.log(`MISSING remote: ${remote}`);
     return "missing";
   }
@@ -489,7 +527,7 @@ async function downloadArchive({ archive, bucket, prefix, downloadDir, dryRun })
   await fsp.mkdir(localDir, { recursive: true });
   await fsp.rm(tmpPath, { force: true }).catch(() => {});
   console.log(`DOWNLOAD: ${remote} -> ${localPath}`);
-  await runUplink(["cp", remote, tmpPath]);
+  await runUplink(["cp", remote, tmpPath], { configDir });
   if (!(await localZipComplete(tmpPath))) {
     throw new Error(`Downloaded file is missing or empty: ${tmpPath}`);
   }
@@ -589,7 +627,7 @@ async function main() {
       access: opts.access,
       passphrase: opts.passphrase,
     });
-    await ensureAccessConfigured(credentials);
+    await ensureAccessConfigured(credentials, opts.uplinkConfigDir);
   }
 
   let downloaded = 0;
@@ -598,7 +636,7 @@ async function main() {
   for (const archive of plan.archives) {
     const result = share
       ? await downloadArchiveFromShare({ archive, share, downloadDir: opts.downloadDir, dryRun: opts.dryRun })
-      : await downloadArchive({ archive, ...opts, bucket, prefix });
+      : await downloadArchive({ archive, ...opts, bucket, prefix }, opts.uplinkConfigDir);
     if (result === "downloaded") downloaded++;
     else if (result === "skipped") skipped++;
     else if (result === "missing") missing++;

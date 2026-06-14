@@ -25,6 +25,24 @@ const PROXY_RUNTIME_PROXY_ENV_KEYS = new Set([
   "no_proxy",
 ]);
 
+function parsePositiveInt(value, label) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    if (label) throw new Error(`${label} must be a positive integer`);
+    return null;
+  }
+  return parsed;
+}
+
+function parseNonNegativeInt(value, label) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isInteger(parsed) || parsed < 0) {
+    if (label) throw new Error(`${label} must be a non-negative integer`);
+    return null;
+  }
+  return parsed;
+}
+
 function ensureDownloaderHeapLimit() {
   if (process.env.TILE_DOWNLOADER_HEAP_REEXEC === "1") return;
   if (process.execArgv.some((arg) => arg.startsWith("--max-old-space-size"))) return;
@@ -82,7 +100,9 @@ function printUsage(exitCode = 0) {
 Production tile downloader
 
 Usage:
-  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--state-db path-or-dir]
+  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
+  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N]
+  [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js clear-token-state [--state-db path-or-dir]
 
@@ -163,6 +183,10 @@ function parseArgs(argv) {
     validate: false,
     forceVerify: false,
     dryRun: false,
+    skipVerifyAfterDownload: false,
+    rowRecoveryPasses: null,
+    recoveryBackoffMs: null,
+    maxRowsInFlight: null,
     stateDbPath: null,
     configPaths: [],
     usedDefaultConfig: false,
@@ -173,14 +197,33 @@ function parseArgs(argv) {
     if (arg === "--validate" || arg === "-v") opts.validate = true;
     else if (arg === "--force-verify") opts.forceVerify = true;
     else if (arg === "--dry-run") opts.dryRun = true;
+    else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
     else if (arg === "--state-db") {
       opts.stateDbPath = args[++i];
       if (!opts.stateDbPath) throw new Error("--state-db requires a path");
+    } else if (arg === "--row-recovery-passes") {
+      opts.rowRecoveryPasses = parseNonNegativeInt(args[++i], "--row-recovery-passes");
+      if (opts.rowRecoveryPasses === null) throw new Error("--row-recovery-passes must be a non-negative integer");
+    } else if (arg === "--recovery-backoff-ms") {
+      const value = args[++i];
+      opts.recoveryBackoffMs = parsePositiveInt(value, "--recovery-backoff-ms");
+      if (opts.recoveryBackoffMs === null) {
+        throw new Error("--recovery-backoff-ms must be a positive integer");
+      }
+    } else if (arg === "--max-rows-in-flight") {
+      opts.maxRowsInFlight = parsePositiveInt(args[++i], "--max-rows-in-flight");
+      if (opts.maxRowsInFlight === null) {
+        throw new Error("--max-rows-in-flight must be a positive integer");
+      }
     } else if (arg.startsWith("-")) {
       throw new Error(`Unknown option: ${arg}`);
     } else {
       opts.configPaths.push(arg);
     }
+  }
+
+  if (opts.skipVerifyAfterDownload && (opts.validate || opts.forceVerify)) {
+    throw new Error("--skip-verify cannot be used with --validate or --force-verify");
   }
 
   if (opts.configPaths.length === 0) {
@@ -220,27 +263,35 @@ function resolveMachineConfigPaths(opts, env = process.env) {
   if (machineNames.length === 0) return opts.configPaths;
   if (!opts.usedDefaultConfig && opts.configPaths.length === 1) return opts.configPaths;
 
+  const matching = opts.configPaths.filter((configPath) =>
+    pathMatchesMachine(configPath, machineNames)
+  );
+  if (matching.length > 0) {
+    console.log(`Machine configs selected from env: ${machineNames.join(",")}`);
+    return matching;
+  }
+
   if (opts.usedDefaultConfig) {
     const machineConfigs = machineNames.map((machineName) =>
       path.join(__dirname, "configs", `mapbox-pbf-${machineName}.config.json`)
     );
     const existing = machineConfigs.filter((configPath) => fs.existsSync(configPath));
-    if (existing.length === machineNames.length) {
-      console.log(`Machine configs selected from env: ${machineNames.join(",")}`);
+    if (existing.length > 0) {
+      if (existing.length < machineNames.length) {
+        console.log(
+          `Machine configs partly matched from default config names (${machineNames.join(",")}); using ${existing.join(", ")}`
+        );
+      } else {
+        console.log(`Machine configs selected from env: ${machineNames.join(",")}`);
+      }
       return existing;
     }
   }
 
-  const matching = opts.configPaths.filter((configPath) =>
-    pathMatchesMachine(configPath, machineNames)
+  console.log(
+    `Machine names ${machineNames.join(",")} did not match machine-specific configs; using configured config list`
   );
-  if (matching.length === 0) {
-    throw new Error(
-      `Machine names ${machineNames.join(",")} did not match any provided config path`
-    );
-  }
-  console.log(`Machine configs selected from env: ${machineNames.join(",")}`);
-  return matching;
+  return opts.configPaths;
 }
 
 function stateDbPathFor(config, opts) {
@@ -256,7 +307,10 @@ function stateDbPathFor(config, opts) {
 }
 
 async function runOneConfig(configPath, opts) {
-  const config = await loadConfig(configPath, { env: process.env });
+  const configEnv = opts.maxRowsInFlight
+    ? { ...process.env, TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT: String(opts.maxRowsInFlight) }
+    : process.env;
+  const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
   const proxyRuntimeEnv = stripProcessProxyEnv(process.env);
@@ -270,9 +324,9 @@ async function runOneConfig(configPath, opts) {
     console.log(`Platform: ${config.platformProfile.os}`);
     console.log(`Output: ${config.output.dir}`);
     console.log(`State DB: ${stateDbPath}`);
-    console.log(
-      `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
-    );
+      console.log(
+        `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
+      );
     if (config.platformProfile.wasConcurrencyCapped) {
       console.log(
         `Concurrency capped from ${config.platformProfile.requestedConcurrency} to ${config.platformProfile.maxConcurrentRequests} for ${config.platformProfile.os}`
@@ -297,6 +351,9 @@ async function runOneConfig(configPath, opts) {
       env: process.env,
       dryRun: opts.dryRun,
       forceVerify: opts.forceVerify || opts.validate,
+      skipVerifyAfterDownload: opts.skipVerifyAfterDownload,
+      rowRecoveryPasses: opts.rowRecoveryPasses,
+      recoveryBackoffMs: opts.recoveryBackoffMs,
       proxyRotation,
     });
 

@@ -361,9 +361,51 @@ test("configureNetworking uses cached proxy API list when the API is not reachab
   );
 
   await secondTarget.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
-  assert.equal(fallbackApiCalls, 1);
+  assert.equal(fallbackApiCalls, 0);
   assert.equal(secondUndici.state.fetchCalls.length, 1);
   assert.equal(secondUndici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://203.0.113.10:3128");
+});
+
+test("configureNetworking respects response-time threshold override from proxy env", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const apiUrl = "https://proxy.example/api/fast-proxies";
+  let apiCalls = 0;
+  const fetchImpl = async (input) => {
+    if (String(input) === apiUrl) {
+      apiCalls += 1;
+      return new Response(JSON.stringify({
+        data: [
+          { ip: "198.51.100.1", port: "8080", protocol: "https", responseTime: 65 },
+          { ip: "198.51.100.2", port: "8080", protocol: "https", responseTime: 85 },
+          { ip: "198.51.100.3", port: "8080", protocol: "https", responseTime: 95 },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: apiUrl,
+      GEONODE_PROXY_MAX_RESPONSE_TIME_MS: "70",
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await withDeterministicRandom([0, 0.99], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  });
+
+  assert.equal(apiCalls, 1);
+  assert.equal(undici.state.fetchCalls.length, 2);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
 test("configureNetworking filters API proxy candidates with response time above 100ms", async () => {
@@ -400,9 +442,50 @@ test("configureNetworking filters API proxy candidates with response time above 
 
   assert.equal(apiCalls, 1);
   assert.equal(undici.state.fetchCalls.length, 1);
+  assert.ok(
+    ["https://198.51.100.2:8080", "https://198.51.100.3:8080"].includes(
+      undici.state.fetchCalls[0].dispatcher.options.httpsProxy
+    ),
+    "rotation should only use proxies below latency threshold"
+  );
+});
+
+test("configureNetworking uses proxy latency when response time values are above the threshold", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const apiUrl = "https://proxy.example/api/fast-proxies";
+  let apiCalls = 0;
+  const fetchImpl = async (input) => {
+    if (String(input) === apiUrl) {
+      apiCalls += 1;
+      return new Response(JSON.stringify({
+        data: [
+          { ip: "198.51.100.1", port: "8080", protocol: "https", responseTime: 120, latency: 50 },
+          { ip: "198.51.100.2", port: "8080", protocol: "https", responseTime: 50, latency: 120 },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: apiUrl,
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(apiCalls, 1);
+  assert.equal(undici.state.fetchCalls.length, 1);
   assert.equal(
     undici.state.fetchCalls[0].dispatcher.options.httpsProxy,
-    "https://198.51.100.2:8080"
+    "https://198.51.100.1:8080"
   );
 });
 

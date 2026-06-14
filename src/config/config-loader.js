@@ -28,6 +28,15 @@ function requireInteger(value, name) {
   if (!Number.isInteger(value)) throw new Error(`${name} must be an integer`);
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
 function validateRange(range) {
   for (const key of ["zoomStart", "zoomEnd", "xStart", "xEnd", "yStart", "yEnd"]) {
     requireInteger(range[key], `range.${key}`);
@@ -208,7 +217,7 @@ export async function loadConfig(configPath, options = {}) {
     output,
     performance,
     platformProfile,
-    verifyAfterDownload: true,
+    verifyAfterDownload: parseBoolean(raw.verifyAfterDownload) ?? true,
     assumeEmpty: Boolean(raw.assumeEmpty),
     configHash: sha256(stableStringify(effectiveForHash)),
     raw,

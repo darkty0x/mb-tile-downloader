@@ -21,6 +21,8 @@ const ZIP_VERSION = 20;
 const ZIP64_VERSION = 45;
 const ZIP_FLAG_UTF8 = 0x0800;
 const DEFAULT_ZIP_WRITE_BUFFER_BYTES = 256 * 1024 * 1024;
+const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 20 * 1024 * 1024 * 1024;
+const ZIP_ARCHIVE_FOOTER_BYTES = 1024 * 128;
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -54,7 +56,7 @@ function printUsage(exitCode = 0) {
       "",
       "Create one fast ZIP archive for each complete tile range.",
       "",
-      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path]`,
+      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path] [--max-archive-size=<bytes|KB|MB|GB>]`,
       "",
       "Default layout:",
       "  source tiles: <outputDir>/<layer>/<z>/<x>/<y>.<ext>",
@@ -103,6 +105,62 @@ function parsePositiveInt(value, fallback) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function parseArchiveSizeBytes(value, fallback) {
+  if (value === undefined || value === null) return fallback;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || !Number.isInteger(value) || value <= 0) return fallback;
+    return value;
+  }
+  if (typeof value === "bigint") {
+    const asNumber = Number(value);
+    if (!Number.isInteger(asNumber) || !Number.isFinite(asNumber) || asNumber <= 0) return fallback;
+    return asNumber;
+  }
+
+  const raw = String(value).trim();
+  if (!raw) return fallback;
+  const parsed = raw.match(/^(\d+(?:\.\d+)?)\s*(b|kib|kb|k|mib|mb|m|gib|gb|g|tib|tb|t)?$/i);
+  if (!parsed) return fallback;
+
+  const number = Number(parsed[1]);
+  if (!Number.isFinite(number) || number <= 0) return fallback;
+
+  const unit = String(parsed[2] || "b").toLowerCase();
+  const unitMap = {
+    b: 1,
+    k: 1024,
+    kb: 1024,
+    kib: 1024,
+    m: 1024 ** 2,
+    mb: 1024 ** 2,
+    mib: 1024 ** 2,
+    g: 1024 ** 3,
+    gb: 1024 ** 3,
+    gib: 1024 ** 3,
+    t: 1024 ** 4,
+    tb: 1024 ** 4,
+    tib: 1024 ** 4,
+  };
+
+  const factor = unitMap[unit];
+  const bytes = number * factor;
+  if (!Number.isFinite(bytes)) return fallback;
+  return Math.floor(bytes);
+}
+
+function formatArchiveSize(bytes) {
+  const gib = 1024 ** 3;
+  const exact = bytes / gib;
+  const rounded = Number.isInteger(exact) ? String(exact) : exact.toFixed(1);
+  return `${rounded} GiB`;
+}
+
+function estimateZipEntryBytes(fileSize, zipName) {
+  const nameBytes = Buffer.byteLength(zipName, "utf8");
+  // Local header + ZIP64 extra + file data + central entry + ZIP64 extra + file name bytes repeated in both headers.
+  return Number(fileSize) + 124 + nameBytes * 2 + ZIP_ARCHIVE_FOOTER_BYTES;
+}
+
 function clamp(value, min, max) {
   return Math.min(Math.max(value, min), max);
 }
@@ -117,6 +175,7 @@ function parseArgs(argv) {
     archiveDir: null,
     tilesDir: null,
     onlyComplete: true,
+    maxArchiveSize: null,
   };
 
   for (const arg of args) {
@@ -127,6 +186,8 @@ function parseArgs(argv) {
     else if (arg.startsWith("--layer=")) opts.layer = arg.slice("--layer=".length);
     else if (arg.startsWith("--archive-dir=")) opts.archiveDir = arg.slice("--archive-dir=".length);
     else if (arg.startsWith("--tiles-dir=")) opts.tilesDir = arg.slice("--tiles-dir=".length);
+    else if (arg.startsWith("--max-archive-size="))
+      opts.maxArchiveSize = arg.slice("--max-archive-size=".length);
     else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -390,6 +451,72 @@ async function isRangeComplete({ outputDir, layer, z, xStart, xEnd, yStart, yEnd
   }
 
   return { complete: missing === 0, files, missing, firstMissing };
+}
+
+async function splitTaskByArchiveSize(task, maxArchiveSizeBytes) {
+  if (!maxArchiveSizeBytes || maxArchiveSizeBytes <= 0) return [{ ...task }];
+
+  const segments = [];
+  let current = null;
+  let currentBytes = 0;
+
+  for (let x = task.xStart; x <= task.xEnd; x++) {
+    for (let y = task.yStart; y <= task.yEnd; y++) {
+      const filePath = path.join(task.outputDir, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+      let size;
+      try {
+        const st = await fsp.stat(filePath);
+        if (!st.isFile()) continue;
+        size = st.size;
+      } catch (err) {
+        if (err.code === "ENOENT") continue;
+        throw err;
+      }
+
+      const zipName = `${task.layer}/${task.z}/${x}/${y}.${task.extension}`;
+      const estimatedBytes = estimateZipEntryBytes(size, zipName);
+      const projected = currentBytes + estimatedBytes;
+      if (!current || projected > maxArchiveSizeBytes) {
+        if (current) {
+          segments.push(current);
+        }
+        current = {
+          outputDir: task.outputDir,
+          layer: task.layer,
+          z: task.z,
+          xStart: x,
+          xEnd: x,
+          yStart: y,
+          yEnd: y,
+          extension: task.extension,
+          expected: 1,
+        };
+        currentBytes = estimatedBytes;
+        continue;
+      }
+
+      current.expected += 1;
+      current.xEnd = x;
+      current.yEnd = y;
+      currentBytes = projected;
+    }
+  }
+
+  if (current) segments.push(current);
+  if (segments.length > 0) return segments;
+  return [{ ...task }];
+}
+
+function makeArchiveName(baseName, partIndex, totalParts) {
+  if (!totalParts || totalParts <= 1) return baseName;
+  const extension = path.extname(baseName);
+  if (extension) {
+    return `${baseName.slice(0, -extension.length)}.part-${String(partIndex).padStart(
+      3,
+      "0"
+    )}${extension}`;
+  }
+  return `${baseName}.part-${String(partIndex).padStart(3, "0")}`;
 }
 
 async function listRangeFiles({ outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
@@ -1021,6 +1148,10 @@ async function main() {
     1,
     512
   ) * 1024 * 1024;
+  const maxArchiveSizeBytes = parseArchiveSizeBytes(
+    opts.maxArchiveSize ?? archiveConfig.maxArchiveSizeBytes ?? archiveConfig.maxArchiveSize,
+    DEFAULT_MAX_ARCHIVE_SIZE_BYTES
+  );
   const layers = opts.layer
     ? [opts.layer]
     : !directDownloaderConfig && Array.isArray(archiveConfig.layers) && archiveConfig.layers.length > 0
@@ -1054,6 +1185,7 @@ async function main() {
   console.log(`Progress interval: ${progressEveryFiles} files or ${progressEveryMs}ms`);
   console.log(`ZIP read mode: ${zipReadMode}`);
   console.log(`ZIP write buffer: ${Math.round(zipWriteBufferBytes / 1024 / 1024)} MiB`);
+  console.log(`Max archive size: ${formatArchiveSize(maxArchiveSizeBytes)} (${maxArchiveSizeBytes} bytes)`);
   console.log(`Layers: ${layers.join(", ")}`);
   console.log(`Ranges: ${ranges.length}`);
 
@@ -1096,7 +1228,7 @@ async function main() {
           yEnd: range.yEnd,
           extension: defaults.extension,
         };
-        const name = archiveFileName(fileNameTemplate, {
+        const baseName = archiveFileName(fileNameTemplate, {
           layer,
           z,
           xStart: range.xStart,
@@ -1105,40 +1237,47 @@ async function main() {
           yEnd: range.yEnd,
           xPadWidth,
         });
-        const archivePath = path.join(archiveDir, name);
-        const tmpPath = `${archivePath}.tmp`;
-        const progressPath = `${archivePath}.progress.json`;
+        const splitTasks = await splitTaskByArchiveSize(task, maxArchiveSizeBytes);
+        const totalParts = splitTasks.length;
 
-        const item = {
-          name,
-          task,
-          archivePath,
-          tmpPath,
-          progressPath,
-          signature: taskSignature(task),
-          rangeState: {
-            rangeIndex: rangeIdx + 1,
-            label: range.label,
-            z,
-            xStart: range.xStart,
-            xEnd: range.xEnd,
-            yStart: range.yStart,
-            yEnd: range.yEnd,
-            expected: (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
-          },
-        };
-        const existingTask = taskByArchivePath.get(archivePath);
-        if (existingTask) {
-          if (existingTask.signature === item.signature) {
-            duplicateSkipped++;
-            continue;
+        for (let partIndex = 0; partIndex < splitTasks.length; partIndex++) {
+          const splitTask = splitTasks[partIndex];
+          const name = makeArchiveName(baseName, partIndex + 1, totalParts);
+          const archivePath = path.join(archiveDir, name);
+          const tmpPath = `${archivePath}.tmp`;
+          const progressPath = `${archivePath}.progress.json`;
+
+          const item = {
+            name,
+            task: splitTask,
+            archivePath,
+            tmpPath,
+            progressPath,
+            signature: taskSignature(splitTask),
+            rangeState: {
+              rangeIndex: rangeIdx + 1,
+              label: range.label,
+              z: splitTask.z,
+              xStart: splitTask.xStart,
+              xEnd: splitTask.xEnd,
+              yStart: splitTask.yStart,
+              yEnd: splitTask.yEnd,
+              expected: expectedFileCount(splitTask),
+            },
+          };
+          const existingTask = taskByArchivePath.get(archivePath);
+          if (existingTask) {
+            if (existingTask.signature === item.signature) {
+              duplicateSkipped++;
+              continue;
+            }
+            throw new Error(
+              `Archive filename collision: ${archivePath} is used by multiple different ranges. Include yStart/yEnd in fileNameTemplate.`
+            );
           }
-          throw new Error(
-            `Archive filename collision: ${archivePath} is used by multiple different ranges. Include yStart/yEnd in fileNameTemplate.`
-          );
+          taskByArchivePath.set(archivePath, item);
+          taskItems.push(item);
         }
-        taskByArchivePath.set(archivePath, item);
-        taskItems.push(item);
       }
     }
   }
@@ -1221,11 +1360,11 @@ async function main() {
       await cleanupCompletedRunFiles({ archiveDir, stateFile });
     }
 
-	    console.log(
-	      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
-	    );
-	    if (incomplete > 0) process.exitCode = 1;
-	  } finally {
+    console.log(
+      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
+    );
+    if (incomplete > 0) process.exitCode = 1;
+  } finally {
     downloaderState?.db.close();
   }
 }

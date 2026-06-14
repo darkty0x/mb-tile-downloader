@@ -24,7 +24,7 @@ export function createMapboxProvider(config) {
     extension,
     layer: config.layer,
     buildUrl({ z, x, y, tokenPool, token, attempt = 0 }) {
-      const host = hosts[attempt % hosts.length];
+      const host = hosts[Math.floor(Math.random() * hosts.length)];
       const accessToken = token || tokenPool.current();
       return renderTemplate(template, {
         ...config.url,

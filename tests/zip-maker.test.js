@@ -240,6 +240,69 @@ test("zip-maker uses direct read mode by default for faster small tile archives"
   assert.match(stdout, /ZIP write buffer: 256 MiB/);
 });
 
+test("zip-maker defaults max archive size to 20 GiB", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "vector", "5", "27"), { recursive: true });
+  await writeFile(path.join(tilesDir, "vector", "5", "27", "19.vector.pbf"), "tile");
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(stdout, /Max archive size: 20 GiB/);
+});
+
+test("zip-maker splits archive output when max archive size is exceeded", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "vector", "5", "27"), { recursive: true });
+  await writeFile(path.join(tilesDir, "vector", "5", "27", "19.vector.pbf"), "tile");
+  await writeFile(path.join(tilesDir, "vector", "5", "27", "20.vector.pbf"), "tile");
+  await writeFile(path.join(tilesDir, "vector", "5", "27", "21.vector.pbf"), "tile");
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      maxArchiveSizeBytes: 1,
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 21 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  const partNames = [...stdout.matchAll(/DRY RUN: would zip \d+ files -> .*part-(\d{3})\.zip/g)];
+  assert.equal(partNames.length, 3);
+  assert.match(stdout, /tiles_vector_5_000027-000027_y000019-000021\.part-001\.zip/);
+});
+
 test("zip-maker rejects archive filename collisions for different ranges", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");

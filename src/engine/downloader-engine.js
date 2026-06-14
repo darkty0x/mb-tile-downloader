@@ -38,8 +38,42 @@ function tileRetryFloor(providerName) {
   return parsePositiveInt(process.env.TILE_DOWNLOADER_MIN_TILE_RETRIES) ?? 10;
 }
 
-function rowRecoveryPasses() {
-  return parseNonNegativeInt(process.env.TILE_DOWNLOADER_ROW_RECOVERY_PASSES) ?? 4;
+const ESRI_DEFAULT_ROW_RECOVERY_PASSES = 1;
+const MAPBOX_DEFAULT_ROW_RECOVERY_PASSES = 4;
+
+function resolveRowRecoveryPasses(provider = "esri", override, config = {}) {
+  if (override === null || override === undefined) {
+    const configuredFromConfig = parseNonNegativeInt(config.performance?.rowRecoveryPasses);
+    if (configuredFromConfig !== null) return configuredFromConfig;
+    const envKey =
+      provider === "esri"
+        ? "TILE_DOWNLOADER_ESRI_ROW_RECOVERY_PASSES"
+        : "TILE_DOWNLOADER_ROW_RECOVERY_PASSES";
+    const configured = parseNonNegativeInt(process.env[envKey]);
+    if (configured !== null) return configured;
+    return provider === "esri" ? ESRI_DEFAULT_ROW_RECOVERY_PASSES : MAPBOX_DEFAULT_ROW_RECOVERY_PASSES;
+  }
+  const parsed = parseNonNegativeInt(override);
+  if (parsed !== null) return parsed;
+  throw new Error("rowRecoveryPasses must be a non-negative integer");
+}
+
+function resolveRecoveryBackoffMs(provider = "esri", explicit, config = {}) {
+  if (explicit !== null && explicit !== undefined) {
+    const parsed = parsePositiveInt(explicit);
+    if (parsed === null) throw new Error("recoveryBackoffMs must be a positive integer");
+    return parsed;
+  }
+
+  const configured = parsePositiveInt(config.performance?.recoveryBackoffMs);
+  if (configured !== null) return configured;
+  if (provider === "esri") {
+    const esriConfigured = parsePositiveInt(process.env.TILE_DOWNLOADER_ESRI_RECOVERY_BACKOFF_MS);
+    if (esriConfigured !== null) return esriConfigured;
+  }
+  const genericConfigured = parsePositiveInt(process.env.TILE_DOWNLOADER_RECOVERY_BACKOFF_MS);
+  if (genericConfigured !== null) return genericConfigured;
+  return parsePositiveInt(config.performance?.retryBackoffMs) || 150;
 }
 
 function retryDelayMs(baseMs, attempt) {
@@ -67,6 +101,23 @@ function esriProxyBlockMs(env = process.env) {
 function esriCooldownEnabled(env = process.env) {
   const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_ENABLE_COOLDOWN);
   return explicit ?? true;
+}
+
+function normalizeProxyProtocol(candidate) {
+  if (typeof candidate !== "string") return "";
+  const normalized = candidate.trim();
+  if (!normalized) return "";
+  if (normalized === "http" || normalized === "https") return `${normalized}:`;
+  if (normalized.endsWith(":")) {
+    const lowered = normalized.toLowerCase();
+    return lowered === "http:" || lowered === "https:" ? lowered : "";
+  }
+  try {
+    const parsed = new URL(normalized);
+    return parsed.protocol === "https:" ? "https:" : parsed.protocol === "http:" ? "http:" : "";
+  } catch {
+    return "";
+  }
 }
 
 function createProgressReporter(enabled) {
@@ -181,6 +232,25 @@ function createProviderRuntime({
   const proxyBlockMs = esriProxyBlockMs(env);
   let blockedUntil = 0;
   const recentBlocks = [];
+  const perProxyBlocks = new Map();
+
+  function pruneProxyState(entry, now) {
+    if (!entry) return;
+    while (entry.attempts.length > 0 && now - entry.attempts[0] > windowMs) {
+      entry.attempts.shift();
+    }
+    if (entry.blockedUntil && entry.blockedUntil <= now) {
+      entry.blockedUntil = 0;
+      entry.attempts = [];
+    }
+  }
+
+  function hasHealthyCandidateFor(protocolOrProxy) {
+    if (!proxyRotation?.hasHealthyCandidate) return true;
+    const protocol = normalizeProxyProtocol(protocolOrProxy);
+    if (!protocol) return true;
+    return proxyRotation.hasHealthyCandidate(protocol);
+  }
 
   function prune(now) {
     while (recentBlocks.length > 0 && now - recentBlocks[0].at > windowMs) {
@@ -194,27 +264,66 @@ function createProviderRuntime({
       if (blockedUntil <= now) return;
       await sleepImpl(blockedUntil - now);
     },
-    noteResponse(status, proxy = null) {
+    noteResponse(status, proxy = null, protocol = null) {
       if (status !== 403 && status !== 429) return false;
-      if (proxy && proxyRotation?.markProxyBlocked) {
-        proxyRotation.markProxyBlocked(proxy, proxyBlockMs);
-      }
       const now = Date.now();
-      prune(now);
-      recentBlocks.push({ at: now, status });
-      if (recentBlocks.length < threshold) return false;
-      const nextBlockedUntil = now + cooldownMs;
-      if (nextBlockedUntil > blockedUntil) {
-        blockedUntil = nextBlockedUntil;
-        progress.providerBlocked({
-          provider: providerName,
-          status,
-          count: recentBlocks.length,
-          threshold,
-          cooldownMs,
-        });
+      const wasBlocked = blockedUntil > now;
+      if (!proxy) {
+        prune(now);
+        recentBlocks.push({ at: now, status });
+        if (recentBlocks.length < threshold) return false;
+        const nextBlockedUntil = now + cooldownMs;
+        if (nextBlockedUntil > blockedUntil) {
+          blockedUntil = nextBlockedUntil;
+          progress.providerBlocked({
+            provider: providerName,
+            status,
+            count: recentBlocks.length,
+            threshold,
+            cooldownMs,
+          });
+        }
+        return true;
       }
-      return true;
+
+      const key = String(proxy);
+      const entry = perProxyBlocks.get(key) || { attempts: [], blockedUntil: 0 };
+      pruneProxyState(entry, now);
+      if (entry.blockedUntil > now) {
+        const healthyCandidateProtocol = protocol || proxy;
+        const globalBlock = !hasHealthyCandidateFor(healthyCandidateProtocol);
+        if (globalBlock && !wasBlocked) blockedUntil = Math.max(blockedUntil, entry.blockedUntil);
+        if (globalBlock && entry.blockedUntil > blockedUntil) blockedUntil = entry.blockedUntil;
+        perProxyBlocks.set(key, entry);
+        return globalBlock;
+      }
+
+      entry.attempts.push(now);
+      const shouldBanProxy = entry.attempts.length >= threshold;
+      if (!shouldBanProxy) {
+        perProxyBlocks.set(key, entry);
+        return false;
+      }
+
+      const failedAttempts = entry.attempts.length;
+      entry.attempts = [];
+      entry.blockedUntil = Math.max(entry.blockedUntil || 0, now + proxyBlockMs);
+      if (proxyRotation?.markProxyBlocked) proxyRotation.markProxyBlocked(proxy, proxyBlockMs);
+      const healthyCandidateProtocol = protocol || proxy;
+      const globalBlock = !hasHealthyCandidateFor(healthyCandidateProtocol);
+      if (globalBlock) {
+        const nextBlockedUntil = entry.blockedUntil;
+        if (nextBlockedUntil > blockedUntil) blockedUntil = nextBlockedUntil;
+      }
+      perProxyBlocks.set(key, entry);
+      progress.providerBlocked({
+        provider: providerName,
+        status,
+        count: failedAttempts,
+        threshold,
+        cooldownMs: globalBlock ? cooldownMs : proxyBlockMs,
+      });
+      return globalBlock;
     },
     noteSuccess() {
       recentBlocks.length = 0;
@@ -341,6 +450,7 @@ async function downloadOneTile({
             : undefined,
       });
       const proxy = resp?.[PROXY_INFO_SYMBOL]?.proxy || null;
+      const protocol = resp?.[PROXY_INFO_SYMBOL]?.protocol || null;
       const classified = provider.classifyResponse(resp);
 
       if (classified.status === "token-invalid" || classified.status === "token-exhausted") {
@@ -354,7 +464,7 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
-        const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy);
+        const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
         if (blocked) return "blocked";
         networkAttempt++;
         if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -395,6 +505,8 @@ async function processRow({
   fetchImpl,
   sleepImpl,
   forceVerify,
+  rowRecoveryPasses,
+  recoveryBackoffMs,
   progress,
   rangeIndex,
   rangeCount,
@@ -423,7 +535,8 @@ async function processRow({
   const pending = new Set();
   for (let y = yStart; y <= yEnd; y++) pending.add(y);
 
-  const maxRecoveryPasses = rowRecoveryPasses();
+  const maxRecoveryPasses = resolveRowRecoveryPasses(config.provider, rowRecoveryPasses, config);
+  const recoveryDelay = resolveRecoveryBackoffMs(config.provider, recoveryBackoffMs, config);
   for (let pass = 0; pass <= maxRecoveryPasses && pending.size > 0; pass++) {
     if (pass > 0) {
       progress.rowRetry({
@@ -436,7 +549,7 @@ async function processRow({
         maxPasses: maxRecoveryPasses,
       });
       await sleepImpl(
-        retryDelayMs(Math.max(250, Number(config.performance?.retryBackoffMs || 150)), pass)
+        retryDelayMs(Math.max(250, recoveryDelay), pass)
       );
     }
 
@@ -587,6 +700,9 @@ export async function runDownloadJob({
   sleepImpl = sleep,
   dryRun = false,
   forceVerify = false,
+  skipVerifyAfterDownload = false,
+  rowRecoveryPasses = null,
+  recoveryBackoffMs = null,
   onRangeVerified,
   proxyRotation,
   progress = true,
@@ -698,6 +814,8 @@ export async function runDownloadJob({
               fetchImpl,
               sleepImpl,
               forceVerify,
+              rowRecoveryPasses,
+              recoveryBackoffMs,
               progress: reporter,
               rangeIndex,
               rangeCount,
@@ -733,7 +851,7 @@ export async function runDownloadJob({
       );
 
       await Promise.all(rowWorkers);
-      if (config.verifyAfterDownload !== false) {
+      if (!skipVerifyAfterDownload && config.verifyAfterDownload !== false) {
         const verified = await verifyRange({ config, provider, stateDb, range, progress: reporter, rangeIndex, rangeCount });
         rangesVerified++;
         stateDb.markRangeVerified({

@@ -56,6 +56,40 @@ test("Mapbox provider classifies auth and quota failures as token failures", () 
   assert.equal(provider.classifyResponse({ status: 429 }).status, "retry");
 });
 
+test("Mapbox provider selects hosts randomly", () => {
+  const provider = createMapboxProvider({
+    layer: "vector",
+    tile: { extension: "vector.pbf" },
+    url: {
+      hosts: ["a", "b", "c"],
+      tileset: "mapbox.streets",
+      template: "https://{host}.tiles.mapbox.com/v4/{tileset}/{z}/{x}/{y}.{extension}?access_token={token}",
+    },
+  });
+  const pool = new MapboxTokenPool(["token-a"]);
+  const originalRandom = Math.random;
+  const rolls = [0.05, 0.45, 0.85];
+  let idx = 0;
+
+  Math.random = () => rolls[idx++];
+  try {
+    assert.equal(
+      provider.buildUrl({ z: 1, x: 2, y: 3, tokenPool: pool }),
+      "https://a.tiles.mapbox.com/v4/mapbox.streets/1/2/3.vector.pbf?access_token=token-a"
+    );
+    assert.equal(
+      provider.buildUrl({ z: 1, x: 2, y: 3, tokenPool: pool }),
+      "https://b.tiles.mapbox.com/v4/mapbox.streets/1/2/3.vector.pbf?access_token=token-a"
+    );
+    assert.equal(
+      provider.buildUrl({ z: 1, x: 2, y: 3, tokenPool: pool }),
+      "https://c.tiles.mapbox.com/v4/mapbox.streets/1/2/3.vector.pbf?access_token=token-a"
+    );
+  } finally {
+    Math.random = originalRandom;
+  }
+});
+
 test("Esri provider supports TMS request y conversion", () => {
   const provider = createEsriProvider({
     layer: "satellite",

@@ -6,6 +6,7 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import os from "node:os";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 
@@ -17,7 +18,6 @@ const LOCAL_UPLINK_BIN = path.join(
   "uplink",
   process.platform === "win32" ? "uplink.exe" : "uplink"
 );
-const UPLINK_CONFIG_DIR = path.join(__dirname, "tools", "uplink", "config");
 const UPLINK_ACCESS_NAME = "mb-tile-downloader";
 const DEFAULT_STORJ_PREFIX = "archives";
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
@@ -58,14 +58,16 @@ function printUsage(exitCode = 0) {
       "",
       `Usage: node ${cmd} [configPath] [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local]`,
       "",
-      "Environment:",
-      "  STORJ_BUCKET          required unless --bucket is provided",
-      `  STORJ_PREFIX          remote folder/prefix only when no configPath is provided; configPath defaults to jobName`,
-      "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
-      "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
-      "",
-      "Uplink binary:",
-      "  Uses bundled tools/uplink/uplink.exe on Windows, or PATH uplink fallback.",
+  "Environment:",
+  "  STORJ_BUCKET          required unless --bucket is provided",
+  `  STORJ_PREFIX          remote folder/prefix only when no configPath is provided; configPath defaults to jobName`,
+  "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
+  "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
+  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: per-user app config folder)",
+  "",
+  "Uplink binary:",
+  "  Uses bundled tools/uplink/uplink.exe on Windows, or PATH uplink fallback.",
+  "  Override config dir with --uplink-config-dir=<path> or STORJ_UPLINK_CONFIG_DIR.",
       "",
       "Behavior:",
       "  - uploads only completed .zip files",
@@ -85,6 +87,7 @@ function parseArgs(argv) {
     bucket: null,
     prefix: null,
     access: null,
+    uplinkConfigDir: null,
     dryRun: false,
     keepLocal: false,
     configPath: null,
@@ -95,9 +98,10 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--keep-local") opts.keepLocal = true;
     else if (arg.startsWith("--archive-dir=")) opts.archiveDir = arg.slice("--archive-dir=".length);
-    else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
-    else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
-    else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
+  else if (arg.startsWith("--bucket=")) opts.bucket = arg.slice("--bucket=".length);
+  else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
+  else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
+  else if (arg.startsWith("--uplink-config-dir=")) opts.uplinkConfigDir = arg.slice("--uplink-config-dir=".length);
     else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -108,7 +112,18 @@ function parseArgs(argv) {
   opts.prefix = opts.prefix ?? null;
   opts.access = opts.access || process.env.STORJ_ACCESS || process.env.STORJ_ACCESS_GRANT;
   opts.passphrase = process.env.STORJ_PASSPHRASE || process.env.STORJ_ENCRYPTION_PASSPHRASE;
+  opts.uplinkConfigDir = resolveUplinkConfigDir(opts.uplinkConfigDir);
   return opts;
+}
+
+function resolveUplinkConfigDir(value) {
+  if (value) return path.resolve(value);
+  const envDir = process.env.STORJ_UPLINK_CONFIG_DIR;
+  if (envDir && String(envDir).trim()) return path.resolve(envDir);
+  const home = os.homedir();
+  return process.platform === "win32"
+    ? path.join(home, "AppData", "Local", "mb-tile-downloader", "storj")
+    : path.join(home, ".config", "mb-tile-downloader", "storj");
 }
 
 function normalizePrefix(prefix) {
@@ -180,16 +195,41 @@ function parseStorjCredentials({ access, passphrase }) {
   return { type: "access-grant", access: rawAccess };
 }
 
-function uplinkArgs(args) {
-  return ["--config-dir", UPLINK_CONFIG_DIR, ...args];
+function uplinkArgs(args, configDir) {
+  return ["--config-dir", configDir, ...args];
 }
 
-function runUplink(args, { allowFailure = false, input = null } = {}) {
-  const bin = fs.existsSync(LOCAL_UPLINK_BIN) ? LOCAL_UPLINK_BIN : "uplink";
+async function commandWorks(command) {
+  return new Promise((resolve) => {
+    const child = spawn(command, ["version"], { stdio: "ignore", env: process.env });
+    child.on("error", () => resolve(false));
+    child.on("close", (code) => resolve(code === 0));
+  });
+}
+
+let cachedUplinkBinary = null;
+async function resolveUplinkBinary() {
+  if (cachedUplinkBinary) return cachedUplinkBinary;
+  if (await commandWorks(LOCAL_UPLINK_BIN)) {
+    cachedUplinkBinary = LOCAL_UPLINK_BIN;
+    return cachedUplinkBinary;
+  }
+  if (await commandWorks("uplink")) {
+    cachedUplinkBinary = "uplink";
+    return cachedUplinkBinary;
+  }
+  throw new Error(
+    "No working Storj uplink binary found. Run 'node scripts/install-storj-uplink.js --if-missing' to install."
+  );
+}
+
+async function runUplink(args, { allowFailure = false, input = null, configDir } = {}) {
+  const bin = await resolveUplinkBinary();
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, uplinkArgs(args), {
+    const child = spawn(bin, uplinkArgs(args, configDir), {
       stdio: ["pipe", "pipe", "pipe"],
       env: process.env,
+      cwd: path.dirname(bin) === "." ? process.cwd() : path.dirname(bin),
     });
     let stdout = "";
     let stderr = "";
@@ -222,10 +262,10 @@ function runUplink(args, { allowFailure = false, input = null } = {}) {
   });
 }
 
-async function ensureAccessConfigured(credentials) {
-  await fsp.mkdir(UPLINK_CONFIG_DIR, { recursive: true });
+async function ensureAccessConfigured(credentials, configDir) {
+  await fsp.mkdir(configDir, { recursive: true });
   if (credentials.type === "access-grant") {
-    await runUplink(["access", "import", UPLINK_ACCESS_NAME, credentials.access, "--force", "--use"]);
+    await runUplink(["access", "import", UPLINK_ACCESS_NAME, credentials.access, "--force", "--use"], { configDir });
     return;
   }
 
@@ -243,7 +283,10 @@ async function ensureAccessConfigured(credentials) {
       "--force",
       "--use",
     ],
-    { input: `${credentials.passphrase}\n` }
+    {
+      input: `${credentials.passphrase}\n`,
+      configDir,
+    }
   );
 }
 
@@ -258,8 +301,8 @@ function uplinkListContainsObject(stdout, name) {
     });
 }
 
-async function remoteExists(url, name) {
-  const result = await runUplink(["ls", url], { allowFailure: true });
+async function remoteExists(url, name, configDir) {
+  const result = await runUplink(["ls", url], { allowFailure: true, configDir });
   if (result.code !== 0) return false;
   return uplinkListContainsObject(result.stdout, name);
 }
@@ -357,22 +400,22 @@ function filterArchivesByPlan(archives, plan) {
   return { archives: filtered, missing };
 }
 
-async function uploadArchive({ archive, bucket, prefix, access, dryRun, keepLocal }) {
+async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }, configDir) {
   const url = remoteUrl(bucket, prefix, archive.name);
   if (dryRun) {
     console.log(`DRY RUN upload: ${archive.filePath} -> ${url}`);
     return "dry-run";
   }
 
-  if (await remoteExists(url, archive.name)) {
+  if (await remoteExists(url, archive.name, configDir)) {
     console.log(`SKIP remote exists: ${archive.name}`);
     console.log(`  kept local: ${archive.filePath}`);
     return "skipped";
   }
 
   console.log(`UPLOAD: ${archive.name} size=${archive.size} -> ${url}`);
-  await runUplink(["cp", archive.filePath, url]);
-  if (!(await remoteExists(url, archive.name))) {
+  await runUplink(["cp", archive.filePath, url], { configDir });
+  if (!(await remoteExists(url, archive.name, configDir))) {
     throw new Error(`Remote verification failed after upload: ${url}`);
   }
   if (!keepLocal) {
@@ -387,11 +430,11 @@ function shareTargetUrl(bucket, prefix) {
   return cleanPrefix ? `sj://${bucket}/${cleanPrefix}/` : `sj://${bucket}/`;
 }
 
-async function removeLegacyManifest({ bucket, prefix, dryRun }) {
+async function removeLegacyManifest({ bucket, prefix, dryRun }, configDir) {
   const url = remoteUrl(bucket, prefix, LEGACY_MANIFEST_NAME);
   if (dryRun) return;
-  if (!(await remoteExists(url, LEGACY_MANIFEST_NAME))) return;
-  const result = await runUplink(["rm", url], { allowFailure: true });
+  if (!(await remoteExists(url, LEGACY_MANIFEST_NAME, configDir))) return;
+  const result = await runUplink(["rm", url], { allowFailure: true, configDir });
   if (result.code === 0) console.log(`REMOVED legacy manifest: ${url}`);
   else console.warn(`Legacy manifest cleanup failed for ${url}: ${result.stderr || result.stdout}`);
 }
@@ -401,7 +444,7 @@ function extractShareUrl(output) {
   return match ? match[0].trim() : null;
 }
 
-async function printShareLink({ bucket, prefix, dryRun }) {
+async function printShareLink({ bucket, prefix, dryRun }, configDir) {
   const target = shareTargetUrl(bucket, prefix);
   if (dryRun) {
     console.log(`Share link: dry-run skipped for ${target}`);
@@ -409,6 +452,7 @@ async function printShareLink({ bucket, prefix, dryRun }) {
   }
 
   const result = await runUplink(["share", "--url", "--readonly", "--not-after=none", target], {
+    configDir,
     allowFailure: true,
   });
   if (result.code !== 0) {
@@ -454,14 +498,17 @@ async function main() {
       access: opts.access,
       passphrase: opts.passphrase,
     });
-    await ensureAccessConfigured(credentials);
-    await removeLegacyManifest({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
+    await ensureAccessConfigured(credentials, opts.uplinkConfigDir);
+    await removeLegacyManifest(
+      { bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun },
+      opts.uplinkConfigDir
+    );
   }
 
   let uploaded = 0;
   let skipped = 0;
   for (const archive of archives) {
-    const result = await uploadArchive({ archive, ...opts });
+    const result = await uploadArchive({ archive, ...opts }, opts.uplinkConfigDir);
     if (result === "uploaded") uploaded++;
     else if (result === "skipped") skipped++;
   }
@@ -472,7 +519,10 @@ async function main() {
     console.log("Share link: skipped because config upload is incomplete");
     process.exitCode = 1;
   } else {
-    await printShareLink({ bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun });
+    await printShareLink(
+      { bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun },
+      opts.uplinkConfigDir
+    );
   }
 }
 
