@@ -4,6 +4,5 @@ export function loadServerConfig(env = process.env) {
     databaseUrl: env.DATABASE_URL || "",
     appSecret: env.APP_SECRET || "",
     agentToken: env.AGENT_TOKEN || "",
-    adminToken: env.DASHBOARD_ADMIN_TOKEN || "",
   };
 }

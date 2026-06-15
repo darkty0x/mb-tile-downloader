@@ -90,7 +90,6 @@ export function createDashboardApp({
   secretVault = null,
   telegramNotifier = null,
   agentToken = "",
-  adminToken = "",
   clientDir = DEFAULT_CLIENT_DIR,
 } = {}) {
   return http.createServer(async (req, res) => {
@@ -172,11 +171,6 @@ export function createDashboardApp({
       }
 
       if (url.pathname.startsWith("/api/")) {
-        if (!requireToken(req, adminToken)) {
-          json(res, 401, { error: "unauthorized" });
-          return;
-        }
-
         if (req.method === "GET" && url.pathname === "/api/machines") {
           json(res, 200, { machines: await store.listMachines() });
           return;
@@ -351,7 +345,6 @@ export async function createDashboardRuntime({
   const app = createDashboardApp({
     store,
     agentToken: config.agentToken,
-    adminToken: config.adminToken,
     secretVault,
     telegramNotifier: createTelegramNotifier(),
   });

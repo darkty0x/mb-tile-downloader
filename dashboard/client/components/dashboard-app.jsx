@@ -95,7 +95,6 @@ function useMaterialWeb() {
 }
 
 function useDashboardState() {
-  const [adminToken, setAdminToken] = useState("");
   const [machineSearch, setMachineSearch] = useState("");
   const [machines, setMachines] = useState([]);
   const [configs, setConfigs] = useState([]);
@@ -111,10 +110,6 @@ function useDashboardState() {
   const [notice, setNotice] = useState(null);
 
   useEffect(() => {
-    setAdminToken(localStorage.getItem("dashboardAdminToken") || "");
-  }, []);
-
-  useEffect(() => {
     if (!notice) return undefined;
     const timer = setTimeout(() => setNotice(null), 4500);
     return () => clearTimeout(timer);
@@ -125,7 +120,6 @@ function useDashboardState() {
       ...options,
       headers: {
         ...(options.body ? { "content-type": "application/json" } : {}),
-        authorization: `Bearer ${adminToken}`,
         ...(options.headers || {}),
       },
     });
@@ -136,7 +130,7 @@ function useDashboardState() {
   }
 
   async function refreshMachineData(machineId = selectedMachineId) {
-    if (!adminToken || !machineId) {
+    if (!machineId) {
       setConfigs([]);
       setEnvProfiles([]);
       setSecrets([]);
@@ -157,25 +151,11 @@ function useDashboardState() {
   }
 
   async function refreshSecretPool() {
-    if (!adminToken) {
-      setSecretPool([]);
-      return;
-    }
     const { secrets: nextSecretPool } = await api("/api/secrets");
     setSecretPool(nextSecretPool);
   }
 
   async function refreshAll() {
-    if (!adminToken) {
-      setMachines([]);
-      setConfigs([]);
-      setEnvProfiles([]);
-      setSecrets([]);
-      setSecretPool([]);
-      setEvents([]);
-      setSelectedMachineId(null);
-      return;
-    }
     setLoading(true);
     try {
       const [{ machines: nextMachines }, { secrets: nextSecretPool }] = await Promise.all([
@@ -195,23 +175,11 @@ function useDashboardState() {
   }
 
   useEffect(() => {
-    if (!adminToken) {
-      localStorage.removeItem("dashboardAdminToken");
-      setMachines([]);
-      setConfigs([]);
-      setEnvProfiles([]);
-      setSecrets([]);
-      setSecretPool([]);
-      setEvents([]);
-      setSelectedMachineId(null);
-      return undefined;
-    }
-    localStorage.setItem("dashboardAdminToken", adminToken);
     const timer = setTimeout(() => {
       refreshAll().catch((err) => setNotice({ message: err.message, kind: "error" }));
     }, 250);
     return () => clearTimeout(timer);
-  }, [adminToken]);
+  }, []);
 
   const selectedMachine = useMemo(() => machines.find((machine) => machine.machineId === selectedMachineId) || null, [machines, selectedMachineId]);
   const activeConfig = useMemo(() => configs.find((config) => config.active) || configs[0] || null, [configs]);
@@ -219,7 +187,6 @@ function useDashboardState() {
 
   return {
     state: {
-      adminToken,
       machineSearch,
       machines,
       configs,
@@ -239,7 +206,6 @@ function useDashboardState() {
     },
     actions: {
       api,
-      setAdminToken,
       setMachineSearch,
       setSelectedTab,
       setSelectedServerTab,
@@ -364,27 +330,17 @@ function Rail({ state, actions }) {
         })}
       </nav>
 
-      <form className="mt-auto grid grid-cols-[minmax(0,1fr)_40px] gap-2" onSubmit={(event) => {
+      <form className="mt-auto" onSubmit={(event) => {
         event.preventDefault();
         actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
       }}>
-        <label className="grid gap-1.5 text-[11px] text-[var(--ptg-rail-muted)]">
-          <span>Admin Token</span>
-          <input
-            value={state.adminToken}
-            onChange={(event) => actions.setAdminToken(event.target.value)}
-            type="password"
-            autoComplete="off"
-            className="h-9 rounded-lg border border-[#2f464d] bg-[#0f2028] px-3 text-[var(--ptg-rail-text)] focus:border-[#63cff4] focus:shadow-[0_0_0_3px_rgba(99,207,244,0.18)]"
-          />
-        </label>
         <button
           type="submit"
-          className="state-layer mt-auto inline-flex h-9 items-center justify-center rounded-lg border border-[#2d4952] bg-[#112b33] text-[var(--ptg-rail-text)]"
-          aria-label="Refresh"
+          className="state-layer inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#2d4952] bg-[#112b33] text-[12px] font-[700] text-[var(--ptg-rail-text)]"
           title="Refresh"
         >
           <Icon name="sync" className="h-4 w-4" />
+          Refresh
         </button>
       </form>
     </aside>
@@ -673,7 +629,6 @@ function Pipeline({ state }) {
 }
 
 function ServerPanel({ state, actions }) {
-  if (!state.adminToken) return null;
   const machine = state.selectedMachine;
   if (!machine) {
     return (
@@ -985,14 +940,7 @@ export default function DashboardApp() {
       <section className="min-w-0 overflow-hidden p-4">
         <Header state={state} />
         <Notice notice={state.notice} />
-        {!state.adminToken ? (
-          <section className="mt-3 grid min-h-[420px] place-items-center rounded-lg border border-dashed border-[var(--ptg-outline-strong)] bg-white text-center">
-            <div>
-              <h3 className="text-[18px] font-[760]">Admin token required</h3>
-              <p className="mt-1 text-[13px] text-[var(--ptg-on-surface-variant)]">Enter the dashboard admin token to load fleet state.</p>
-            </div>
-          </section>
-        ) : state.selectedTab === "secrets" ? (
+        {state.selectedTab === "secrets" ? (
           <SecretsDashboard state={state} actions={actions} />
         ) : (
           <section className="screen-enter mt-3 grid gap-2.5">

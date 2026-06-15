@@ -44,7 +44,6 @@ async function withServer(t, options = {}) {
       now: () => new Date("2026-06-16T00:00:00.000Z"),
     }),
     agentToken: "agent-token",
-    adminToken: "admin-token",
     ...options,
   });
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
@@ -138,18 +137,13 @@ test("agent registration conflict returns HTTP 409", async (t) => {
   assert.match(conflict.body.error, /already registered/);
 });
 
-test("dashboard machine list requires admin token", async (t) => {
+test("dashboard machine list is available without an admin token", async (t) => {
   const server = await withServer(t);
 
-  const unauthorized = await request(server, { path: "/api/machines" });
-  const authorized = await request(server, {
-    path: "/api/machines",
-    headers: { authorization: "Bearer admin-token" },
-  });
+  const response = await request(server, { path: "/api/machines" });
 
-  assert.equal(unauthorized.status, 401);
-  assert.equal(authorized.status, 200);
-  assert.deepEqual(authorized.body.machines, []);
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.machines, []);
 });
 
 test("dashboard app awaits async persistent store methods", async (t) => {

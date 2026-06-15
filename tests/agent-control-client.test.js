@@ -13,7 +13,6 @@ async function withServer(t) {
   const server = createDashboardApp({
     store,
     agentToken: "agent-token",
-    adminToken: "admin-token",
   });
   await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
   t.after(() => server.close());

@@ -14,7 +14,6 @@ test("dashboard runtime uses postgres store when DATABASE_URL is configured", as
       port: 0,
       databaseUrl: "postgres://example/db",
       agentToken: "agent",
-      adminToken: "admin",
       appSecret: "secret",
     },
     createDb: async ({ databaseUrl }) => {
@@ -45,7 +44,6 @@ test("dashboard runtime defaults to in-memory store without DATABASE_URL", async
       port: 0,
       databaseUrl: "",
       agentToken: "agent",
-      adminToken: "admin",
       appSecret: "secret",
     },
   });

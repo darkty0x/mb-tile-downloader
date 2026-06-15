@@ -10,7 +10,6 @@ Set these in Railway:
 DATABASE_URL=postgres://...
 APP_SECRET=<32+ random chars>
 AGENT_TOKEN=<shared agent bearer token>
-DASHBOARD_ADMIN_TOKEN=<dashboard admin bearer token>
 TELEGRAM_BOT_TOKEN=<optional>
 TELEGRAM_CHAT_ID=<optional>
 ```
@@ -31,14 +30,23 @@ or the included `railway.toml` start command.
 
 ## Start Locally
 
+Add local values to the ignored root `.env` file:
+
+```text
+PORT=3001
+DASHBOARD_URL=http://127.0.0.1:3001
+AGENT_TOKEN=<shared local agent token>
+APP_SECRET=<local development secret>
+MACHINE_ID=<local machine id>
+```
+
+Then start the dashboard:
+
 ```bash
-AGENT_TOKEN=dev \
-DASHBOARD_ADMIN_TOKEN=admin \
-APP_SECRET=local-development-secret \
 npm run dashboard
 ```
 
-Open `http://127.0.0.1:3001` and enter the admin token.
+Open `http://127.0.0.1:3001`.
 
 The browser dashboard is a Next.js static export styled with Tailwind CSS and Material Web components. `npm --prefix dashboard run build` exports the client into `dashboard/src/client/dist`, which the Node dashboard API serves.
 
