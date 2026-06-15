@@ -45,6 +45,7 @@ const DEFAULT_PROXY_FAILURE_BLOCK_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
 const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 80;
+const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 16;
 const DEFAULT_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=100&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps";
 
@@ -943,6 +944,14 @@ function proxyHealthcheckMaxCandidates(env = process.env) {
   ])) ?? DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES;
 }
 
+function proxyHealthcheckConcurrency(env = process.env) {
+  return parsePositiveInt(resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_CONCURRENCY",
+    "GEONODE_PROXY_HEALTHCHECK_CONCURRENCY",
+    "PROXY_HEALTHCHECK_CONCURRENCY",
+  ])) ?? DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY;
+}
+
 function isProxyHealthcheckResponseOk(response) {
   if (!response || !response.ok) return false;
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
@@ -958,14 +967,18 @@ async function filterProxyListByHealthcheck({
   healthcheckUrl,
   timeoutMs,
   maxCandidates,
+  concurrency,
 }) {
   if (!healthcheckUrl || !Array.isArray(proxies) || proxies.length === 0) return proxies || [];
 
-  const healthy = [];
   const candidates = proxies.slice(0, maxCandidates);
-  for (const proxy of candidates) {
+  const healthy = new Array(candidates.length).fill(false);
+  let nextIndex = 0;
+
+  async function checkCandidate(index) {
+    const proxy = candidates[index];
     const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
-    if (!dispatcher) continue;
+    if (!dispatcher) return;
     try {
       const response = await undici.fetch(healthcheckUrl, {
         dispatcher,
@@ -975,13 +988,24 @@ async function filterProxyListByHealthcheck({
           accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         },
       });
-      if (isProxyHealthcheckResponseOk(response)) healthy.push(proxy);
+      healthy[index] = isProxyHealthcheckResponseOk(response);
       await response.body?.cancel?.().catch?.(() => {});
     } catch {
       // Candidate failed the real target check; skip it.
     }
   }
-  return healthy;
+
+  const workerCount = Math.min(Math.max(1, concurrency || 1), candidates.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < candidates.length) {
+        const index = nextIndex++;
+        await checkCandidate(index);
+      }
+    })
+  );
+
+  return candidates.filter((_, index) => healthy[index]);
 }
 
 async function filterProxyEnvironmentByHealthcheck({
@@ -994,6 +1018,7 @@ async function filterProxyEnvironmentByHealthcheck({
   if (!healthcheckUrl) return proxyEnv;
   const timeoutMs = proxyHealthcheckTimeoutMs(env);
   const maxCandidates = proxyHealthcheckMaxCandidates(env);
+  const concurrency = proxyHealthcheckConcurrency(env);
   const healthcheckProtocol = (() => {
     try {
       return new URL(healthcheckUrl).protocol;
@@ -1011,6 +1036,7 @@ async function filterProxyEnvironmentByHealthcheck({
     healthcheckUrl,
     timeoutMs,
     maxCandidates,
+    concurrency,
   });
   const httpProxyList =
     healthcheckProtocol === "http:"

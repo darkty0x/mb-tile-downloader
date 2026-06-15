@@ -373,15 +373,19 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
-  const proxyRuntimeEnv = {
-    ...stripProcessProxyEnv(process.env),
-    ...(proxyHealthcheckUrlForConfig(config)
-      ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrlForConfig(config) }
-      : null),
-  };
 
   try {
-    const proxyRotation = await configureNetworking(config.platformProfile, proxyRuntimeEnv);
+    const proxyRuntimeEnv = opts.dryRun
+      ? null
+      : {
+          ...stripProcessProxyEnv(process.env),
+          ...(proxyHealthcheckUrlForConfig(config)
+            ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrlForConfig(config) }
+            : null),
+        };
+    const proxyRotation = opts.dryRun
+      ? null
+      : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
     console.log("");
     console.log(`Config: ${config.configPath}`);
     console.log(`Job: ${config.jobName}`);

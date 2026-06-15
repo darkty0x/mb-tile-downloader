@@ -61,3 +61,26 @@ test("downloader accepts --max-concurrent-requests and applies it to runtime pro
 
   assert.ok(stdout.includes("Concurrency: requests=192"), stdout);
 });
+
+test("downloader dry-run skips proxy discovery", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-dry-proxy-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", configPath, "--dry-run"],
+    {
+      cwd: process.cwd(),
+      timeout: 3_000,
+      env: {
+        ...process.env,
+        GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
+        GEONODE_HTTPS_PROXY_LIST: "http://127.0.0.1:9",
+        TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "5000",
+      },
+    }
+  );
+
+  assert.ok(stdout.includes("Mode: dry-run"), stdout);
+});
