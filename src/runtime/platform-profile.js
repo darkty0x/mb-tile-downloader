@@ -952,6 +952,40 @@ function proxyHealthcheckConcurrency(env = process.env) {
   ])) ?? DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY;
 }
 
+function isTruthyEnv(value) {
+  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
+}
+
+function proxyTraceEnabled(env = process.env) {
+  return (
+    isTruthyEnv(resolveAnyEnv(env, [
+      "TILE_DOWNLOADER_PROXY_TRACE",
+      "GEONODE_PROXY_TRACE",
+      "PROXY_TRACE",
+    ])) ||
+    isTruthyEnv(env?.PROXY_DEBUG) ||
+    isTruthyEnv(process.env.PROXY_DEBUG)
+  );
+}
+
+function describeProxyTraceUrl(urlLike) {
+  try {
+    const url = new URL(String(urlLike));
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return String(urlLike || "").split("?")[0];
+  }
+}
+
+function proxyTrace(env, event, fields = {}) {
+  if (!proxyTraceEnabled(env)) return;
+  const suffix = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
+    .join(" ");
+  console.log(`proxy-trace: ${event}${suffix ? ` ${suffix}` : ""}`);
+}
+
 function isProxyHealthcheckResponseOk(response) {
   if (!response || !response.ok) return false;
   const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
@@ -968,6 +1002,7 @@ async function filterProxyListByHealthcheck({
   timeoutMs,
   maxCandidates,
   concurrency,
+  env = process.env,
 }) {
   if (!healthcheckUrl || !Array.isArray(proxies) || proxies.length === 0) return proxies || [];
 
@@ -979,6 +1014,11 @@ async function filterProxyListByHealthcheck({
     const proxy = candidates[index];
     const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
     if (!dispatcher) return;
+    proxyTrace(env, "healthcheck-start", {
+      protocol,
+      proxy,
+      url: describeProxyTraceUrl(healthcheckUrl),
+    });
     try {
       const response = await undici.fetch(healthcheckUrl, {
         dispatcher,
@@ -989,8 +1029,20 @@ async function filterProxyListByHealthcheck({
         },
       });
       healthy[index] = isProxyHealthcheckResponseOk(response);
+      proxyTrace(env, healthy[index] ? "healthcheck-ok" : "healthcheck-fail", {
+        protocol,
+        proxy,
+        status: response.status,
+        contentType: response.headers?.get?.("content-type") || "unknown",
+      });
       await response.body?.cancel?.().catch?.(() => {});
-    } catch {
+    } catch (error) {
+      proxyTrace(env, "healthcheck-error", {
+        protocol,
+        proxy,
+        code: error?.code || error?.cause?.code || "error",
+        message: error?.message || String(error),
+      });
       // Candidate failed the real target check; skip it.
     }
   }
@@ -1005,7 +1057,15 @@ async function filterProxyListByHealthcheck({
     })
   );
 
-  return candidates.filter((_, index) => healthy[index]);
+  const healthyCandidates = candidates.filter((_, index) => healthy[index]);
+  proxyTrace(env, "healthcheck-summary", {
+    protocol,
+    candidates: candidates.length,
+    healthy: healthyCandidates.length,
+    timeoutMs,
+    concurrency: workerCount,
+  });
+  return healthyCandidates;
 }
 
 async function filterProxyEnvironmentByHealthcheck({
@@ -1037,6 +1097,7 @@ async function filterProxyEnvironmentByHealthcheck({
     timeoutMs,
     maxCandidates,
     concurrency,
+    env,
   });
   const httpProxyList =
     healthcheckProtocol === "http:"
@@ -1080,6 +1141,7 @@ function createProxyRotationState(
   const maxConsecutiveFailures = parseProxyFailureThreshold(env);
   const failureWindowMs = 5 * 60_000;
   const normalizedFailureBlockMs = Math.max(1, parsePositiveInt(failureBlockMs) || DEFAULT_PROXY_FAILURE_BLOCK_MS);
+  const traceEnabled = proxyTraceEnabled(env);
 
   function protocolKey(protocol) {
     return protocol === "https:" ? "https" : "http";
@@ -1117,19 +1179,48 @@ function createProxyRotationState(
   function pickProxy(protocol, proxyEnv) {
     const key = protocolKey(protocol);
     const candidates = candidatesByProtocol(protocol);
-    if (candidates.length === 0) return null;
+    if (candidates.length === 0) {
+      proxyTrace(env, "rotate-none", { protocol, reason: "no-candidates" });
+      return null;
+    }
 
     cleanupFailures(key);
 
     const randomOffset = Math.floor(Math.random() * candidates.length);
     let index = randomOffset;
     if (Number.isNaN(index) || index < 0) index = 0;
+    let blocked = 0;
     for (let offset = 0; offset < candidates.length; offset++) {
       const candidateIndex = (index + offset) % candidates.length;
       const candidate = candidates[candidateIndex];
-      if (isHealthyCandidate(candidate, key)) return candidate;
+      if (isHealthyCandidate(candidate, key)) {
+        proxyTrace(env, "rotate-pick", {
+          protocol,
+          proxy: candidate,
+          offset,
+          total: candidates.length,
+          blocked,
+        });
+        return candidate;
+      }
+      blocked++;
     }
+    proxyTrace(env, "rotate-none", {
+      protocol,
+      reason: "all-blocked",
+      total: candidates.length,
+      blocked,
+    });
     return null;
+  }
+
+  if (traceEnabled) {
+    proxyTrace(env, "rotation-ready", {
+      http: proxyEnv.httpProxyList?.length || 0,
+      https: proxyEnv.httpsProxyList?.length || 0,
+      failureThreshold: maxConsecutiveFailures,
+      blockMs: normalizedFailureBlockMs,
+    });
   }
 
   return {
@@ -1145,6 +1236,9 @@ function createProxyRotationState(
     markProxySuccess(protocol, proxy) {
       const key = protocolKey(protocol);
       if (!proxy) return;
+      if (failureState[key].has(proxy)) {
+        proxyTrace(env, "proxy-success-clear", { protocol, proxy });
+      }
       failureState[key].delete(proxy);
     },
     markProxyFailure(protocol, proxy, error = null) {
@@ -1161,6 +1255,15 @@ function createProxyRotationState(
         failures,
         until: Date.now() + failureWindowMs,
         blockedUntil,
+      });
+      proxyTrace(env, shouldBlock ? "proxy-failure-block" : "proxy-failure", {
+        protocol,
+        proxy,
+        failures,
+        threshold: maxConsecutiveFailures,
+        blockMs: shouldBlock ? normalizedFailureBlockMs : 0,
+        code: error?.code || error?.cause?.code || "",
+        message: error?.message || "",
       });
       if (shouldBlock) {
         void persist(failureState);
@@ -1186,6 +1289,11 @@ function createProxyRotationState(
         keyState.failures = Math.max(keyState.failures, maxConsecutiveFailures);
         failureState[key].set(candidate, keyState);
       }
+      proxyTrace(env, "proxy-block", {
+        protocol: parsedKey || "all",
+        proxy: candidate,
+        blockMs,
+      });
       void persist(failureState);
     },
     buildDispatcherFor(undici, protocol, agentOptions, proxyUrl, proxyEnv, directAgent) {
@@ -1354,6 +1462,10 @@ export async function configureNetworking(profile) {
       if (init.dispatcher) return undici.fetch(input, init);
 
       if (shouldBypassProxy(url, proxyEnv.noProxy)) {
+        proxyTrace(env, "request-bypass", {
+          url: describeProxyTraceUrl(url),
+          reason: "no-proxy-rule",
+        });
         return undici.fetch(input, {
           ...init,
           dispatcher: directAgent,
@@ -1371,11 +1483,22 @@ export async function configureNetworking(profile) {
         directAgent
       );
       const activeProxy = dispatcher === directAgent ? null : proxy;
+      proxyTrace(env, "request", {
+        protocol,
+        proxy: activeProxy || "direct",
+        url: describeProxyTraceUrl(url),
+      });
       return undici.fetch(input, {
         ...init,
         dispatcher: init.dispatcher || dispatcher,
       }).then(
         (response) => {
+          proxyTrace(env, "response", {
+            protocol,
+            proxy: activeProxy || "direct",
+            status: response.status,
+            url: describeProxyTraceUrl(url),
+          });
           if (activeProxy) {
             proxyRotation.markProxySuccess(protocol, activeProxy);
             attachProxyInfo(response, {
@@ -1387,6 +1510,13 @@ export async function configureNetworking(profile) {
           return response;
         },
         async (error) => {
+          proxyTrace(env, "request-error", {
+            protocol,
+            proxy: activeProxy || "direct",
+            code: error?.code || error?.cause?.code || "error",
+            message: error?.message || String(error),
+            url: describeProxyTraceUrl(url),
+          });
           if (activeProxy) {
             proxyRotation.markProxyFailure(protocol, activeProxy, error);
           }
