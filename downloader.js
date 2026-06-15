@@ -43,6 +43,15 @@ function parseBoolean(value) {
   return null;
 }
 
+function proxyModeLabel(env = process.env) {
+  const mode = String(env.TILE_DOWNLOADER_PROXY_MODE || env.PROXY_MODE || "fallback")
+    .trim()
+    .toLowerCase();
+  return ["always", "force", "proxy"].includes(mode)
+    ? "always"
+    : "fallback";
+}
+
 function ensureDownloaderHeapLimit() {
   if (process.env.TILE_DOWNLOADER_HEAP_REEXEC === "1") return;
   if (process.execArgv.some((arg) => arg.startsWith("--max-old-space-size"))) return;
@@ -382,7 +391,12 @@ async function runOneConfig(configPath, opts) {
     console.log(`Output: ${config.output.dir}`);
     console.log(`State DB: ${stateDbPath}`);
     if (!opts.dryRun && proxyRotation) {
-      console.log("Proxy: enabled from env");
+      const mode = proxyModeLabel(process.env);
+      console.log(
+        mode === "always"
+          ? "Proxy: always enabled from env"
+          : "Proxy: fallback enabled from env (direct first)"
+      );
     } else if (opts.noProxy) {
       console.log("Proxy: disabled (--no-proxy)");
     } else if (!opts.dryRun) {

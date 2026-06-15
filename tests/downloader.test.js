@@ -107,7 +107,7 @@ test("downloader --no-proxy skips proxy discovery without requiring a healthy pr
   );
 
   assert.ok(stdout.includes("Proxy: disabled (--no-proxy)"), stdout);
-  assert.equal(stdout.includes("Proxy: enabled from env"), false);
+  assert.equal(stdout.includes("Proxy: fallback enabled from env"), false);
   assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
 });
 
@@ -150,7 +150,7 @@ test("downloader enables paid proxy list from environment", async () => {
     }
   );
 
-  assert.ok(stdout.includes("Proxy: enabled from env"), stdout);
+  assert.ok(stdout.includes("Proxy: fallback enabled from env (direct first)"), stdout);
   assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
 });
 

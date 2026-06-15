@@ -138,6 +138,7 @@ test("configureNetworking rotates HTTPS requests across env proxy list", async (
     {
       TILE_DOWNLOADER_PROXY_LIST:
         "http://proxy-a.example:8080,http://proxy-b.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );
@@ -152,6 +153,51 @@ test("configureNetworking rotates HTTPS requests across env proxy list", async (
   assert.equal(second[PROXY_INFO_SYMBOL].proxy, "http://proxy-b.example:8080");
 });
 
+test("configureNetworking defaults to direct fetch before proxy", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  await configureNetworking(
+    profile(),
+    {
+      TILE_DOWNLOADER_PROXY_LIST: "http://proxy.example:8080",
+    },
+    { undici, targetGlobal }
+  );
+
+  const response = await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(await response.text(), "ok");
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
+});
+
+test("configureNetworking falls back to paid proxy when direct Esri access is blocked", async () => {
+  const undici = createFakeUndici(async (input, init) => {
+    if (init.dispatcher.kind === "direct") {
+      return new Response("blocked", { status: 403 });
+    }
+    return new Response("proxy ok");
+  });
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  await configureNetworking(
+    profile(),
+    {
+      TILE_DOWNLOADER_PROXY_LIST: "http://proxy.example:8080",
+    },
+    { undici, targetGlobal }
+  );
+
+  const response = await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(await response.text(), "proxy ok");
+  assert.equal(undici.state.fetchCalls.length, 2);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.kind, "proxy");
+  assert.equal(response[PROXY_INFO_SYMBOL].proxy, "http://proxy.example:8080");
+});
+
 test("protocol-specific proxy lists are used for matching request protocols", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
@@ -161,6 +207,7 @@ test("protocol-specific proxy lists are used for matching request protocols", as
     {
       TILE_DOWNLOADER_HTTP_PROXY_LIST: "http://http-proxy.example:8080",
       TILE_DOWNLOADER_HTTPS_PROXY_LIST: "http://https-proxy.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );
@@ -206,6 +253,8 @@ test("failed paid proxy is skipped on the next request", async () => {
       TILE_DOWNLOADER_PROXY_LIST:
         "http://proxy-a.example:8080,http://proxy-b.example:8080",
       TILE_DOWNLOADER_PROXY_FAILURE_BLOCK_MS: "10000",
+      TILE_DOWNLOADER_PROXY_ATTEMPTS_PER_REQUEST: "1",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );
@@ -220,6 +269,35 @@ test("failed paid proxy is skipped on the next request", async () => {
   assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://proxy-b.example:8080");
 });
 
+test("failed paid proxy retries another proxy within the same request", async () => {
+  const undici = createFakeUndici(async (input, init) => {
+    if (init.dispatcher.options.httpsProxy === "http://proxy-a.example:8080") {
+      throw new Error("proxy failed");
+    }
+    return new Response("ok");
+  });
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  const response = await (async () => {
+    await configureNetworking(
+      profile(),
+      {
+        TILE_DOWNLOADER_PROXY_LIST:
+          "http://proxy-a.example:8080,http://proxy-b.example:8080",
+        TILE_DOWNLOADER_PROXY_FAILURE_BLOCK_MS: "10000",
+        TILE_DOWNLOADER_PROXY_MODE: "always",
+      },
+      { undici, targetGlobal }
+    );
+    return targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  })();
+
+  assert.equal(await response.text(), "ok");
+  assert.equal(undici.state.fetchCalls.length, 2);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://proxy-a.example:8080");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://proxy-b.example:8080");
+});
+
 test("markProxyBlocked skips a paid proxy without touching files or API state", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
@@ -229,6 +307,7 @@ test("markProxyBlocked skips a paid proxy without touching files or API state", 
     {
       TILE_DOWNLOADER_PROXY_LIST:
         "http://proxy-a.example:8080,http://proxy-b.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );
@@ -247,6 +326,7 @@ test("all blocked paid proxies throw instead of falling back to direct", async (
     profile(),
     {
       TILE_DOWNLOADER_PROXY_LIST: "http://proxy-a.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );

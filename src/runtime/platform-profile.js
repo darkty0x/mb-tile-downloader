@@ -162,6 +162,25 @@ function parseProxyFailureBlockMs(env = process.env) {
   );
 }
 
+function parseProxyAttemptsPerRequest(env = process.env, candidateCount = 0) {
+  const configured = parsePositiveInt(
+    resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_ATTEMPTS_PER_REQUEST", "PROXY_ATTEMPTS_PER_REQUEST"])
+  );
+  const fallback = Math.min(Math.max(candidateCount, 1), 8);
+  return Math.min(Math.max(configured || fallback, 1), Math.max(candidateCount, 1));
+}
+
+function proxyMode(env = process.env) {
+  const configured = resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_MODE", "PROXY_MODE"]).toLowerCase();
+  if (["always", "force", "proxy"].includes(configured)) return "always";
+  if (["fallback", "auto", "direct-first", "direct_first"].includes(configured)) return "fallback";
+  return "fallback";
+}
+
+function shouldFallbackToProxy(response) {
+  return response?.status === 403 || response?.status === 429;
+}
+
 function protocolKey(protocol) {
   return protocol === "https:" ? "https" : "http";
 }
@@ -354,6 +373,9 @@ function createProxyRotationState(proxyEnv, env = process.env) {
 
   return {
     pickProxy,
+    candidateCount(protocol) {
+      return candidatesByProtocol(protocol).length;
+    },
     hasHealthyCandidate(protocol) {
       const key = protocolKey(protocol);
       return candidatesByProtocol(protocol).some((proxy) => !isBlocked(key, proxy));
@@ -490,20 +512,55 @@ export async function configureNetworking(profile, env = process.env, runtime = 
       }
 
       const protocol = new URL(url).protocol;
-      const proxy = proxyRotation.pickProxy(protocol);
-      if (!proxy) throw new NoHealthyProxyError();
-      const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
+      const fetchWithProxy = async () => {
+        const maxProxyAttempts = parseProxyAttemptsPerRequest(
+          env,
+          proxyRotation.candidateCount?.(protocol) || 0
+        );
+        let lastError = null;
+        for (let attempt = 0; attempt < maxProxyAttempts; attempt++) {
+          const proxy = proxyRotation.pickProxy(protocol);
+          if (!proxy) {
+            if (lastError) throw lastError;
+            throw new NoHealthyProxyError();
+          }
+          const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
+          try {
+            const response = await undici.fetch(input, {
+              ...init,
+              dispatcher,
+            });
+            attachProxyInfo(response, { proxy, protocol, url });
+            return response;
+          } catch (error) {
+            proxyRotation.markProxyFailure(protocol, proxy, error);
+            attachProxyInfo(error, { proxy, protocol, url, error: true });
+            lastError = error;
+          }
+        }
+        throw lastError || new NoHealthyProxyError();
+      };
+
+      if (proxyMode(env) === "always") return fetchWithProxy();
+
+      let directResponse;
       try {
-        const response = await undici.fetch(input, {
+        directResponse = await undici.fetch(input, {
           ...init,
-          dispatcher,
+          dispatcher: directAgent,
         });
-        attachProxyInfo(response, { proxy, protocol, url });
-        return response;
       } catch (error) {
-        proxyRotation.markProxyFailure(protocol, proxy, error);
-        attachProxyInfo(error, { proxy, protocol, url, error: true });
-        throw error;
+        try {
+          return await fetchWithProxy();
+        } catch {
+          throw error;
+        }
+      }
+      if (!shouldFallbackToProxy(directResponse)) return directResponse;
+      try {
+        return await fetchWithProxy();
+      } catch {
+        return directResponse;
       }
     };
     targetGlobal[WRAPPED_FETCH] = true;

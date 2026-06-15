@@ -122,6 +122,19 @@ function shouldBlockProxyOnUnavailable(providerName, env = process.env) {
   return explicit ?? false;
 }
 
+function proxyTransportRetryLimit(providerName, env = process.env) {
+  if (providerName !== "esri") return 0;
+  return (
+    parsePositiveInt(env.TILE_DOWNLOADER_ESRI_PROXY_TRANSPORT_RETRIES) ??
+    parsePositiveInt(env.TILE_DOWNLOADER_PROXY_TRANSPORT_RETRIES) ??
+    64
+  );
+}
+
+function proxyTransportRetryDelayMs(baseMs, attempt) {
+  return Math.min(retryDelayMs(baseMs, attempt), 1_000);
+}
+
 const WAYBACK_RELEASE_CACHE = new Map();
 
 function traceEnabled(env = process.env) {
@@ -793,11 +806,13 @@ async function downloadOneTile({
     tileRetryFloor(provider.name),
     Number(config.performance?.maxRetries || 3)
   );
+  const maxProxyTransportRetries = proxyTransportRetryLimit(provider.name, env);
   const backoffMs = Math.max(1, Number(config.performance?.retryBackoffMs || 150));
   const timeoutMs = Math.max(1000, Number(config.platformProfile?.requestTimeoutMs || 25_000));
   const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
   let lastUnavailableTile = null;
   let lastRetryStatus = null;
+  let proxyTransportAttempts = 0;
 
   async function writeFallbackTile() {
     if (provider.name !== "esri") return false;
@@ -913,6 +928,17 @@ async function downloadOneTile({
     } catch (err) {
       await fsp.rm(tmpPath, { force: true }).catch(() => {});
       if (/All Mapbox access tokens/.test(String(err?.message))) throw err;
+      const proxyInfo = err?.[PROXY_INFO_SYMBOL] || null;
+      if (
+        provider.name === "esri" &&
+        maxProxyTransportRetries > 0 &&
+        (proxyInfo?.proxy || err?.code === "NO_HEALTHY_PROXY") &&
+        proxyTransportAttempts < maxProxyTransportRetries
+      ) {
+        proxyTransportAttempts++;
+        await sleepImpl(proxyTransportRetryDelayMs(backoffMs, proxyTransportAttempts));
+        continue;
+      }
       networkAttempt++;
       if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
     }
