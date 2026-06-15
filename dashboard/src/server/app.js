@@ -145,6 +145,18 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/agents/configs") {
+          const machineId = url.searchParams.get("machineId") || undefined;
+          json(res, 200, { configs: await store.listConfigs({ machineId }) });
+          return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/agents/env-profiles") {
+          const machineId = url.searchParams.get("machineId") || undefined;
+          json(res, 200, { envProfiles: await store.listEnvProfiles({ machineId }) });
+          return;
+        }
+
         json(res, 404, { error: "not found" });
         return;
       }
@@ -191,6 +203,11 @@ export function createDashboardApp({
           json(res, 200, { config: await store.updateConfig(configId, body) });
           return;
         }
+        if (req.method === "DELETE" && configMatch) {
+          const configId = decodeURIComponent(configMatch[1]);
+          json(res, 200, { config: await store.deleteConfig(configId) });
+          return;
+        }
 
         if (req.method === "POST" && url.pathname === "/api/env-profiles") {
           const body = await readJson(req);
@@ -203,6 +220,11 @@ export function createDashboardApp({
           const body = await readJson(req);
           const envProfileId = decodeURIComponent(envProfileMatch[1]);
           json(res, 200, { envProfile: await store.updateEnvProfile(envProfileId, body) });
+          return;
+        }
+        if (req.method === "DELETE" && envProfileMatch) {
+          const envProfileId = decodeURIComponent(envProfileMatch[1]);
+          json(res, 200, { envProfile: await store.deleteEnvProfile(envProfileId) });
           return;
         }
 
@@ -226,6 +248,27 @@ export function createDashboardApp({
               .find((item) => item.secretId === secret.secretId),
           });
           return;
+        }
+
+        const secretMatch = /^\/api\/secrets\/([^/]+)$/.exec(url.pathname);
+        if (secretMatch) {
+          if (!secretVault) throw new Error("secret vault is not configured");
+          const secretId = decodeURIComponent(secretMatch[1]);
+          if (req.method === "PUT") {
+            const body = await readJson(req);
+            const secret = await secretVault.updateSecret(secretId, body);
+            json(res, 200, {
+              secret: (await secretVault
+                .listSecretsForBrowser({ machineId: secret.machineId || undefined }))
+                .find((item) => item.secretId === secret.secretId),
+            });
+            return;
+          }
+          if (req.method === "DELETE") {
+            const secret = await secretVault.deleteSecret(secretId);
+            json(res, 200, { secretId: secret.secretId });
+            return;
+          }
         }
 
         const machineMatch = /^\/api\/machines\/([^/]+)$/.exec(url.pathname);

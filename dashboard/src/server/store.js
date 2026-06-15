@@ -260,6 +260,7 @@ export function createDashboardStore({
       const next = {
         ...existing,
         configId: `${existing.configId}-v${existing.version + 1}`,
+        name: input.name ? requireNonEmpty(input.name, "name") : existing.name,
         version: existing.version + 1,
         config: validateConfig(input.config ?? existing.config),
         active: Boolean(input.active),
@@ -272,6 +273,13 @@ export function createDashboardStore({
       }
       configs.set(next.configId, next);
       return normalizeConfig(next);
+    },
+
+    deleteConfig(configId) {
+      const existing = configs.get(configId);
+      if (!existing) throw new Error(`config "${configId}" not found`);
+      configs.delete(configId);
+      return normalizeConfig(existing);
     },
 
     listConfigs({ machineId } = {}) {
@@ -313,6 +321,7 @@ export function createDashboardStore({
       const next = {
         ...existing,
         envProfileId: `${existing.envProfileId}-v${existing.version + 1}`,
+        name: input.name ? requireNonEmpty(input.name, "name") : existing.name,
         version: existing.version + 1,
         env: normalizeEnv(input.env ?? existing.env),
         active: Boolean(input.active),
@@ -326,6 +335,13 @@ export function createDashboardStore({
       }
       envProfiles.set(next.envProfileId, next);
       return normalizeEnvProfile(next);
+    },
+
+    deleteEnvProfile(envProfileId) {
+      const existing = envProfiles.get(envProfileId);
+      if (!existing) throw new Error(`env profile "${envProfileId}" not found`);
+      envProfiles.delete(envProfileId);
+      return normalizeEnvProfile(existing);
     },
 
     listEnvProfiles({ machineId } = {}) {

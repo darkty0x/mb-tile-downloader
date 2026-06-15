@@ -212,3 +212,48 @@ test("dashboard app awaits async secret vault methods", async (t) => {
   assert.equal(saved.body.secret.secretId, "secret-a");
   assert.equal(agent.body.secrets[0].value, "pk.secret-value");
 });
+
+test("dashboard app exposes secret update and delete management routes", async (t) => {
+  const calls = [];
+  const server = await withServer(t, {
+    secretVault: {
+      async createSecret(input) {
+        calls.push(["create", input]);
+        return { secretId: "secret-a", machineId: input.machineId };
+      },
+      async updateSecret(secretId, input) {
+        calls.push(["update", secretId, input]);
+        return { secretId, machineId: input.machineId || "worker-a" };
+      },
+      async deleteSecret(secretId) {
+        calls.push(["delete", secretId]);
+        return { secretId };
+      },
+      async listSecretsForBrowser() {
+        return [{ secretId: "secret-a", redactedValue: "pk.s...alue", status: "inactive" }];
+      },
+      async listSecretsForAgent() {
+        return [];
+      },
+    },
+  });
+
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/secrets/secret-a",
+    headers: { authorization: "Bearer admin-token" },
+    body: { machineId: "worker-a", label: "backup", status: "inactive" },
+  });
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: "/api/secrets/secret-a",
+    headers: { authorization: "Bearer admin-token" },
+  });
+
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.secret.status, "inactive");
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.secretId, "secret-a");
+  assert.equal(calls[0][0], "update");
+  assert.equal(calls[1][0], "delete");
+});

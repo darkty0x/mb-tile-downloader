@@ -3,63 +3,59 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>MB Tile Fleet</title>
+    <title>PTG Dashboard</title>
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
-    <main class="shell">
-      <aside class="sidebar">
-        <div class="title-row">
-          <h1>MB Tile Fleet</h1>
-          <button id="refresh" title="Refresh">↻</button>
-        </div>
-        <label class="token-label">
-          Admin token
-          <input id="admin-token" type="password" autocomplete="off" />
-        </label>
-        <div id="machine-list" class="machine-list"></div>
-      </aside>
-      <section class="content">
-        <header class="machine-header">
-          <div>
-            <p class="eyebrow">Selected Machine</p>
-            <h2 id="machine-title">No machine selected</h2>
+    <main class="app-shell">
+      <aside class="fleet-rail">
+        <section class="brand">
+          <div class="brand-mark" aria-hidden="true">
+            <span>P</span><span>T</span><span>G</span>
           </div>
-          <div class="actions">
-            <button data-command="run_preflight">Preflight</button>
-            <button data-command="start_pipeline">Start</button>
-            <button data-command="pause_after_range">Pause</button>
-            <button data-command="stop_pipeline">Stop</button>
+          <div>
+            <h1>PTG Dashboard</h1>
+            <p>PTG Management Dashboard</p>
+          </div>
+        </section>
+
+        <nav id="tabs" class="side-nav" aria-label="Dashboard sections"></nav>
+
+        <section class="rail-footer">
+          <label class="token-box">
+            <span>Admin Token</span>
+            <input id="admin-token" type="password" autocomplete="off" />
+          </label>
+          <button class="refresh-button" id="refresh" title="Refresh" aria-label="Refresh"></button>
+        </section>
+      </aside>
+
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <div class="machine-title-row">
+              <h2 id="machine-title">No machine selected</h2>
+              <span id="machine-status" class="status-pill neutral">Waiting</span>
+            </div>
+            <div id="machine-meta" class="machine-meta"></div>
+          </div>
+          <div class="command-bar">
+            <button class="command secondary" data-command="run_preflight"></button>
+            <button class="command primary" data-command="start_pipeline"></button>
+            <button class="command secondary" data-command="pause_after_range"></button>
+            <button class="command danger" data-command="stop_pipeline"></button>
+            <button class="command secondary" data-command="sync_config"></button>
+            <button class="command secondary" data-command="sync_env"></button>
           </div>
         </header>
-        <section class="grid">
-          <section class="panel">
-            <h3>Disk</h3>
-            <div id="disk-panel" class="disk-panel"></div>
-          </section>
-          <section class="panel">
-            <h3>Env Profile</h3>
-            <textarea id="env-json" spellcheck="false">{"TILE_DOWNLOADER_MAX_CONCURRENCY":64}</textarea>
-            <button id="save-env">Save Env</button>
-          </section>
-          <section class="panel">
-            <h3>Secret</h3>
-            <select id="secret-type">
-              <option value="mapbox_token">Mapbox token</option>
-              <option value="proxy_txt">Proxy txt</option>
-              <option value="storj_access">Storj access</option>
-            </select>
-            <input id="secret-label" placeholder="label" />
-            <textarea id="secret-value" spellcheck="false" placeholder="value"></textarea>
-            <button id="save-secret">Save Secret</button>
-          </section>
-          <section class="panel console-panel">
-            <h3>Console</h3>
-            <pre id="event-console"></pre>
-          </section>
-        </section>
+
+        <div id="notice" class="notice" hidden></div>
+        <section id="view" class="view"></section>
       </section>
+
+      <aside id="inspector" class="inspector" hidden></aside>
     </main>
+
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access"]);
+const VALID_SECRET_STATUSES = new Set(["active", "inactive", "error"]);
 
 function keyFromSecret(appSecret) {
   if (!appSecret) throw new Error("APP_SECRET is required for secret encryption");
@@ -49,6 +50,11 @@ function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
   };
 }
 
+function validateStatus(status = "active") {
+  if (!VALID_SECRET_STATUSES.has(status)) throw new Error(`invalid secret status: ${status}`);
+  return status;
+}
+
 function normalizeSecretRow(row) {
   return {
     secretId: row.secret_id,
@@ -77,12 +83,37 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
         secretType: input.secretType,
         label: input.label || input.secretType,
         encryptedValue: encrypt(input.value, appSecret),
-        status: "active",
+        status: validateStatus(input.status || "active"),
         createdAt: at,
         updatedAt: at,
       };
       records.set(record.secretId, record);
       return { ...record };
+    },
+
+    updateSecret(secretId, input = {}) {
+      const existing = records.get(secretId);
+      if (!existing) throw new Error(`secret "${secretId}" not found`);
+      const at = now().toISOString();
+      const next = {
+        ...existing,
+        machineId: input.machineId === undefined ? existing.machineId : input.machineId || null,
+        label: input.label === undefined ? existing.label : input.label || existing.secretType,
+        encryptedValue: input.value === undefined
+          ? existing.encryptedValue
+          : encrypt(input.value, appSecret),
+        status: input.status === undefined ? existing.status : validateStatus(input.status),
+        updatedAt: at,
+      };
+      records.set(secretId, next);
+      return { ...next };
+    },
+
+    deleteSecret(secretId) {
+      const existing = records.get(secretId);
+      if (!existing) throw new Error(`secret "${secretId}" not found`);
+      records.delete(secretId);
+      return { ...existing };
     },
 
     listSecretsForBrowser({ machineId } = {}) {
@@ -133,11 +164,43 @@ export function createPostgresSecretVault({
           input.secretType,
           input.label || input.secretType,
           encrypt(input.value, appSecret),
-          "active",
+          validateStatus(input.status || "active"),
           at,
           at,
         ]
       );
+      return normalizeSecretRow(result.rows[0]);
+    },
+
+    async updateSecret(secretId, input = {}) {
+      const existing = await db.query("SELECT * FROM secrets WHERE secret_id=$1", [secretId]);
+      const row = existing.rows[0];
+      if (!row) throw new Error(`secret "${secretId}" not found`);
+      const at = now().toISOString();
+      const result = await db.query(
+        `UPDATE secrets SET
+          machine_id=$1,
+          label=$2,
+          encrypted_value=$3,
+          status=$4,
+          updated_at=$5
+        WHERE secret_id=$6
+        RETURNING *`,
+        [
+          input.machineId === undefined ? row.machine_id : input.machineId || null,
+          input.label === undefined ? row.label : input.label || row.secret_type,
+          input.value === undefined ? row.encrypted_value : encrypt(input.value, appSecret),
+          input.status === undefined ? row.status : validateStatus(input.status),
+          at,
+          secretId,
+        ]
+      );
+      return normalizeSecretRow(result.rows[0]);
+    },
+
+    async deleteSecret(secretId) {
+      const result = await db.query("DELETE FROM secrets WHERE secret_id=$1 RETURNING *", [secretId]);
+      if (!result.rows[0]) throw new Error(`secret "${secretId}" not found`);
       return normalizeSecretRow(result.rows[0]);
     },
 

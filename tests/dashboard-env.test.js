@@ -59,6 +59,32 @@ test("editing env profile creates a new active version", () => {
   );
 });
 
+test("env profile storage supports rename and delete", () => {
+  const store = createDashboardStore({
+    idGenerator: () => "env-a",
+  });
+
+  const created = store.createEnvProfile({
+    machineId: "worker-a",
+    name: "default",
+    env: { TILE_DOWNLOADER_MAX_CONCURRENCY: 16 },
+    active: true,
+  });
+  const renamed = store.updateEnvProfile(created.envProfileId, {
+    name: "fast",
+    env: { TILE_DOWNLOADER_MAX_CONCURRENCY: 64 },
+    active: false,
+  });
+  const deleted = store.deleteEnvProfile(renamed.envProfileId);
+
+  assert.equal(renamed.name, "fast");
+  assert.equal(deleted.envProfileId, renamed.envProfileId);
+  assert.deepEqual(
+    store.listEnvProfiles({ machineId: "worker-a" }).map((profile) => profile.envProfileId),
+    [created.envProfileId]
+  );
+});
+
 test("materializes effective env atomically without overwriting root .env", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-env-"));
 

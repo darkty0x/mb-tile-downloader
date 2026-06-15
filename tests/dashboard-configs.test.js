@@ -49,6 +49,30 @@ test("dashboard config storage validates ranges and versions edits", () => {
   );
 });
 
+test("dashboard config storage supports rename and delete", () => {
+  const store = createDashboardStore({ idGenerator: () => "cfg-a" });
+
+  const created = store.createConfig({
+    machineId: "worker-a",
+    name: "old-name",
+    config: validConfig,
+    active: true,
+  });
+  const renamed = store.updateConfig(created.configId, {
+    name: "new-name",
+    config: validConfig,
+    active: false,
+  });
+  const deleted = store.deleteConfig(renamed.configId);
+
+  assert.equal(renamed.name, "new-name");
+  assert.equal(deleted.configId, renamed.configId);
+  assert.deepEqual(
+    store.listConfigs({ machineId: "worker-a" }).map((config) => config.configId),
+    [created.configId]
+  );
+});
+
 test("agent materializes dashboard config without editing root configs", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-config-"));
 

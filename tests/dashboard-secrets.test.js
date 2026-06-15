@@ -38,6 +38,31 @@ test("agent sync receives decrypted secret values", () => {
   assert.equal(agentSecrets[0].value, "http://u:p@1.2.3.4:8080");
 });
 
+test("secret vault supports update status and delete", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "secret-a",
+  });
+  vault.createSecret({
+    machineId: "worker-a",
+    secretType: "mapbox_token",
+    label: "primary",
+    value: "pk.secret-value",
+  });
+
+  vault.updateSecret("secret-a", {
+    label: "backup",
+    value: "pk.next-value",
+    status: "inactive",
+  });
+
+  assert.equal(vault.listSecretsForBrowser({ machineId: "worker-a" })[0].label, "backup");
+  assert.equal(vault.listSecretsForBrowser({ machineId: "worker-a" })[0].status, "inactive");
+  assert.deepEqual(vault.listSecretsForAgent({ machineId: "worker-a" }), []);
+  assert.equal(vault.deleteSecret("secret-a").secretId, "secret-a");
+  assert.deepEqual(vault.listSecretsForBrowser({ machineId: "worker-a" }), []);
+});
+
 test("postgres secret vault persists encrypted rows and returns redacted browser values", async () => {
   const rows = new Map();
   const db = {

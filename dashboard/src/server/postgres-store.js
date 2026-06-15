@@ -298,7 +298,7 @@ export function createPostgresDashboardStore({
         [
           `${existing.config_id}-v${existing.version + 1}`,
           existing.machine_id,
-          existing.name,
+          input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
           validateConfig(input.config ?? jsonValue(existing.config_json, {})),
           active,
@@ -306,6 +306,12 @@ export function createPostgresDashboardStore({
           at,
         ]
       );
+      return configFromRow(row);
+    },
+
+    async deleteConfig(configId) {
+      const row = await firstRow(db, "DELETE FROM configs WHERE config_id=$1 RETURNING *", [configId]);
+      if (!row) throw new Error(`config "${configId}" not found`);
       return configFromRow(row);
     },
 
@@ -354,7 +360,7 @@ export function createPostgresDashboardStore({
         [
           `${existing.env_profile_id}-v${existing.version + 1}`,
           existing.machine_id,
-          existing.name,
+          input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
           normalizeEnv(input.env ?? jsonValue(existing.env_json, {})),
           active,
@@ -362,6 +368,12 @@ export function createPostgresDashboardStore({
           at,
         ]
       );
+      return envProfileFromRow(row);
+    },
+
+    async deleteEnvProfile(envProfileId) {
+      const row = await firstRow(db, "DELETE FROM env_profiles WHERE env_profile_id=$1 RETURNING *", [envProfileId]);
+      if (!row) throw new Error(`env profile "${envProfileId}" not found`);
       return envProfileFromRow(row);
     },
 

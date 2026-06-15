@@ -77,5 +77,13 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
     listSecrets(machineId) {
       return get(`/api/agents/secrets?machineId=${encodeURIComponent(machineId)}`);
     },
+
+    listConfigs(machineId) {
+      return get(`/api/agents/configs?machineId=${encodeURIComponent(machineId)}`);
+    },
+
+    listEnvProfiles(machineId) {
+      return get(`/api/agents/env-profiles?machineId=${encodeURIComponent(machineId)}`);
+    },
   };
 }

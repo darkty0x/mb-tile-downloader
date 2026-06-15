@@ -1,10 +1,13 @@
 import os from "node:os";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
+import { materializeConfig } from "./config-sync.js";
 import { collectDiskInfo } from "./disk.js";
+import { materializeEnvProfile } from "./env-materializer.js";
 import { loadAgentIdentity } from "./identity.js";
 import { createProcessRunner, resolveManagedCommand } from "./process-runner.js";
 import { createProgressEventForwarder } from "./progress-events.js";
+import { materializeSecrets } from "./secret-materializer.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 
@@ -52,6 +55,35 @@ async function runCommand(command, { client, runner, machineId }) {
   }
 }
 
+export async function syncManagedState({ client, machineId, stateDir, projectDir }) {
+  const [{ configs = [] }, { envProfiles = [] }, { secrets = [] }] = await Promise.all([
+    client.listConfigs(machineId),
+    client.listEnvProfiles(machineId),
+    client.listSecrets(machineId),
+  ]);
+  const activeConfig = configs.find((config) => config.active) || null;
+  const activeEnv = envProfiles.find((profile) => profile.active) || null;
+  const result = {
+    configPath: null,
+    envPath: null,
+    secretsEnvPath: null,
+    proxyPath: null,
+  };
+  if (activeConfig) {
+    result.configPath = (await materializeConfig({ stateDir, configRecord: activeConfig })).configPath;
+  }
+  if (activeEnv) {
+    const envResult = await materializeEnvProfile({ stateDir, profile: activeEnv });
+    result.envPath = envResult.envPath;
+    result.env = envResult.env;
+  }
+  const secretResult = await materializeSecrets({ projectDir, stateDir, secrets });
+  result.secretsEnvPath = secretResult.envPath;
+  result.proxyPath = secretResult.proxyPath;
+  result.secretEnv = secretResult.env;
+  return result;
+}
+
 export async function runAgent({
   env = process.env,
   argv = process.argv.slice(2),
@@ -64,7 +96,9 @@ export async function runAgent({
     agentToken: env.AGENT_TOKEN,
   });
   const forwarder = createProgressEventForwarder({ machineId: identity.machineId, client });
+  const managedEnv = {};
   const runner = createProcessRunner({
+    env: managedEnv,
     onLine: async (line, stream) => {
       if (await forwarder.handleLine(line, stream)) return;
       await client.postEvent({
@@ -92,6 +126,14 @@ export async function runAgent({
       hostname: os.hostname(),
       disk,
     });
+    const synced = await syncManagedState({
+      client,
+      machineId: identity.machineId,
+      stateDir,
+      projectDir: process.cwd(),
+    });
+    for (const key of Object.keys(managedEnv)) delete managedEnv[key];
+    Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {});
     const { commands = [] } = await client.pollCommands(identity.machineId);
     for (const command of commands) {
       await runCommand(command, { client, runner, machineId: identity.machineId });
