@@ -4,6 +4,7 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
+import jpeg from "jpeg-js";
 
 import { MapboxTokenPool, loadMapboxTokensFromEnv } from "../auth/mapbox-token-pool.js";
 import { createProvider } from "../providers/index.js";
@@ -112,8 +113,16 @@ function esriCooldownEnabled(env = process.env) {
 function shouldRetryUnavailableTile(providerName, env = process.env) {
   if (providerName !== "esri") return false;
   const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE);
-  return explicit ?? true;
+  return explicit ?? false;
 }
+
+function shouldBlockProxyOnUnavailable(providerName, env = process.env) {
+  if (providerName !== "esri") return false;
+  const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE);
+  return explicit ?? false;
+}
+
+const WAYBACK_RELEASE_CACHE = new Map();
 
 function traceEnabled(env = process.env) {
   return ["1", "true", "yes", "on"].includes(
@@ -270,6 +279,7 @@ function createProviderRuntime({
   const cooldownMs = esriCooldownMs(env);
   const windowMs = esriBlockWindowMs(env);
   const proxyBlockMs = esriProxyBlockMs(env);
+  const blockProxyOnUnavailable = shouldBlockProxyOnUnavailable(providerName, env);
   let blockedUntil = 0;
   const recentBlocks = [];
   const perProxyBlocks = new Map();
@@ -369,6 +379,7 @@ function createProviderRuntime({
       recentBlocks.length = 0;
     },
     noteUnavailable(proxy = null, protocol = null) {
+      if (!blockProxyOnUnavailable) return false;
       if (!proxy || !proxyRotation?.markProxyBlocked) return false;
       proxyRotation.markProxyBlocked(protocol || proxy, proxyBlockMs, proxy);
       const healthyCandidateProtocol = protocol || proxy;
@@ -449,6 +460,171 @@ async function writeResponse(resp, tmpPath) {
 async function readResponseBuffer(resp) {
   if (!resp.arrayBuffer) return Buffer.alloc(0);
   return Buffer.from(await resp.arrayBuffer());
+}
+
+function renderUrlTemplate(template, values) {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
+    if (values[key] === undefined || values[key] === null) {
+      throw new Error(`Missing URL template value: ${key}`);
+    }
+    return encodeURIComponent(String(values[key]));
+  });
+}
+
+function unavailableFallbackConfig(config, provider, env = process.env) {
+  if (provider.name !== "esri") return null;
+
+  const envEnabled = parseBoolean(env.TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK);
+  if (envEnabled === false) return null;
+
+  const configured = config.tile?.unavailableFallback ?? config.unavailableFallback;
+  if (configured === false || configured?.enabled === false) return null;
+
+  const fallback = {
+    type: "parent-overzoom",
+    source: "wayback",
+    release: "latest",
+    maxParentZoomOffset: 1,
+    jpegQuality: 92,
+    ...(configured && typeof configured === "object" ? configured : {}),
+  };
+  if (fallback.type !== "parent-overzoom") return null;
+  return fallback;
+}
+
+async function resolveWaybackRelease(fallback, fetchImpl, timeoutMs) {
+  const configured = fallback.release || fallback.releaseNum || fallback.waybackRelease || "latest";
+  if (String(configured).toLowerCase() !== "latest") return String(configured);
+
+  const configUrl =
+    fallback.releaseConfigUrl ||
+    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json";
+  if (!WAYBACK_RELEASE_CACHE.has(configUrl)) {
+    const lookup = (async () => {
+      const response = await fetchImpl(configUrl, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) throw new Error(`Wayback release lookup failed: HTTP ${response.status}`);
+      const data = await response.json();
+      const latest = data?.Selection?.[0]?.M;
+      if (!latest) throw new Error("Wayback release lookup returned no releases");
+      return String(latest);
+    })().catch((error) => {
+      WAYBACK_RELEASE_CACHE.delete(configUrl);
+      throw error;
+    });
+    WAYBACK_RELEASE_CACHE.set(
+      configUrl,
+      lookup
+    );
+  }
+  return WAYBACK_RELEASE_CACHE.get(configUrl);
+}
+
+async function buildFallbackUrl({ fallback, provider, fetchImpl, timeoutMs, z, x, y, offset }) {
+  const fallbackZ = z - offset;
+  const divisor = 2 ** offset;
+  const fallbackX = Math.floor(x / divisor);
+  const fallbackY = Math.floor(y / divisor);
+  const source = String(fallback.source || "current").toLowerCase();
+
+  if (source === "wayback") {
+    const release = await resolveWaybackRelease(fallback, fetchImpl, timeoutMs);
+    const template =
+      fallback.template ||
+      "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/{release}/{z}/{y}/{x}";
+    return renderUrlTemplate(template, {
+      release,
+      level: fallbackZ,
+      z: fallbackZ,
+      row: fallbackY,
+      y: fallbackY,
+      col: fallbackX,
+      x: fallbackX,
+    });
+  }
+
+  return provider.buildUrl({ z: fallbackZ, x: fallbackX, y: fallbackY });
+}
+
+function overzoomJpeg(buffer, { z, x, y, offset }, quality = 92) {
+  if (offset === 0) return buffer;
+  const decoded = jpeg.decode(buffer, { useTArray: true });
+  const scale = 2 ** offset;
+  const cropWidth = Math.floor(decoded.width / scale);
+  const cropHeight = Math.floor(decoded.height / scale);
+  if (cropWidth < 1 || cropHeight < 1) return null;
+
+  const startX = (x % scale) * cropWidth;
+  const startY = (y % scale) * cropHeight;
+  const outputWidth = 256;
+  const outputHeight = 256;
+  const output = Buffer.alloc(outputWidth * outputHeight * 4);
+
+  for (let outY = 0; outY < outputHeight; outY++) {
+    const srcY = startY + Math.min(cropHeight - 1, Math.floor((outY * cropHeight) / outputHeight));
+    for (let outX = 0; outX < outputWidth; outX++) {
+      const srcX = startX + Math.min(cropWidth - 1, Math.floor((outX * cropWidth) / outputWidth));
+      const srcIdx = (srcY * decoded.width + srcX) * 4;
+      const dstIdx = (outY * outputWidth + outX) * 4;
+      output[dstIdx] = decoded.data[srcIdx];
+      output[dstIdx + 1] = decoded.data[srcIdx + 1];
+      output[dstIdx + 2] = decoded.data[srcIdx + 2];
+      output[dstIdx + 3] = 255;
+    }
+  }
+
+  return Buffer.from(jpeg.encode({ data: output, width: outputWidth, height: outputHeight }, quality).data);
+}
+
+async function fetchUnavailableFallback({
+  config,
+  provider,
+  fetchImpl,
+  timeoutMs,
+  env,
+  z,
+  x,
+  y,
+}) {
+  const fallback = unavailableFallbackConfig(config, provider, env);
+  if (!fallback) return null;
+
+  const maxOffset = Math.max(1, parsePositiveInt(fallback.maxParentZoomOffset) || 1);
+  const startOffset = fallback.source === "wayback" && fallback.tryExact !== false ? 0 : 1;
+  const quality = parsePositiveInt(fallback.jpegQuality) || 92;
+
+  for (let offset = startOffset; offset <= maxOffset; offset++) {
+    if (z - offset < 0) break;
+    let url;
+    try {
+      url = await buildFallbackUrl({ fallback, provider, fetchImpl, timeoutMs, z, x, y, offset });
+      const response = await fetchImpl(url, {
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+      if (!response.ok) continue;
+      const buffer = await readResponseBuffer(response);
+      if (!buffer.length || provider.isUnavailable?.(buffer)) continue;
+      const overzoomed = overzoomJpeg(buffer, { z, x, y, offset }, quality);
+      if (!overzoomed) continue;
+      traceEvent(env, "tile-unavailable-fallback", {
+        provider: provider.name,
+        source: fallback.source || "current",
+        offset,
+        url: describeTraceUrl(url),
+      });
+      return overzoomed;
+    } catch (error) {
+      traceEvent(env, "tile-unavailable-fallback-error", {
+        provider: provider.name,
+        offset,
+        url: url ? describeTraceUrl(url) : "",
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  return null;
 }
 
 async function downloadOneTile({
@@ -545,6 +721,24 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
+          const fallbackBuffer = await fetchUnavailableFallback({
+            config,
+            provider,
+            fetchImpl,
+            timeoutMs,
+            env,
+            z,
+            x,
+            y,
+          });
+          if (fallbackBuffer) {
+            await fsp.writeFile(tmpPath, fallbackBuffer);
+            const st = await fsp.stat(tmpPath);
+            if (!st.isFile() || st.size === 0) throw new Error("empty fallback tile");
+            await fsp.rename(tmpPath, finalPath);
+            providerRuntime.noteSuccess();
+            return "downloaded";
+          }
           if (providerRuntime.noteUnavailable) {
             providerRuntime.noteUnavailable(proxy, protocol);
           }

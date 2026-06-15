@@ -36,6 +36,7 @@
   "license": "MIT",
   "dependencies": {
     "better-sqlite3": "^12.4.1",
+    "jpeg-js": "^0.4.4",
     "undici": "^6.21.2"
   }
 }
