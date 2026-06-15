@@ -18,6 +18,8 @@
     "upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
     "storj-upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
     "storj-download": "node scripts/install-storj-uplink.js --if-missing && node storj-downloader.js",
+    "agent": "node src/agent/agent.js",
+    "dashboard": "npm --prefix dashboard run dev",
     "unzip-ranges": "node unzip-ranges.js",
     "delete-unavailable": "node downloader.js delete-unavailable",
     "upload:install-uplink": "node scripts/install-storj-uplink.js",

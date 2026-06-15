@@ -63,6 +63,46 @@ test("downloader accepts --max-concurrent-requests and applies it to runtime pro
   assert.ok(stdout.includes("Concurrency: requests=192"), stdout);
 });
 
+test("downloader --range-index selects one original config range", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-range-index-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      provider: "esri",
+      output: { dir: path.join(dir, "download") },
+      ranges: [
+        { zoom: 2, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 },
+        { zoom: 2, xStart: 1, xEnd: 2, yStart: 0, yEnd: 0 },
+      ],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", configPath, "--dry-run", "--range-index=1"],
+    { cwd: process.cwd(), env: process.env }
+  );
+
+  assert.ok(stdout.includes("Rows planned: 2"), stdout);
+  assert.ok(stdout.includes("Tiles planned: 2"), stdout);
+});
+
+test("downloader --range-index rejects indexes outside the config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-range-index-bad-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
+
+  await assert.rejects(
+    () =>
+      execFileAsync(process.execPath, ["downloader.js", configPath, "--dry-run", "--range-index=1"], {
+        cwd: process.cwd(),
+        env: process.env,
+      }),
+    /outside config range count/
+  );
+});
+
 test("downloader dry-run skips proxy discovery", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-dry-proxy-"));
   const configPath = path.join(dir, "esri.config.json");

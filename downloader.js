@@ -102,7 +102,7 @@ Production tile downloader
 
 Usage:
   node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
-  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast] [--no-proxy]
+  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--range-index N] [--esri-fast] [--no-proxy]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js delete-unavailable <configPath...>
@@ -224,6 +224,7 @@ function parseArgs(argv) {
     recoveryBackoffMs: null,
     maxRowsInFlight: null,
     stateDbPath: null,
+    rangeIndex: null,
     configPaths: [],
     usedDefaultConfig: false,
   };
@@ -248,6 +249,12 @@ function parseArgs(argv) {
     else if (arg === "--state-db") {
       opts.stateDbPath = args[++i];
       if (!opts.stateDbPath) throw new Error("--state-db requires a path");
+    } else if (arg === "--range-index") {
+      opts.rangeIndex = parseNonNegativeInt(args[++i], "--range-index");
+      if (opts.rangeIndex === null) throw new Error("--range-index must be a non-negative integer");
+    } else if (arg.startsWith("--range-index=")) {
+      opts.rangeIndex = parseNonNegativeInt(arg.slice("--range-index=".length), "--range-index");
+      if (opts.rangeIndex === null) throw new Error("--range-index must be a non-negative integer");
     } else if (arg === "--row-recovery-passes") {
       opts.rowRecoveryPasses = parseNonNegativeInt(args[++i], "--row-recovery-passes");
       if (opts.rowRecoveryPasses === null) throw new Error("--row-recovery-passes must be a non-negative integer");
@@ -373,6 +380,14 @@ async function runOneConfig(configPath, opts) {
       : null),
   };
   const config = await loadConfig(configPath, { env: configEnv });
+  if (opts.rangeIndex !== null) {
+    if (opts.rangeIndex >= config.ranges.length) {
+      throw new Error(`--range-index ${opts.rangeIndex} is outside config range count ${config.ranges.length}`);
+    }
+    const sourceRangeIndex = opts.rangeIndex + 1;
+    config.rangeCount = config.ranges.length;
+    config.ranges = [{ ...config.ranges[opts.rangeIndex], sourceRangeIndex }];
+  }
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
 

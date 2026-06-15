@@ -1295,8 +1295,8 @@ export async function runDownloadJob({
   try {
     for (let rangeIdx = 0; rangeIdx < config.ranges.length; rangeIdx++) {
       const range = config.ranges[rangeIdx];
-      const rangeIndex = rangeIdx + 1;
-      const rangeCount = config.ranges.length;
+      const rangeIndex = range.sourceRangeIndex || rangeIdx + 1;
+      const rangeCount = config.rangeCount || config.ranges.length;
       const rangeRows = [...iterRows([range])];
       const rangeTiles = rangeRows.reduce((sum, row) => sum + row.yEnd - row.yStart + 1, 0);
       let rangeRowsDone = 0;

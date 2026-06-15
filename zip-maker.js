@@ -56,7 +56,7 @@ function printUsage(exitCode = 0) {
       "",
       "Create one fast ZIP archive for each complete tile range.",
       "",
-      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--delete-after-archive] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path] [--max-archive-size=<bytes|KB|MB|GB>]`,
+      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--delete-after-archive] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path] [--max-archive-size=<bytes|KB|MB|GB>] [--range-index=N]`,
       "",
       "Default layout:",
       "  source tiles: <outputDir>/<layer>/<z>/<x>/<y>.<ext>",
@@ -177,6 +177,7 @@ function parseArgs(argv) {
     tilesDir: null,
     onlyComplete: true,
     maxArchiveSize: null,
+    rangeIndex: null,
   };
 
   for (const arg of args) {
@@ -190,6 +191,12 @@ function parseArgs(argv) {
     else if (arg.startsWith("--tiles-dir=")) opts.tilesDir = arg.slice("--tiles-dir=".length);
     else if (arg.startsWith("--max-archive-size="))
       opts.maxArchiveSize = arg.slice("--max-archive-size=".length);
+    else if (arg.startsWith("--range-index=")) {
+      opts.rangeIndex = Number.parseInt(arg.slice("--range-index=".length), 10);
+      if (!Number.isInteger(opts.rangeIndex) || opts.rangeIndex < 0) {
+        throw new Error("--range-index must be a non-negative integer");
+      }
+    }
     else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
     else throw new Error(`Unknown argument: ${arg}`);
   }
@@ -1239,7 +1246,14 @@ async function main() {
     !directDownloaderConfig && Array.isArray(archiveConfig.ranges) && archiveConfig.ranges.length > 0
       ? archiveConfig
       : sourceConfig;
-  const ranges = normalizeRanges(rangeConfig);
+  let ranges = normalizeRanges(rangeConfig);
+  const sourceRangeCount = ranges.length;
+  if (opts.rangeIndex !== null) {
+    if (opts.rangeIndex >= ranges.length) {
+      throw new Error(`--range-index ${opts.rangeIndex} is outside config range count ${ranges.length}`);
+    }
+    ranges = [{ ...ranges[opts.rangeIndex], sourceRangeIndex: opts.rangeIndex + 1 }];
+  }
 
   if (ranges.length === 0) {
     throw new Error("No ranges found. Add ranges to archive-config.json or source config.");
@@ -1318,7 +1332,7 @@ async function main() {
   console.log(`ZIP write buffer: ${Math.round(zipWriteBufferBytes / 1024 / 1024)} MiB`);
   console.log(`Max archive size: ${formatArchiveSize(maxArchiveSizeBytes)} (${maxArchiveSizeBytes} bytes)`);
   console.log(`Layers: ${layers.join(", ")}`);
-  console.log(`Ranges: ${ranges.length}`);
+  console.log(`Ranges: ${ranges.length}${opts.rangeIndex !== null ? `/${sourceRangeCount} (selected index ${opts.rangeIndex})` : ""}`);
 
   if (writeProbe && !opts.dryRun) {
     const { probePath, info } = await writeArchiveProbe(
@@ -1356,7 +1370,7 @@ async function main() {
       progressPath: `${archivePath}.progress.json`,
       signature: taskSignature(task),
       rangeState: {
-        rangeIndex: rangeIdx + 1,
+        rangeIndex: range.sourceRangeIndex || rangeIdx + 1,
         label: range.label,
         z: task.z,
         xStart: task.xStart,
