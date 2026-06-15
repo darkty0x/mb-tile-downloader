@@ -136,7 +136,7 @@ function printUsage(exitCode = 0) {
 Production tile downloader
 
 Usage:
-  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
+  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify] [--proxy-trace]
   [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
@@ -221,6 +221,7 @@ function parseArgs(argv) {
     dryRun: false,
     skipVerifyAfterDownload: false,
     esriFastMode: false,
+    proxyTrace: false,
     maxConcurrentRequests: null,
     rowRecoveryPasses: null,
     recoveryBackoffMs: null,
@@ -237,6 +238,7 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
     else if (arg === "--esri-fast") opts.esriFastMode = true;
+    else if (arg === "--proxy-trace") opts.proxyTrace = true;
     else if (arg === "--max-concurrent-requests") {
       opts.maxConcurrentRequests = parsePositiveInt(args[++i], "--max-concurrent-requests");
       if (opts.maxConcurrentRequests === null) {
@@ -373,14 +375,18 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
+  const proxyHealthcheckUrl = proxyHealthcheckUrlForConfig(config);
 
   try {
     const proxyRuntimeEnv = opts.dryRun
       ? null
       : {
           ...stripProcessProxyEnv(process.env),
-          ...(proxyHealthcheckUrlForConfig(config)
-            ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrlForConfig(config) }
+          ...(proxyHealthcheckUrl
+            ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrl }
+            : null),
+          ...(opts.proxyTrace
+            ? { TILE_DOWNLOADER_PROXY_TRACE: "1" }
             : null),
         };
     const proxyRotation = opts.dryRun
@@ -393,6 +399,14 @@ async function runOneConfig(configPath, opts) {
     console.log(`Platform: ${config.platformProfile.os}`);
     console.log(`Output: ${config.output.dir}`);
     console.log(`State DB: ${stateDbPath}`);
+    console.log(
+      `Proxy trace: ${
+        opts.proxyTrace || process.env.TILE_DOWNLOADER_PROXY_TRACE === "1" ? "enabled" : "disabled"
+      }`
+    );
+    if (!opts.dryRun && proxyHealthcheckUrl) {
+      console.log(`Proxy healthcheck: ${proxyHealthcheckUrl}`);
+    }
       console.log(
         `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
       );
