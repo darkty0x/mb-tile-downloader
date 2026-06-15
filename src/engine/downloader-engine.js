@@ -492,9 +492,9 @@ function unavailableFallbackConfig(config, provider, env = process.env) {
   return fallback;
 }
 
-async function resolveWaybackRelease(fallback, fetchImpl, timeoutMs) {
+async function resolveWaybackReleases(fallback, fetchImpl, timeoutMs) {
   const configured = fallback.release || fallback.releaseNum || fallback.waybackRelease || "latest";
-  if (String(configured).toLowerCase() !== "latest") return String(configured);
+  if (String(configured).toLowerCase() !== "latest") return [String(configured)];
 
   const configUrl =
     fallback.releaseConfigUrl ||
@@ -506,9 +506,12 @@ async function resolveWaybackRelease(fallback, fetchImpl, timeoutMs) {
       });
       if (!response.ok) throw new Error(`Wayback release lookup failed: HTTP ${response.status}`);
       const data = await response.json();
-      const latest = data?.Selection?.[0]?.M;
-      if (!latest) throw new Error("Wayback release lookup returned no releases");
-      return String(latest);
+      const releases = (Array.isArray(data?.Selection) ? data.Selection : [])
+        .map((item) => item?.M)
+        .filter((item) => item !== undefined && item !== null)
+        .map(String);
+      if (releases.length === 0) throw new Error("Wayback release lookup returned no releases");
+      return releases;
     })().catch((error) => {
       WAYBACK_RELEASE_CACHE.delete(configUrl);
       throw error;
@@ -521,30 +524,77 @@ async function resolveWaybackRelease(fallback, fetchImpl, timeoutMs) {
   return WAYBACK_RELEASE_CACHE.get(configUrl);
 }
 
-async function buildFallbackUrl({ fallback, provider, fetchImpl, timeoutMs, z, x, y, offset }) {
+function fallbackCoords({ z, x, y, offset }) {
   const fallbackZ = z - offset;
   const divisor = 2 ** offset;
-  const fallbackX = Math.floor(x / divisor);
-  const fallbackY = Math.floor(y / divisor);
-  const source = String(fallback.source || "current").toLowerCase();
+  return {
+    z: fallbackZ,
+    x: Math.floor(x / divisor),
+    y: Math.floor(y / divisor),
+  };
+}
 
-  if (source === "wayback") {
-    const release = await resolveWaybackRelease(fallback, fetchImpl, timeoutMs);
-    const template =
-      fallback.template ||
-      "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/{release}/{z}/{y}/{x}";
-    return renderUrlTemplate(template, {
-      release,
-      level: fallbackZ,
-      z: fallbackZ,
-      row: fallbackY,
-      y: fallbackY,
-      col: fallbackX,
-      x: fallbackX,
+function buildWaybackFallbackUrl({ fallback, release, z, x, y, offset }) {
+  const coords = fallbackCoords({ z, x, y, offset });
+  const template =
+    fallback.template ||
+    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/{release}/{z}/{y}/{x}";
+  return renderUrlTemplate(template, {
+    release,
+    level: coords.z,
+    z: coords.z,
+    row: coords.y,
+    y: coords.y,
+    col: coords.x,
+    x: coords.x,
+  });
+}
+
+function buildCurrentFallbackUrl({ provider, z, x, y, offset }) {
+  const coords = fallbackCoords({ z, x, y, offset });
+  return provider.buildUrl(coords);
+}
+
+function isRetryableFallbackStatus(status) {
+  return status === 403 ||
+    status === 408 ||
+    status === 409 ||
+    status === 425 ||
+    status === 429 ||
+    status >= 500;
+}
+
+async function fetchFallbackBuffer({ url, provider, fetchImpl, timeoutMs, attempts }) {
+  for (let attempt = 0; attempt < attempts; attempt++) {
+    const response = await fetchImpl(url, {
+      signal: AbortSignal.timeout(timeoutMs),
     });
+    if (!response.ok) {
+      if (!isRetryableFallbackStatus(response.status)) return null;
+      continue;
+    }
+    const buffer = await readResponseBuffer(response);
+    if (!buffer.length || provider.isUnavailable?.(buffer)) return null;
+    return buffer;
   }
+  return null;
+}
 
-  return provider.buildUrl({ z: fallbackZ, x: fallbackX, y: fallbackY });
+async function tryFallbackCandidate({
+  url,
+  provider,
+  fetchImpl,
+  timeoutMs,
+  z,
+  x,
+  y,
+  offset,
+  quality,
+  attempts,
+}) {
+  const buffer = await fetchFallbackBuffer({ url, provider, fetchImpl, timeoutMs, attempts });
+  if (!buffer) return null;
+  return overzoomJpeg(buffer, { z, x, y, offset }, quality);
 }
 
 function overzoomJpeg(buffer, { z, x, y, offset }, quality = 92) {
@@ -590,37 +640,130 @@ async function fetchUnavailableFallback({
   const fallback = unavailableFallbackConfig(config, provider, env);
   if (!fallback) return null;
 
-  const maxOffset = Math.max(1, parsePositiveInt(fallback.maxParentZoomOffset) || 1);
-  const startOffset = fallback.source === "wayback" && fallback.tryExact !== false ? 0 : 1;
+  const maxOffset = Math.min(z, Math.max(1, parsePositiveInt(fallback.maxParentZoomOffset) || z));
   const quality = parsePositiveInt(fallback.jpegQuality) || 92;
-
-  for (let offset = startOffset; offset <= maxOffset; offset++) {
-    if (z - offset < 0) break;
-    let url;
+  const attempts = Math.max(1, parsePositiveInt(fallback.fallbackFetchAttempts) || 3);
+  const source = String(fallback.source || "wayback").toLowerCase();
+  let waybackReleases = [];
+  if (source === "wayback") {
     try {
-      url = await buildFallbackUrl({ fallback, provider, fetchImpl, timeoutMs, z, x, y, offset });
-      const response = await fetchImpl(url, {
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!response.ok) continue;
-      const buffer = await readResponseBuffer(response);
-      if (!buffer.length || provider.isUnavailable?.(buffer)) continue;
-      const overzoomed = overzoomJpeg(buffer, { z, x, y, offset }, quality);
-      if (!overzoomed) continue;
-      traceEvent(env, "tile-unavailable-fallback", {
-        provider: provider.name,
-        source: fallback.source || "current",
-        offset,
-        url: describeTraceUrl(url),
-      });
-      return overzoomed;
+      waybackReleases = await resolveWaybackReleases(fallback, fetchImpl, timeoutMs);
     } catch (error) {
       traceEvent(env, "tile-unavailable-fallback-error", {
         provider: provider.name,
-        offset,
-        url: url ? describeTraceUrl(url) : "",
+        offset: 0,
+        url: fallback.releaseConfigUrl || "wayback-release-config",
         error: error?.message || String(error),
       });
+    }
+  }
+
+  if (fallback.tryExact !== false && waybackReleases.length > 0) {
+    const release = waybackReleases[0];
+    const url = buildWaybackFallbackUrl({ fallback, release, z, x, y, offset: 0 });
+    try {
+      const overzoomed = await tryFallbackCandidate({
+        url,
+        provider,
+        fetchImpl,
+        timeoutMs,
+        z,
+        x,
+        y,
+        offset: 0,
+        quality,
+        attempts,
+      });
+      if (overzoomed) {
+        traceEvent(env, "tile-unavailable-fallback", {
+          provider: provider.name,
+          source: "wayback",
+          release,
+          offset: 0,
+          url: describeTraceUrl(url),
+        });
+        return overzoomed;
+      }
+    } catch (error) {
+      traceEvent(env, "tile-unavailable-fallback-error", {
+        provider: provider.name,
+        offset: 0,
+        url: describeTraceUrl(url),
+        error: error?.message || String(error),
+      });
+    }
+  }
+
+  for (let offset = 1; offset <= maxOffset; offset++) {
+    if (z - offset < 0) break;
+
+    if (fallback.tryCurrentParent !== false) {
+      const url = buildCurrentFallbackUrl({ provider, z, x, y, offset });
+      try {
+        const overzoomed = await tryFallbackCandidate({
+          url,
+          provider,
+          fetchImpl,
+          timeoutMs,
+          z,
+          x,
+          y,
+          offset,
+          quality,
+          attempts,
+        });
+        if (overzoomed) {
+          traceEvent(env, "tile-unavailable-fallback", {
+            provider: provider.name,
+            source: "current-parent",
+            offset,
+            url: describeTraceUrl(url),
+          });
+          return overzoomed;
+        }
+      } catch (error) {
+        traceEvent(env, "tile-unavailable-fallback-error", {
+          provider: provider.name,
+          offset,
+          url: describeTraceUrl(url),
+          error: error?.message || String(error),
+        });
+      }
+    }
+
+    for (const release of waybackReleases) {
+      const url = buildWaybackFallbackUrl({ fallback, release, z, x, y, offset });
+      try {
+        const overzoomed = await tryFallbackCandidate({
+          url,
+          provider,
+          fetchImpl,
+          timeoutMs,
+          z,
+          x,
+          y,
+          offset,
+          quality,
+          attempts,
+        });
+        if (overzoomed) {
+          traceEvent(env, "tile-unavailable-fallback", {
+            provider: provider.name,
+            source: "wayback",
+            release,
+            offset,
+            url: describeTraceUrl(url),
+          });
+          return overzoomed;
+        }
+      } catch (error) {
+        traceEvent(env, "tile-unavailable-fallback-error", {
+          provider: provider.name,
+          offset,
+          url: describeTraceUrl(url),
+          error: error?.message || String(error),
+        });
+      }
     }
   }
 

@@ -671,6 +671,7 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
     "https://example.test/14/5825/9605",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/14/5825/9605",
+    "https://example.test/13/2912/4802",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/13/2912/4802",
   ]);
 
@@ -681,6 +682,97 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
   assert.ok(saved.data[center] > 200, "expected red channel from bottom-right quadrant");
   assert.ok(saved.data[center + 1] > 200, "expected green channel from bottom-right quadrant");
   assert.ok(saved.data[center + 2] < 80, "expected low blue channel from bottom-right quadrant");
+
+  db.close();
+});
+
+test("Esri unavailable fallback searches older Wayback releases before marking missing", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const parent = quadrantJpeg();
+  const requestedUrls = [];
+  const releaseConfigUrl = "https://wayback.example.test/releases?f=json";
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "esri-older-wayback-fallback",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: {
+        extension: "jpg",
+        yScheme: "xyz",
+        unavailableTileSha256: placeholderHash,
+        unavailableFallback: { releaseConfigUrl },
+      },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        { zoomStart: 14, zoomEnd: 14, xStart: 9605, xEnd: 9605, yStart: 5825, yEnd: 5825, label: "a" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url));
+      if (String(url) === "https://example.test/14/5825/9605") {
+        return new Response(placeholder, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url) === "https://example.test/13/2912/4802") {
+        return new Response(placeholder, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url) === releaseConfigUrl) {
+        return Response.json({
+          Selection: [
+            { M: "10842", Name: "World Imagery (Wayback 2026-05-28)" },
+            { M: "16513", Name: "World Imagery (Wayback 2014-05-14)" },
+          ],
+        });
+      }
+      if (String(url).includes("/tile/10842/14/5825/9605")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (String(url).includes("/tile/10842/13/2912/4802")) {
+        return new Response(placeholder, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url).includes("/tile/16513/14/5825/9605")) {
+        return new Response("not found", { status: 404 });
+      }
+      if (String(url).includes("/tile/16513/13/2912/4802")) {
+        return new Response(parent, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesMissing, 0);
+  assert.equal(result.tilesFailed, 0);
+  assert.ok(
+    requestedUrls.includes(
+      "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/16513/13/2912/4802"
+    ),
+    "expected fallback to try the older Wayback parent tile"
+  );
 
   db.close();
 });
