@@ -43,6 +43,15 @@ function parseNonNegativeInt(value, label) {
   return parsed;
 }
 
+function parseBoolean(value) {
+  if (typeof value === "boolean") return value;
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+}
+
 function ensureDownloaderHeapLimit() {
   if (process.env.TILE_DOWNLOADER_HEAP_REEXEC === "1") return;
   if (process.execArgv.some((arg) => arg.startsWith("--max-old-space-size"))) return;
@@ -101,7 +110,7 @@ Production tile downloader
 
 Usage:
   node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
-  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N]
+  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js clear-token-state [--state-db path-or-dir]
@@ -184,6 +193,8 @@ function parseArgs(argv) {
     forceVerify: false,
     dryRun: false,
     skipVerifyAfterDownload: false,
+    esriFastMode: false,
+    maxConcurrentRequests: null,
     rowRecoveryPasses: null,
     recoveryBackoffMs: null,
     maxRowsInFlight: null,
@@ -198,6 +209,13 @@ function parseArgs(argv) {
     else if (arg === "--force-verify") opts.forceVerify = true;
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
+    else if (arg === "--esri-fast") opts.esriFastMode = true;
+    else if (arg === "--max-concurrent-requests") {
+      opts.maxConcurrentRequests = parsePositiveInt(args[++i], "--max-concurrent-requests");
+      if (opts.maxConcurrentRequests === null) {
+        throw new Error("--max-concurrent-requests must be a positive integer");
+      }
+    }
     else if (arg === "--state-db") {
       opts.stateDbPath = args[++i];
       if (!opts.stateDbPath) throw new Error("--state-db requires a path");
@@ -224,6 +242,15 @@ function parseArgs(argv) {
 
   if (opts.skipVerifyAfterDownload && (opts.validate || opts.forceVerify)) {
     throw new Error("--skip-verify cannot be used with --validate or --force-verify");
+  }
+
+  const esriFastModeFromEnv = parseBoolean(process.env.TILE_DOWNLOADER_ESRI_FAST_MODE);
+  if (esriFastModeFromEnv !== null) opts.esriFastMode = esriFastModeFromEnv;
+  const skipVerifyFromEnv = parseBoolean(process.env.TILE_DOWNLOADER_SKIP_VERIFY);
+  if (skipVerifyFromEnv !== null) opts.skipVerifyAfterDownload = skipVerifyFromEnv;
+  const maxConcurrentFromEnv = parsePositiveInt(process.env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS);
+  if (maxConcurrentFromEnv !== null && opts.maxConcurrentRequests === null) {
+    opts.maxConcurrentRequests = maxConcurrentFromEnv;
   }
 
   if (opts.configPaths.length === 0) {
@@ -307,9 +334,15 @@ function stateDbPathFor(config, opts) {
 }
 
 async function runOneConfig(configPath, opts) {
-  const configEnv = opts.maxRowsInFlight
-    ? { ...process.env, TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT: String(opts.maxRowsInFlight) }
-    : process.env;
+  const configEnv = {
+    ...process.env,
+    ...(opts.maxRowsInFlight
+      ? { TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT: String(opts.maxRowsInFlight) }
+      : null),
+    ...(opts.maxConcurrentRequests
+      ? { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: String(opts.maxConcurrentRequests) }
+      : null),
+  };
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
@@ -351,6 +384,7 @@ async function runOneConfig(configPath, opts) {
       env: process.env,
       dryRun: opts.dryRun,
       forceVerify: opts.forceVerify || opts.validate,
+      esriFastMode: opts.esriFastMode,
       skipVerifyAfterDownload: opts.skipVerifyAfterDownload,
       rowRecoveryPasses: opts.rowRecoveryPasses,
       recoveryBackoffMs: opts.recoveryBackoffMs,

@@ -77,13 +77,13 @@ test("configureNetworking keeps direct fetch behavior when no proxy env is set",
   assert.equal(undici.state.fetchCalls.length, 0);
 });
 
-test("configureNetworking routes HTTPS requests through proxy when HTTPS_PROXY is set", async () => {
+test("configureNetworking routes HTTPS requests through proxy list entry", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
   await configureNetworking(
     profile(),
-    { HTTPS_PROXY: "http://proxy.internal:8080" },
+    { GEONODE_HTTPS_PROXY_LIST: "http://proxy.internal:8080" },
     { undici, targetGlobal }
   );
 
@@ -97,14 +97,13 @@ test("configureNetworking routes HTTPS requests through proxy when HTTPS_PROXY i
   );
 });
 
-test("configureNetworking rotates across HTTPS_PROXY list for successive requests", async () => {
+test("configureNetworking rotates across HTTPS proxy list for successive requests", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
   await configureNetworking(
     profile(),
     {
-      HTTPS_PROXY: "http://primary-proxy:8080",
       GEONODE_HTTPS_PROXY_LIST: "http://primary-proxy:8080, http://secondary-proxy:8080",
     },
     { undici, targetGlobal }
@@ -220,6 +219,63 @@ test("configureNetworking follows proxy API pagination when the first page has n
     profile(),
     {
       GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(requests.length, 2);
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://203.0.113.2:8080");
+});
+
+test("configureNetworking skips blocked proxies and continues API pagination", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const requests = [];
+  const apiBase = "https://proxy.example/api/proxies";
+  const tmpDir = await fsp.mkdtemp(path.join(os.tmpdir(), "tile-proxy-blocklist-"));
+  const blacklistPath = path.join(tmpDir, "proxy-blacklist.json");
+  const payload = {
+    version: 1,
+    updatedAt: Date.now(),
+    proxies: [
+      {
+        protocol: "https",
+        proxy: "https://198.51.100.1:8080",
+        blockedUntil: Date.now() + 60 * 60_000,
+      },
+    ],
+  };
+  await fsp.writeFile(blacklistPath, JSON.stringify(payload), "utf8");
+
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    if (url.startsWith(apiBase)) {
+      requests.push(url);
+      const payload = url.includes("page=2")
+        ? {
+            hasMore: false,
+            data: [{ ip: "203.0.113.2", port: "8080", protocol: "https", responseTime: 20 }],
+          }
+        : {
+            hasMore: true,
+            data: [{ ip: "198.51.100.1", port: "8080", protocol: "https", responseTime: 20 }],
+          };
+      return new Response(JSON.stringify(payload), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
+      GEONODE_PROXY_BLACKLIST_PATH: blacklistPath,
     },
     { undici, targetGlobal, fetchImpl }
   );
@@ -489,25 +545,23 @@ test("configureNetworking uses proxy latency when response time values are above
   );
 });
 
-test("configureNetworking bypasses proxy for NO_PROXY host matches", async () => {
+test("configureNetworking cannot set no_proxy via env when hardcoded proxy profile is enabled", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
   await configureNetworking(
     profile(),
     {
-      HTTPS_PROXY: "http://proxy.internal:8080",
+      GEONODE_HTTPS_PROXY_LIST: "http://proxy.internal:8080",
       NO_PROXY: "services.arcgisonline.com",
     },
     { undici, targetGlobal }
   );
 
   await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
-  await targetGlobal.fetch("https://api.mapbox.com/styles/v1/mapbox/streets-v12");
 
-  assert.equal(undici.state.fetchCalls.length, 2);
-  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
-  assert.equal(undici.state.fetchCalls[1].dispatcher.kind, "proxy");
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "proxy");
 });
 
 test("configureNetworking falls back to direct after a dead proxy candidate is blacklisted", async () => {
@@ -529,7 +583,6 @@ test("configureNetworking falls back to direct after a dead proxy candidate is b
   await configureNetworking(
     profile(),
     {
-      HTTPS_PROXY: "http://primary-proxy:8080",
       GEONODE_HTTPS_PROXY_LIST: "http://primary-proxy:8080",
     },
     { undici, targetGlobal }

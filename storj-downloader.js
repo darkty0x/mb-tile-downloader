@@ -7,7 +7,6 @@ import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { pipeline } from "node:stream/promises";
-import os from "node:os";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 
@@ -66,7 +65,7 @@ function printUsage(exitCode = 0) {
       "",
       "Environment:",
   "  STORJ_BUCKET          required unless --bucket is provided",
-  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: per-user app config folder)",
+  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: <repo>/.tile-state/storj)",
   "  --prefix                  optional remote folder override; default is config jobName",
   "  --uplink-config-dir=<path> override the uplink config directory",
   "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
@@ -118,10 +117,7 @@ function resolveUplinkConfigDir(value) {
   if (value) return path.resolve(value);
   const envDir = process.env.STORJ_UPLINK_CONFIG_DIR;
   if (envDir && String(envDir).trim()) return path.resolve(envDir);
-  const home = os.homedir();
-  return process.platform === "win32"
-    ? path.join(home, "AppData", "Local", "mb-tile-downloader", "storj")
-    : path.join(home, ".config", "mb-tile-downloader", "storj");
+  return path.join(__dirname, ".tile-state", "storj");
 }
 
 function parseShareUrl(value) {

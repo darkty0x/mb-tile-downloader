@@ -41,8 +41,9 @@ function tileRetryFloor(providerName) {
 const ESRI_DEFAULT_ROW_RECOVERY_PASSES = 1;
 const MAPBOX_DEFAULT_ROW_RECOVERY_PASSES = 4;
 
-function resolveRowRecoveryPasses(provider = "esri", override, config = {}) {
+function resolveRowRecoveryPasses(provider = "esri", override, config = {}, esriFastMode = false) {
   if (override === null || override === undefined) {
+    if (provider === "esri" && esriFastMode) return 0;
     const configuredFromConfig = parseNonNegativeInt(config.performance?.rowRecoveryPasses);
     if (configuredFromConfig !== null) return configuredFromConfig;
     const envKey =
@@ -507,6 +508,7 @@ async function processRow({
   forceVerify,
   rowRecoveryPasses,
   recoveryBackoffMs,
+  esriFastMode = false,
   progress,
   rangeIndex,
   rangeCount,
@@ -535,7 +537,12 @@ async function processRow({
   const pending = new Set();
   for (let y = yStart; y <= yEnd; y++) pending.add(y);
 
-  const maxRecoveryPasses = resolveRowRecoveryPasses(config.provider, rowRecoveryPasses, config);
+  const maxRecoveryPasses = resolveRowRecoveryPasses(
+    config.provider,
+    rowRecoveryPasses,
+    config,
+    esriFastMode
+  );
   const recoveryDelay = resolveRecoveryBackoffMs(config.provider, recoveryBackoffMs, config);
   for (let pass = 0; pass <= maxRecoveryPasses && pending.size > 0; pass++) {
     if (pass > 0) {
@@ -701,6 +708,7 @@ export async function runDownloadJob({
   dryRun = false,
   forceVerify = false,
   skipVerifyAfterDownload = false,
+  esriFastMode = false,
   rowRecoveryPasses = null,
   recoveryBackoffMs = null,
   onRangeVerified,
@@ -814,6 +822,7 @@ export async function runDownloadJob({
               fetchImpl,
               sleepImpl,
               forceVerify,
+              esriFastMode,
               rowRecoveryPasses,
               recoveryBackoffMs,
               progress: reporter,
@@ -851,7 +860,11 @@ export async function runDownloadJob({
       );
 
       await Promise.all(rowWorkers);
-      if (!skipVerifyAfterDownload && config.verifyAfterDownload !== false) {
+      if (
+        !skipVerifyAfterDownload &&
+        config.verifyAfterDownload !== false &&
+        !(esriFastMode && !forceVerify)
+      ) {
         const verified = await verifyRange({ config, provider, stateDb, range, progress: reporter, rangeIndex, rangeCount });
         rangesVerified++;
         stateDb.markRangeVerified({

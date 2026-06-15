@@ -44,3 +44,20 @@ test("downloader falls back to provided configs when MACHINE_NAME does not match
 
   assert.ok(stdout.includes("using configured config list"), stdout);
 });
+
+test("downloader accepts --max-concurrent-requests and applies it to runtime profile", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-concurrency-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", configPath, "--dry-run", "--max-concurrent-requests", "192", "--esri-fast"],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+    }
+  );
+
+  assert.ok(stdout.includes("Concurrency: requests=192"), stdout);
+});

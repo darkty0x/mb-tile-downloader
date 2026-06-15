@@ -6,7 +6,6 @@ import fsp from "node:fs/promises";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
-import os from "node:os";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 
@@ -63,7 +62,7 @@ function printUsage(exitCode = 0) {
   `  STORJ_PREFIX          remote folder/prefix only when no configPath is provided; configPath defaults to jobName`,
   "  STORJ_ACCESS          serialized Access Grant, or \"satellite api-key\" pair",
   "  STORJ_PASSPHRASE      required only when STORJ_ACCESS is a satellite/api-key pair",
-  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: per-user app config folder)",
+  "  STORJ_UPLINK_CONFIG_DIR  path to a shared uplink config dir (default: <repo>/.tile-state/storj)",
   "",
   "Uplink binary:",
   "  Uses bundled tools/uplink/uplink.exe on Windows, or PATH uplink fallback.",
@@ -120,10 +119,7 @@ function resolveUplinkConfigDir(value) {
   if (value) return path.resolve(value);
   const envDir = process.env.STORJ_UPLINK_CONFIG_DIR;
   if (envDir && String(envDir).trim()) return path.resolve(envDir);
-  const home = os.homedir();
-  return process.platform === "win32"
-    ? path.join(home, "AppData", "Local", "mb-tile-downloader", "storj")
-    : path.join(home, ".config", "mb-tile-downloader", "storj");
+  return path.join(__dirname, ".tile-state", "storj");
 }
 
 function normalizePrefix(prefix) {

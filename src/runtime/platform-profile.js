@@ -222,6 +222,28 @@ function parseProxyList(value) {
   return deduped;
 }
 
+function toBlockedProxySet(persisted = { http: [], https: [] }) {
+  const blocked = { http: new Set(), https: new Set() };
+  for (const key of ["http", "https"]) {
+    const entries = Array.isArray(persisted?.[key]) ? persisted[key] : [];
+    for (const entry of entries) {
+      const proxy = normalizeProxyEntry(typeof entry === "string" ? entry : entry?.proxy);
+      if (!proxy) continue;
+      blocked[key].add(proxy.toLowerCase());
+    }
+  }
+  return blocked;
+}
+
+function filterBlockedProxies(splitProxies, blocked = { http: new Set(), https: new Set() }) {
+  const blockedHttp = blocked.http instanceof Set ? blocked.http : new Set();
+  const blockedHttps = blocked.https instanceof Set ? blocked.https : new Set();
+  return {
+    http: (splitProxies?.http || []).filter((proxy) => !blockedHttp.has(String(proxy).toLowerCase())),
+    https: (splitProxies?.https || []).filter((proxy) => !blockedHttps.has(String(proxy).toLowerCase())),
+  };
+}
+
 function normalizeProxyEntry(candidate, fallbackProtocol = "http") {
   if (typeof candidate === "string") {
     const raw = candidate.trim();
@@ -338,15 +360,6 @@ function resolveMachineIdentifier(env = process.env) {
     if (first) return first;
   }
   return "";
-}
-
-function hashString(value) {
-  let hash = 0x811c9dc5;
-  for (const code of String(value || "")) {
-    hash ^= code.charCodeAt(0);
-    hash = Math.imul(hash, 0x01000193) >>> 0;
-  }
-  return hash || 0x9e3779b9;
 }
 
 function isInvalidProxyFailure(error) {
@@ -617,6 +630,7 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
   const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl || !fetchImpl) return null;
   const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) || DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
+  const blockedProxySet = toBlockedProxySet(options.persistedProxyBlacklist);
   const basePage = (() => {
     try {
       return parsePositiveInteger(new URL(sourceUrl).searchParams.get("page")) || 1;
@@ -680,9 +694,10 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
         .map((candidate) => normalizeProxyEntry(candidate))
         .filter(Boolean);
       const split = splitNormalizedProxiesByProtocol(candidates);
-      if (split.http.length > 0 || split.https.length > 0) {
-        await writeCachedProxyList(env, split);
-        return split;
+      const filteredSplit = filterBlockedProxies(split, blockedProxySet);
+      if (filteredSplit.http.length > 0 || filteredSplit.https.length > 0) {
+        await writeCachedProxyList(env, filteredSplit);
+        return filteredSplit;
       }
 
       const nextPage = parseNextPageHint(parsedBody, page, baseLimit);
@@ -699,28 +714,34 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl) return proxyEnv;
 
-  const hasExplicitList =
-    (proxyEnv.httpProxyList?.length ?? 0) > 0 || (proxyEnv.httpsProxyList?.length ?? 0) > 0;
-  const hasExplicitSourceUrl = hasAnyEnv(env, PROXY_SOURCE_ENV_KEYS.URL);
   const maxResponseTimeMs = parseProxyMaxResponseTimeMs(env);
 
-  if (!hasExplicitSourceUrl && hasExplicitList) return proxyEnv;
+  const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
+  const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
 
   const cached = await readCachedProxyList(env);
-  const cachedHttp = Array.isArray(cached?.http) ? cached.http : [];
-  const cachedHttps = Array.isArray(cached?.https) ? cached.https : [];
-  if (cachedHttp.length > 0 || cachedHttps.length > 0) {
+  const filteredCached = filterBlockedProxies(
+    {
+      http: Array.isArray(cached?.http) ? cached.http : [],
+      https: Array.isArray(cached?.https) ? cached.https : [],
+    },
+    blockedProxySet
+  );
+  if (filteredCached.http.length > 0 || filteredCached.https.length > 0) {
     return {
       ...proxyEnv,
-      httpProxyList: cachedHttp,
-      httpsProxyList: cachedHttps,
-      httpProxy: cachedHttp[0] || "",
-      httpsProxy: cachedHttps[0] || "",
+      httpProxyList: filteredCached.http,
+      httpsProxyList: filteredCached.https,
+      httpProxy: filteredCached.http[0] || "",
+      httpsProxy: filteredCached.https[0] || "",
     };
   }
 
-  const apiSplit = await loadProxyListFromApi(env, fetchImpl, { maxResponseTimeMs });
-  const split = apiSplit || (await readCachedProxyList(env));
+  const apiSplit = await loadProxyListFromApi(env, fetchImpl, {
+    maxResponseTimeMs,
+    persistedProxyBlacklist: blockedProxySet,
+  });
+  const split = filterBlockedProxies(apiSplit || (await readCachedProxyList(env)), blockedProxySet);
   const splitHttp = Array.isArray(split?.http) ? split.http : [];
   const splitHttps = Array.isArray(split?.https) ? split.https : [];
 
@@ -757,8 +778,11 @@ function mergeProxyLists(primary, fallback) {
 }
 
 function providerConcurrencyCap(provider, env = process.env) {
-  if (provider !== "esri") return null;
-  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY) ?? 64;
+  const genericCap = parsePositiveInt(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS);
+  if (provider !== "esri") return genericCap;
+
+  const esriCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY);
+  return esriCap ?? genericCap ?? 64;
 }
 
 function providerRowsCap(provider, env = process.env) {
@@ -770,29 +794,15 @@ function providerRowsCap(provider, env = process.env) {
 }
 
 export function resolveProxyEnvironment(env = process.env) {
-  const httpProxy = firstDefinedEnv(env, "http_proxy", "HTTP_PROXY");
-  const httpsProxy = firstDefinedEnv(env, "https_proxy", "HTTPS_PROXY");
+  const explicitHttpProxyList = resolveProxyListFromEnv(env, PROXY_LIST_ENV_KEYS.HTTP);
+  const explicitHttpsProxyList = resolveProxyListFromEnv(env, PROXY_LIST_ENV_KEYS.HTTPS);
 
   return {
-    httpProxy,
-    httpsProxy,
-    httpProxyList: mergeProxyLists(
-      resolveProxyListFromEnv(env, [
-        ...PROXY_LIST_ENV_KEYS.HTTP,
-        "http_proxy",
-        "HTTP_PROXY",
-      ]),
-      parseProxyList(httpProxy)
-    ),
-    httpsProxyList: mergeProxyLists(
-      resolveProxyListFromEnv(env, [
-        ...PROXY_LIST_ENV_KEYS.HTTPS,
-        "https_proxy",
-        "HTTPS_PROXY",
-      ]),
-      parseProxyList(httpsProxy)
-    ),
-    noProxy: firstDefinedEnv(env, "no_proxy", "NO_PROXY"),
+    httpProxy: explicitHttpProxyList[0] || "",
+    httpsProxy: explicitHttpsProxyList[0] || "",
+    httpProxyList: explicitHttpProxyList,
+    httpsProxyList: explicitHttpsProxyList,
+    noProxy: "",
   };
 }
 
@@ -872,10 +882,6 @@ function createProxyRotationState(
   failureBlockMs = DEFAULT_PROXY_FAILURE_BLOCK_MS,
   env = process.env
 ) {
-  const states = {
-    http: 0,
-    https: 0,
-  };
   const failureState = { http: new Map(), https: new Map() };
   const now = Date.now();
   for (const key of ["http", "https"]) {
@@ -892,11 +898,6 @@ function createProxyRotationState(
       });
     }
   }
-  const machineIdentifier = resolveMachineIdentifier(env);
-  const machineOffsets = {
-    http: hashString(`http:${machineIdentifier || "http"}`),
-    https: hashString(`https:${machineIdentifier || "https"}`),
-  };
   const maxConsecutiveFailures = parseProxyFailureThreshold(env);
   const failureWindowMs = 5 * 60_000;
   const normalizedFailureBlockMs = Math.max(1, parsePositiveInt(failureBlockMs) || DEFAULT_PROXY_FAILURE_BLOCK_MS);
@@ -941,17 +942,13 @@ function createProxyRotationState(
 
     cleanupFailures(key);
 
-    const rotateOffset = states[key] % candidates.length;
     const randomOffset = Math.floor(Math.random() * candidates.length);
-    let index =
-      (randomOffset + rotateOffset + machineOffsets[key] % candidates.length) % candidates.length;
-    states[key] = (index + 1) % candidates.length;
+    let index = randomOffset;
     if (Number.isNaN(index) || index < 0) index = 0;
     for (let offset = 0; offset < candidates.length; offset++) {
       const candidateIndex = (index + offset) % candidates.length;
       const candidate = candidates[candidateIndex];
       if (isHealthyCandidate(candidate, key)) return candidate;
-      states[key] = (candidateIndex + 1) % candidates.length;
     }
     return null;
   }
@@ -1114,8 +1111,6 @@ export async function configureNetworking(profile) {
     if (typeof baseFetch !== "function") return;
 
     const baseProxyEnv = resolveProxyEnvironment(env);
-    const hasExplicitProxyList =
-      (baseProxyEnv.httpProxyList?.length ?? 0) > 0 || (baseProxyEnv.httpsProxyList?.length ?? 0) > 0;
     const proxyEnv = await resolveProxyEnvironmentFromSource(
       baseProxyEnv,
       env,
@@ -1141,11 +1136,7 @@ export async function configureNetworking(profile) {
       return null;
     }
 
-    const shouldLoadBlacklist =
-      hasAnyEnv(env, PROXY_SOURCE_ENV_KEYS.BLACKLIST_PATH) || !hasExplicitProxyList;
-    const persistedProxyBlacklist = shouldLoadBlacklist
-      ? await loadPersistedProxyBlacklist(env)
-      : { http: [], https: [] };
+    const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
     if (process.env.PROXY_DEBUG) console.log("proxy-debug: persisted", persistedProxyBlacklist);
     const proxyRotation = createProxyRotationState(
       proxyEnv,

@@ -73,6 +73,20 @@ test("keeps Mapbox platform concurrency uncapped by Esri limits", () => {
   assert.equal(profile.perRowConcurrency, 4096);
 });
 
+test("allows generic concurrency override for any provider", () => {
+  const profile = buildPlatformProfile({
+    platform: "linux",
+    provider: "mapbox",
+    cpuCount: 16,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "192" },
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 192);
+  assert.equal(profile.perRowConcurrency, 192);
+});
+
 test("allows explicit Esri concurrency override from environment", () => {
   const profile = buildPlatformProfile({
     platform: "linux",
