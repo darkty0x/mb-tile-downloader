@@ -128,6 +128,55 @@ test("watchdog does not restart non-restartable token exhaustion", async () => {
   assert.equal(await readFile(marker, "utf8"), "1");
 });
 
+test("watchdog does not restart deterministic Storj setup failures", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "watchdog-"));
+  const cases = [
+    "Fatal: STORJ_BUCKET is required, or pass --bucket=name",
+    "Fatal: STORJ_ACCESS contains satellite address + API key. Set STORJ_PASSPHRASE to configure uplink from those two values.",
+    "Fatal: No working Storj uplink binary found. Run 'node scripts/install-storj-uplink.js --if-missing' to install.",
+  ];
+
+  for (let idx = 0; idx < cases.length; idx++) {
+    const marker = path.join(dir, `attempts-${idx}.txt`);
+    await writeFile(marker, "0");
+    const script = [
+      "const fs = require('node:fs');",
+      "const marker = process.env.WATCHDOG_TEST_MARKER;",
+      "const attempts = Number(fs.readFileSync(marker, 'utf8'));",
+      "fs.writeFileSync(marker, String(attempts + 1));",
+      `console.error(${JSON.stringify(cases[idx])});`,
+      "process.exit(1);",
+    ].join(" ");
+
+    await assert.rejects(
+      () =>
+        execFileAsync(
+          process.execPath,
+          [
+            "scripts/watchdog.js",
+            "--idle-ms=0",
+            "--restart-delay-ms=1",
+            "--max-restarts=2",
+            "--",
+            process.execPath,
+            "-e",
+            script,
+          ],
+          {
+            cwd: path.resolve("."),
+            env: { ...process.env, WATCHDOG_TEST_MARKER: marker },
+          }
+        ),
+      (err) => {
+        assert.match(err.stderr, /non-restartable failure detected/);
+        return true;
+      }
+    );
+
+    assert.equal(await readFile(marker, "utf8"), "1");
+  }
+});
+
 test("watchdog does not restart missing remote archive results", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "watchdog-"));
   const marker = path.join(dir, "attempts.txt");

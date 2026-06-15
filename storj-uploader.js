@@ -165,7 +165,9 @@ async function loadJson(filePath) {
 function parseStorjCredentials({ access, passphrase }) {
   const rawAccess = String(access || "").trim();
   if (!rawAccess) {
-    throw new Error("STORJ_ACCESS is required, or pass --access=grant");
+    throw new Error(
+      "STORJ_ACCESS is required on this server, or pass --access=grant. The repo .env file is ignored by git, so copy STORJ_BUCKET, STORJ_ACCESS, and STORJ_PASSPHRASE to each upload server."
+    );
   }
 
   const parts = rawAccess.split(/\s+/).filter(Boolean);
@@ -173,7 +175,7 @@ function parseStorjCredentials({ access, passphrase }) {
     const setupPassphrase = String(passphrase || "").trim();
     if (!setupPassphrase) {
       throw new Error(
-        "STORJ_ACCESS contains satellite address + API key. Set STORJ_PASSPHRASE to configure uplink from those two values, or replace STORJ_ACCESS with a serialized Access Grant."
+        "STORJ_ACCESS contains satellite address + API key. Set STORJ_PASSPHRASE on this server to configure uplink from those two values, or replace STORJ_ACCESS with a serialized Access Grant."
       );
     }
     return {
