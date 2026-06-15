@@ -845,6 +845,63 @@ test("Esri unavailable fallback tries deeper current parents before older Waybac
   db.close();
 });
 
+test("Esri missing exact tiles can be synthesized from a current parent tile", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const grandparent = quadrantJpeg();
+  const requestedUrls = [];
+
+  await withEnv(
+    {
+      TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
+    },
+    async () => {
+      const result = await runDownloadJob({
+        config: {
+          jobName: "esri-404-parent-fallback",
+          provider: "esri",
+          layer: "satellite",
+          format: "jpg",
+          configHash: "hash",
+          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+          tile: { extension: "jpg", yScheme: "xyz" },
+          url: { template: "https://example.test/{z}/{y}/{x}" },
+          ranges: [
+            { zoomStart: 15, zoomEnd: 15, xStart: 19211, xEnd: 19211, yStart: 11648, yEnd: 11648, label: "a" },
+          ],
+          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+          performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+          verifyAfterDownload: false,
+        },
+        stateDb: db,
+        progress: false,
+        skipVerifyAfterDownload: true,
+        fetchImpl: async (url) => {
+          requestedUrls.push(String(url));
+          if (String(url) === "https://example.test/13/2912/4802") {
+            return new Response(grandparent, {
+              status: 200,
+              headers: { "content-type": "image/jpeg" },
+            });
+          }
+          return new Response("not found", { status: 404 });
+        },
+      });
+
+      assert.equal(result.tilesDownloaded, 1);
+      assert.equal(result.tilesMissing, 0);
+      assert.equal(result.tilesFailed, 0);
+      assert.deepEqual(requestedUrls, [
+        "https://example.test/15/11648/19211",
+        "https://example.test/14/5824/9605",
+        "https://example.test/13/2912/4802",
+      ]);
+    }
+  );
+
+  db.close();
+});
+
 test("Esri retryable current-tile blocks can fall back to Wayback instead of failing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

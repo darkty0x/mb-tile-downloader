@@ -797,6 +797,7 @@ async function downloadOneTile({
   const timeoutMs = Math.max(1000, Number(config.platformProfile?.requestTimeoutMs || 25_000));
   const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
   let lastUnavailableTile = null;
+  let lastRetryStatus = null;
 
   async function writeFallbackTile() {
     if (provider.name !== "esri") return false;
@@ -862,6 +863,7 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
+        lastRetryStatus = resp.status;
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
         if ((resp.status === 403 || resp.status === 429) && await writeFallbackTile()) return "downloaded";
         if (blocked) return "blocked";
@@ -926,6 +928,8 @@ async function downloadOneTile({
     });
     return "missing";
   }
+
+  if (provider.name === "esri" && lastRetryStatus === 404 && await writeFallbackTile()) return "downloaded";
 
   return "failed";
 }
