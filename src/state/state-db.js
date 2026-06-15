@@ -100,7 +100,7 @@ export class TileStateDb {
 
   shouldSkipRow(key) {
     const row = this.getRow(key);
-    return Boolean(row && row.status === "complete" && row.failed === 0);
+    return Boolean(row && row.status === "complete" && row.missing === 0 && row.failed === 0);
   }
 
   shouldSkipRange({ jobName, configHash, layer, rangeIndex }) {

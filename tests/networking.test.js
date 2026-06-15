@@ -65,12 +65,25 @@ function profile() {
   };
 }
 
+async function configureTestNetworking(profile, env = {}, runtime = {}) {
+  const dir = await fsp.mkdtemp(path.join(os.tmpdir(), "tile-networking-"));
+  return configureNetworking(
+    profile,
+    {
+      GEONODE_PROXY_LIST_CACHE_PATH: path.join(dir, "proxy-list-cache.json"),
+      GEONODE_PROXY_BLACKLIST_PATH: path.join(dir, "proxy-blacklist.json"),
+      ...env,
+    },
+    runtime
+  );
+}
+
 test("configureNetworking keeps direct fetch behavior when no proxy env is set", async () => {
   const undici = createFakeUndici();
   const originalFetch = async () => new Response("direct");
   const targetGlobal = { fetch: originalFetch };
 
-  await configureNetworking(profile(), {}, { undici, targetGlobal });
+  await configureTestNetworking(profile(), {}, { undici, targetGlobal });
 
   assert.equal(targetGlobal.fetch, originalFetch);
   assert.equal(undici.state.dispatcher.kind, "direct");
@@ -81,7 +94,7 @@ test("configureNetworking routes HTTPS requests through proxy list entry", async
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     { GEONODE_HTTPS_PROXY_LIST: "http://proxy.internal:8080" },
     { undici, targetGlobal }
@@ -101,7 +114,7 @@ test("configureNetworking rotates across HTTPS proxy list for successive request
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "http://primary-proxy:8080, http://secondary-proxy:8080",
@@ -141,7 +154,7 @@ test("configureNetworking loads proxy list from a proxy API and rotates against 
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -180,7 +193,7 @@ test("configureNetworking uses default hardcoded proxy source URL when env is no
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {},
     { undici, targetGlobal, fetchImpl }
@@ -215,7 +228,7 @@ test("configureNetworking follows proxy API pagination when the first page has n
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
@@ -271,7 +284,7 @@ test("configureNetworking skips blocked proxies and continues API pagination", a
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
@@ -306,7 +319,7 @@ test("configureNetworking loads shared blacklist entries and skips blocked proxy
   };
   await fsp.writeFile(blacklistPath, JSON.stringify(payload), "utf8");
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
@@ -326,7 +339,7 @@ test("configureNetworking persists proxy blocks to shared blacklist", async () =
   const blacklistPath = path.join(tmpDir, "proxy-blacklist.json");
   const firstUndici = createFakeUndici();
   const firstTarget = { fetch: async () => new Response("direct") };
-  const firstRotation = await configureNetworking(
+  const firstRotation = await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
@@ -348,7 +361,7 @@ test("configureNetworking persists proxy blocks to shared blacklist", async () =
 
   const secondUndici = createFakeUndici();
   const secondTarget = { fetch: async () => new Response("direct") };
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "https://198.51.100.1:8080,https://203.0.113.2:8080",
@@ -386,7 +399,7 @@ test("configureNetworking uses cached proxy API list when the API is not reachab
   const firstUndici = createFakeUndici();
   const firstTarget = { fetch: async () => new Response("direct") };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -407,7 +420,7 @@ test("configureNetworking uses cached proxy API list when the API is not reachab
   };
   const secondUndici = createFakeUndici();
   const secondTarget = { fetch: async () => new Response("direct") };
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -444,7 +457,7 @@ test("configureNetworking respects response-time threshold override from proxy e
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -486,7 +499,7 @@ test("configureNetworking filters API proxy candidates with response time above 
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -527,7 +540,7 @@ test("configureNetworking uses proxy latency when response time values are above
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
@@ -549,7 +562,7 @@ test("configureNetworking cannot set no_proxy via env when hardcoded proxy profi
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "http://proxy.internal:8080",
@@ -580,7 +593,7 @@ test("configureNetworking falls back to direct after a dead proxy candidate is b
     return new Response("ok");
   };
 
-  await configureNetworking(
+  await configureTestNetworking(
     profile(),
     {
       GEONODE_HTTPS_PROXY_LIST: "http://primary-proxy:8080",

@@ -54,6 +54,31 @@ test("skips complete rows only when config hash matches", async () => {
   db.close();
 });
 
+test("does not skip rows that still have missing tiles", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-state-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const key = {
+    jobName: "job",
+    configHash: "hash-a",
+    layer: "satellite",
+    z: 14,
+    x: 9580,
+    yStart: 5265,
+    yEnd: 5830,
+  };
+
+  db.markRowComplete({
+    ...key,
+    expected: 566,
+    downloaded: 565,
+    missing: 1,
+    failed: 0,
+  });
+
+  assert.equal(db.shouldSkipRow(key), false);
+  db.close();
+});
+
 test("tracks completed range verification by config hash and range index", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-state-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

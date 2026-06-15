@@ -52,8 +52,8 @@ export function createEsriProvider(config) {
       });
     },
     classifyResponse(resp) {
-      if (resp.status === 404) return { status: "missing", retry: false };
       if (
+        resp.status === 404 ||
         resp.status === 403 ||
         resp.status === 408 ||
         resp.status === 409 ||

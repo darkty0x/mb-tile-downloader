@@ -57,6 +57,10 @@ test("dry run counts rows and does not create tile files", async () => {
 test("engine skips rows marked complete for the same config hash", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const rowDir = path.join(dir, "tiles", "satellite", "1", "1");
+  await mkdir(rowDir, { recursive: true });
+  await writeFile(path.join(rowDir, "1.jpg"), "tile");
+
   db.markRowComplete({
     jobName: "skip",
     configHash: "hash",
@@ -131,7 +135,7 @@ test("engine verifies each range immediately after processing it", async () => {
   db.close();
 });
 
-test("verification failures are persisted so resume retries error rows", async () => {
+test("verification repairs missing files from stale complete rows", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   db.markRowComplete({
@@ -165,28 +169,6 @@ test("verification failures are persisted so resume retries error rows", async (
     verifyAfterDownload: true,
   };
 
-  const result = await runDownloadJob({
-    config,
-    stateDb: db,
-    progress: false,
-    fetchImpl: async () => {
-      throw new Error("complete row should be skipped before verify");
-    },
-  });
-
-  assert.equal(
-    db.shouldSkipRow({
-      jobName: "verify-resume",
-      configHash: "hash",
-      layer: "satellite",
-      z: 1,
-      x: 1,
-      yStart: 1,
-      yEnd: 1,
-    }),
-    false
-  );
-
   let fetches = 0;
   const result = await runDownloadJob({
     config,
@@ -198,6 +180,9 @@ test("verification failures are persisted so resume retries error rows", async (
     },
   });
 
+  assert.equal(result.rowsSkipped, 1);
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesFailed, 0);
   assert.equal(fetches, 1);
   assert.equal(
     db.shouldSkipRow({
@@ -330,6 +315,46 @@ test("script-level retry floor recovers transient tile failures without config c
   db.close();
 });
 
+test("Esri retries 404 responses before accepting a tile as failed", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  let fetches = 0;
+
+  await withEnv({ TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2" }, async () => {
+    const result = await runDownloadJob({
+      config: {
+        jobName: "esri-404-retry",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 14, zoomEnd: 14, xStart: 9580, xEnd: 9580, yStart: 5265, yEnd: 5265, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+        verifyAfterDownload: true,
+      },
+      stateDb: db,
+      progress: false,
+      fetchImpl: async () => {
+        fetches++;
+        if (fetches === 1) return new Response("not found", { status: 404 });
+        return new Response("tile");
+      },
+    });
+
+    assert.equal(result.tilesDownloaded, 1);
+    assert.equal(result.tilesFailed, 0);
+    assert.equal(fetches, 2);
+  });
+
+  db.close();
+});
+
 test("row recovery retries failed tiles before range verification", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -442,66 +467,68 @@ test("Esri fast mode disables row recovery by default", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
 
-  let defaultFetches = 0;
-  const withRecovery = await runDownloadJob({
-    config: {
-      jobName: "esri-fast-row-recovery-off",
-      provider: "esri",
-      layer: "satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: { extension: "jpg", yScheme: "xyz" },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1 },
-    },
-    stateDb: db,
-    progress: false,
-    esriFastMode: false,
-    fetchImpl: async () => {
-      defaultFetches++;
-      if (defaultFetches === 1) throw new Error("socket reset");
-      return new Response("tile");
-    },
-  });
+  await withEnv({ TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1" }, async () => {
+    let defaultFetches = 0;
+    const withRecovery = await runDownloadJob({
+      config: {
+        jobName: "esri-fast-row-recovery-off",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+      },
+      stateDb: db,
+      progress: false,
+      esriFastMode: false,
+      fetchImpl: async () => {
+        defaultFetches++;
+        if (defaultFetches === 1) throw new Error("socket reset");
+        return new Response("tile");
+      },
+    });
 
-  let fastFetches = 0;
-  const fast = await runDownloadJob({
-    config: {
-      jobName: "esri-fast-row-recovery-on",
-      provider: "esri",
-      layer: "satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: { extension: "jpg", yScheme: "xyz" },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1 },
-    },
-    stateDb: db,
-    progress: false,
-    esriFastMode: true,
-    fetchImpl: async () => {
-      fastFetches++;
-      if (fastFetches === 1) throw new Error("socket reset");
-      return new Response("tile");
-    },
-  });
+    let fastFetches = 0;
+    const fast = await runDownloadJob({
+      config: {
+        jobName: "esri-fast-row-recovery-on",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 1, zoomEnd: 1, xStart: 2, xEnd: 2, yStart: 1, yEnd: 1, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+      },
+      stateDb: db,
+      progress: false,
+      esriFastMode: true,
+      fetchImpl: async () => {
+        fastFetches++;
+        if (fastFetches === 1) throw new Error("socket reset");
+        return new Response("tile");
+      },
+    });
 
-  assert.equal(withRecovery.tilesDownloaded, 1);
-  assert.equal(withRecovery.tilesFailed, 0);
-  assert.equal(defaultFetches, 2);
-  assert.equal(fast.tilesDownloaded, 0);
-  assert.equal(fast.tilesFailed, 1);
-  assert.equal(fastFetches, 1);
+    assert.equal(withRecovery.tilesDownloaded, 1);
+    assert.equal(withRecovery.tilesFailed, 0);
+    assert.equal(defaultFetches, 2);
+    assert.equal(fast.tilesDownloaded, 0);
+    assert.equal(fast.tilesFailed, 1);
+    assert.equal(fastFetches, 1);
+  });
   db.close();
 });
 
@@ -576,7 +603,7 @@ test("Esri retries a blocked proxy and continues within tile retry budget", asyn
     },
   };
 
-  await runDownloadJob({
+  const result = await runDownloadJob({
     config: {
       jobName: "esri-proxy-retry",
       provider: "esri",

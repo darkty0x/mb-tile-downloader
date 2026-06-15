@@ -104,6 +104,12 @@ function esriCooldownEnabled(env = process.env) {
   return explicit ?? true;
 }
 
+function shouldRetryUnavailableTile(providerName, env = process.env) {
+  if (providerName !== "esri") return false;
+  const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE);
+  return explicit ?? true;
+}
+
 function normalizeProxyProtocol(candidate) {
   if (typeof candidate !== "string") return "";
   const normalized = candidate.trim();
@@ -405,6 +411,7 @@ async function downloadOneTile({
   tokenPool,
   fetchImpl,
   sleepImpl,
+  env,
   z,
   x,
   y,
@@ -421,6 +428,7 @@ async function downloadOneTile({
   );
   const backoffMs = Math.max(1, Number(config.performance?.retryBackoffMs || 150));
   const timeoutMs = Math.max(1000, Number(config.platformProfile?.requestTimeoutMs || 25_000));
+  const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
 
   let networkAttempt = 0;
   let requestAttempt = 0;
@@ -475,7 +483,14 @@ async function downloadOneTile({
 
       if (provider.isUnavailable) {
         const buffer = await readResponseBuffer(resp);
-        if (provider.isUnavailable(buffer)) return "missing";
+        if (provider.isUnavailable(buffer)) {
+          if (retryUnavailableTile) {
+            networkAttempt++;
+            if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
+            continue;
+          }
+          return "missing";
+        }
         await fsp.writeFile(tmpPath, buffer);
       } else {
         await writeResponse(resp, tmpPath);
@@ -505,6 +520,7 @@ async function processRow({
   stateDb,
   fetchImpl,
   sleepImpl,
+  env,
   forceVerify,
   rowRecoveryPasses,
   recoveryBackoffMs,
@@ -582,6 +598,7 @@ async function processRow({
           tokenPool,
           fetchImpl,
           sleepImpl,
+          env,
           z,
           x,
           y,
@@ -598,7 +615,7 @@ async function processRow({
 
   const failed = pending.size;
 
-  if (failed === 0) {
+  if (failed === 0 && missing === 0) {
     stateDb.markRowComplete({
       ...key,
       expected,
@@ -635,10 +652,27 @@ function* iterRows(ranges) {
   }
 }
 
-async function verifyRange({ config, provider, stateDb, range, progress, rangeIndex, rangeCount }) {
+async function verifyRange({
+  config,
+  provider,
+  providerRuntime,
+  tokenPool,
+  stateDb,
+  fetchImpl,
+  sleepImpl,
+  env,
+  range,
+  progress,
+  rangeIndex,
+  rangeCount,
+  rowRecoveryPasses,
+  recoveryBackoffMs,
+  esriFastMode,
+}) {
   let expected = 0;
   let present = 0;
   let missing = 0;
+  let repairedDownloaded = 0;
   let rowsDone = 0;
   const rowsTotal = [...iterRows([range])].length;
   const tilesTotal = rowsTotal * (range.yEnd - range.yStart + 1);
@@ -670,8 +704,39 @@ async function verifyRange({ config, provider, stateDb, range, progress, rangeIn
         yEnd: range.yEnd,
         expected: rowExpected,
       };
+      if (rowMissing > 0) {
+        const repaired = await processRow({
+          config,
+          provider,
+          providerRuntime,
+          tokenPool,
+          stateDb,
+          fetchImpl,
+          sleepImpl,
+          env,
+          forceVerify: true,
+          rowRecoveryPasses,
+          recoveryBackoffMs,
+          esriFastMode,
+          progress,
+          rangeIndex,
+          rangeCount,
+          z,
+          x,
+          yStart: range.yStart,
+          yEnd: range.yEnd,
+        });
+        repairedDownloaded += repaired.downloaded;
+        present -= rowPresent;
+        missing -= rowMissing;
+        rowPresent = repaired.downloaded + repaired.skippedFiles;
+        rowMissing = repaired.missing + repaired.failed;
+        present += rowPresent;
+        missing += rowMissing;
+      }
+
       const row = stateDb.getRow(key);
-      if (row && row.failed === 0 && rowMissing === 0) {
+      if (row && row.failed === 0 && row.missing === 0 && rowMissing === 0) {
         stateDb.markRowComplete({
           ...key,
           downloaded: rowPresent,
@@ -696,6 +761,7 @@ async function verifyRange({ config, provider, stateDb, range, progress, rangeIn
     expected,
     present,
     missing,
+    repairedDownloaded,
   };
 }
 
@@ -821,6 +887,7 @@ export async function runDownloadJob({
               stateDb,
               fetchImpl,
               sleepImpl,
+              env,
               forceVerify,
               esriFastMode,
               rowRecoveryPasses,
@@ -865,8 +932,25 @@ export async function runDownloadJob({
         config.verifyAfterDownload !== false &&
         !(esriFastMode && !forceVerify)
       ) {
-        const verified = await verifyRange({ config, provider, stateDb, range, progress: reporter, rangeIndex, rangeCount });
+        const verified = await verifyRange({
+          config,
+          provider,
+          providerRuntime,
+          tokenPool,
+          stateDb,
+          fetchImpl,
+          sleepImpl,
+          env,
+          range,
+          progress: reporter,
+          rangeIndex,
+          rangeCount,
+          rowRecoveryPasses,
+          recoveryBackoffMs,
+          esriFastMode,
+        });
         rangesVerified++;
+        tilesDownloaded += verified.repairedDownloaded;
         stateDb.markRangeVerified({
           jobName: config.jobName,
           configHash: config.configHash,

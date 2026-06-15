@@ -630,7 +630,9 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
   const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl || !fetchImpl) return null;
   const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) || DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
-  const blockedProxySet = toBlockedProxySet(options.persistedProxyBlacklist);
+  const blockedProxySet =
+    options.blockedProxySet ||
+    toBlockedProxySet(options.persistedProxyBlacklist);
   const basePage = (() => {
     try {
       return parsePositiveInteger(new URL(sourceUrl).searchParams.get("page")) || 1;
@@ -718,6 +720,22 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
 
   const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
   const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
+  const explicitProxySplit = filterBlockedProxies(
+    {
+      http: Array.isArray(proxyEnv?.httpProxyList) ? proxyEnv.httpProxyList : [],
+      https: Array.isArray(proxyEnv?.httpsProxyList) ? proxyEnv.httpsProxyList : [],
+    },
+    blockedProxySet
+  );
+  if (explicitProxySplit.http.length > 0 || explicitProxySplit.https.length > 0) {
+    return {
+      ...proxyEnv,
+      httpProxyList: explicitProxySplit.http,
+      httpsProxyList: explicitProxySplit.https,
+      httpProxy: explicitProxySplit.http[0] || "",
+      httpsProxy: explicitProxySplit.https[0] || "",
+    };
+  }
 
   const cached = await readCachedProxyList(env);
   const filteredCached = filterBlockedProxies(
@@ -739,7 +757,7 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
 
   const apiSplit = await loadProxyListFromApi(env, fetchImpl, {
     maxResponseTimeMs,
-    persistedProxyBlacklist: blockedProxySet,
+    blockedProxySet,
   });
   const split = filterBlockedProxies(apiSplit || (await readCachedProxyList(env)), blockedProxySet);
   const splitHttp = Array.isArray(split?.http) ? split.http : [];
