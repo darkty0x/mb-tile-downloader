@@ -55,15 +55,17 @@ const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 500;
 const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 64;
 const DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT = 1;
-const DEFAULT_PROXY_LIST_URL =
+const DEFAULT_GEONODE_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc";
+const DEFAULT_PROXY_LIST_URL =
+  "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all";
 const DEFAULT_PROXY_LIST_URLS = [
   DEFAULT_PROXY_LIST_URL,
-  "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
   "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
   "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
   "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
   "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt",
+  DEFAULT_GEONODE_PROXY_LIST_URL,
 ];
 
 const PLATFORM_LIMITS = {
@@ -161,14 +163,33 @@ function normalizeProxyListSourceUrl(sourceUrl) {
   }
 }
 
+function isGeonodeProxyListSourceUrl(sourceUrl) {
+  if (!sourceUrl) return false;
+  try {
+    const url = new URL(normalizeProxyListSourceUrl(sourceUrl));
+    return (
+      url.hostname === "proxylist.geonode.com" &&
+      url.pathname.replace(/\/+$/, "") === "/api/proxy-list"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function resolveProxyListSourceUrl(env = process.env) {
   return resolveProxyListSourceUrls(env)[0] || "";
 }
 
 function resolveProxyListSourceUrls(env = process.env) {
   const explicit = resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.URL);
-  const rawSources = explicit
+  const explicitSources = explicit
     ? explicit.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)
+    : [];
+  const nonLegacyExplicitSources = explicitSources.filter(
+    (source) => !isGeonodeProxyListSourceUrl(source)
+  );
+  const rawSources = nonLegacyExplicitSources.length
+    ? nonLegacyExplicitSources
     : DEFAULT_PROXY_LIST_URLS;
   const seen = new Set();
   const sources = [];

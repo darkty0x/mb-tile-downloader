@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "./src/config/config-loader.js";
 import { splitConfigByRows } from "./src/config/config-splitter.js";
 import { runDownloadJob } from "./src/engine/downloader-engine.js";
+import { proxyHealthcheckUrlForConfig } from "./src/runtime/proxy-healthcheck-target.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -104,40 +105,13 @@ function stripProcessProxyEnv(env = process.env) {
   return sanitized;
 }
 
-function renderUrlTemplate(template, values) {
-  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
-    if (values[key] === undefined || values[key] === null) {
-      throw new Error(`Missing URL template value: ${key}`);
-    }
-    return encodeURIComponent(String(values[key]));
-  });
-}
-
-function esriRequestY(z, y, yScheme) {
-  if (String(yScheme || "xyz").toLowerCase() !== "tms") return y;
-  return 2 ** z - 1 - y;
-}
-
-function proxyHealthcheckUrlForConfig(config) {
-  if (config.provider !== "esri") return "";
-  const range = Array.isArray(config.ranges) ? config.ranges[0] : null;
-  if (!range) return "";
-  const z = range.zoomStart;
-  const x = range.xStart;
-  const y = esriRequestY(z, range.yStart, config.tile?.yScheme || config.requestYScheme || "xyz");
-  const template =
-    config.url?.template ||
-    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-  return renderUrlTemplate(template, { z, x, y });
-}
-
 function printUsage(exitCode = 0) {
   console.log(`
 Production tile downloader
 
 Usage:
   node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
-  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast]
+  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast] [--no-proxy]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js clear-token-state [--state-db path-or-dir]
@@ -221,6 +195,7 @@ function parseArgs(argv) {
     dryRun: false,
     skipVerifyAfterDownload: false,
     esriFastMode: false,
+    noProxy: false,
     maxConcurrentRequests: null,
     rowRecoveryPasses: null,
     recoveryBackoffMs: null,
@@ -237,6 +212,7 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
     else if (arg === "--esri-fast") opts.esriFastMode = true;
+    else if (arg === "--no-proxy") opts.noProxy = true;
     else if (arg === "--proxy-trace") {
       // Deprecated compatibility no-op. Proxy pickup logs are automatic for Esri health checks.
     }
@@ -376,22 +352,24 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
-  const proxyHealthcheckUrl = proxyHealthcheckUrlForConfig(config);
+  const proxyHealthcheckUrl =
+    opts.dryRun || opts.noProxy ? "" : await proxyHealthcheckUrlForConfig(config);
 
   try {
     const proxyRuntimeEnv = opts.dryRun
       ? null
       : {
           ...stripProcessProxyEnv(process.env),
-          ...(proxyHealthcheckUrl
+          ...(proxyHealthcheckUrl && !opts.noProxy
             ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrl }
             : null),
         };
-    const proxyRotation = opts.dryRun
+    const proxyRotation = opts.dryRun || opts.noProxy
       ? null
       : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
     if (
       !opts.dryRun &&
+      !opts.noProxy &&
       proxyHealthcheckUrl &&
       proxyRuntimeEnv?.TILE_DOWNLOADER_PROXY_REQUIRED !== "0" &&
       !proxyRotation
@@ -408,6 +386,8 @@ async function runOneConfig(configPath, opts) {
     if (!opts.dryRun && proxyHealthcheckUrl) {
       console.log("Proxy pickup: enabled");
       console.log(`Proxy healthcheck: ${proxyHealthcheckUrl}`);
+    } else if (opts.noProxy) {
+      console.log("Proxy pickup: disabled (--no-proxy)");
     }
       console.log(
         `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
@@ -433,7 +413,7 @@ async function runOneConfig(configPath, opts) {
     const result = await runDownloadJob({
       config,
       stateDb,
-      env: process.env,
+      env: proxyRuntimeEnv || process.env,
       dryRun: opts.dryRun,
       forceVerify: opts.forceVerify || opts.validate,
       esriFastMode: opts.esriFastMode,

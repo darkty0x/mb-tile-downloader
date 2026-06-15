@@ -1,10 +1,13 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
+
+import { proxyHealthcheckUrlForConfig } from "../src/runtime/proxy-healthcheck-target.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -85,6 +88,36 @@ test("downloader dry-run skips proxy discovery", async () => {
   assert.ok(stdout.includes("Mode: dry-run"), stdout);
 });
 
+test("downloader --no-proxy skips proxy discovery without requiring a healthy proxy", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-no-proxy-flag-"));
+  const outputDir = path.join(dir, "download");
+  const tilePath = path.join(outputDir, "esri-satellite", "1", "0", "0.jpg");
+  const configPath = path.join(dir, "esri.config.json");
+  await mkdir(path.dirname(tilePath), { recursive: true });
+  await writeFile(tilePath, "jpg");
+  await writeFile(configPath, JSON.stringify(esriConfig(outputDir)));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", configPath, "--validate", "--no-proxy"],
+    {
+      cwd: process.cwd(),
+      timeout: 5_000,
+      env: {
+        ...process.env,
+        GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
+        TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "100",
+      },
+    }
+  );
+
+  assert.ok(stdout.includes("Proxy pickup: disabled (--no-proxy)"), stdout);
+  assert.equal(stdout.includes("Proxy pickup: enabled"), false);
+  assert.equal(stdout.includes("proxy-api-page-start"), false);
+  assert.equal(stdout.includes("healthcheck-start"), false);
+  assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
+});
+
 test("downloader accepts deprecated --proxy-trace as a compatibility no-op", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-proxy-trace-"));
   const configPath = path.join(dir, "esri.config.json");
@@ -130,5 +163,38 @@ test("downloader refuses to start Esri download when no healthy proxy is found",
       assert.equal(output.includes("▶ Range"), false);
       return true;
     }
+  );
+});
+
+test("proxy healthcheck target prefers an existing Esri unavailable tile over an earlier missing tile", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-healthcheck-target-"));
+  const placeholder = Buffer.from("unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const unavailablePath = path.join(dir, "esri-satellite", "2", "1", "1.jpg");
+  await mkdir(path.dirname(unavailablePath), { recursive: true });
+  await writeFile(unavailablePath, placeholder);
+
+  const url = await proxyHealthcheckUrlForConfig({
+    provider: "esri",
+    layer: "esri-satellite",
+    format: "jpg",
+    url: {
+      template:
+        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    },
+    tile: {
+      extension: "jpg",
+      unavailableTileSha256: placeholderHash,
+    },
+    output: {
+      dir,
+      pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
+    },
+    ranges: [{ zoomStart: 2, zoomEnd: 2, xStart: 1, xEnd: 1, yStart: 0, yEnd: 2 }],
+  });
+
+  assert.equal(
+    url,
+    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/2/1/1"
   );
 });

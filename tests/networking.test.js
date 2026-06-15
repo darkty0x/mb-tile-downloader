@@ -460,21 +460,21 @@ test("configureNetworking loads proxy list from a proxy API and sticks to the se
   assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
-test("configureNetworking uses default hardcoded proxy source URL when env is not set", async () => {
+test("configureNetworking uses ProxyScrape as the first default hardcoded proxy source", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
   let apiCalled = 0;
   let apiUrlObserved = "";
+  const requests = [];
   const fetchImpl = async (input) => {
     const url = String(input);
-    if (url.startsWith("https://proxylist.geonode.com/api/proxy-list")) {
+    requests.push(url);
+    if (url.startsWith("https://api.proxyscrape.com/v2/")) {
       apiCalled += 1;
       apiUrlObserved = url;
-      return new Response(JSON.stringify({
-        data: [{ ip: "198.51.100.1", port: "8080", protocol: "https", responseTime: 50 }],
-      }), {
+      return new Response("198.51.100.1:8080\n", {
         status: 200,
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "text/plain" },
       });
     }
     return new Response("ok");
@@ -489,15 +489,13 @@ test("configureNetworking uses default hardcoded proxy source URL when env is no
   await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
 
   assert.equal(apiCalled, 1);
-  assert.ok(apiUrlObserved.startsWith("https://proxylist.geonode.com/api/proxy-list"));
-  const apiUrl = new URL(apiUrlObserved);
-  assert.equal(apiUrl.searchParams.get("limit"), "500");
-  assert.equal(apiUrl.searchParams.has("protocols"), false);
+  assert.ok(requests[0].startsWith("https://api.proxyscrape.com/v2/"), requests.join("\n"));
+  assert.ok(apiUrlObserved.startsWith("https://api.proxyscrape.com/v2/"));
   assert.equal(undici.state.fetchCalls.length, 1);
-  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://198.51.100.1:8080");
 });
 
-test("configureNetworking falls back from Geonode 429 to hardcoded text proxy sources", async () => {
+test("configureNetworking falls back from the first hardcoded text source to the next source", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
   const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
@@ -505,10 +503,10 @@ test("configureNetworking falls back from Geonode 429 to hardcoded text proxy so
   const fetchImpl = async (input) => {
     const url = String(input);
     requests.push(url);
-    if (url.startsWith("https://proxylist.geonode.com/api/proxy-list")) {
+    if (url.startsWith("https://api.proxyscrape.com/v2/")) {
       return new Response("rate limited", { status: 429 });
     }
-    if (url.startsWith("https://api.proxyscrape.com/v2/")) {
+    if (url.startsWith("https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt")) {
       return new Response("203.0.113.9:8080\n203.0.113.10:8080\n", {
         status: 200,
         headers: { "content-type": "text/plain" },
@@ -541,23 +539,26 @@ test("configureNetworking falls back from Geonode 429 to hardcoded text proxy so
 
   await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
 
-  assert.ok(requests.some((url) => url.startsWith("https://proxylist.geonode.com/api/proxy-list")));
+  assert.ok(requests[0].startsWith("https://api.proxyscrape.com/v2/"), requests.join("\n"));
   assert.ok(requests.some((url) => url.startsWith("https://api.proxyscrape.com/v2/")));
+  assert.ok(requests.some((url) => url.startsWith("https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt")));
   assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://203.0.113.9:8080");
 });
 
-test("configureNetworking expands old Geonode source URLs instead of keeping the tiny protocol-filtered list", async () => {
+test("configureNetworking does not let a legacy Geonode env URL override hardcoded source order", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
-  let apiUrlObserved = "";
+  const requests = [];
   const fetchImpl = async (input) => {
-    apiUrlObserved = String(input);
-    return new Response(JSON.stringify({
-      data: [{ ip: "198.51.100.1", port: "8080", protocol: "http" }],
-    }), {
-      status: 200,
-      headers: { "content-type": "application/json" },
-    });
+    const url = String(input);
+    requests.push(url);
+    if (url.startsWith("https://api.proxyscrape.com/v2/")) {
+      return new Response("198.51.100.1:8080\n", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    return new Response("", { status: 404 });
   };
 
   await configureTestNetworking(
@@ -569,9 +570,10 @@ test("configureNetworking expands old Geonode source URLs instead of keeping the
     { undici, targetGlobal, fetchImpl }
   );
 
-  const apiUrl = new URL(apiUrlObserved);
-  assert.equal(apiUrl.searchParams.get("limit"), "500");
-  assert.equal(apiUrl.searchParams.has("protocols"), false);
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.ok(requests[0].startsWith("https://api.proxyscrape.com/v2/"), requests.join("\n"));
+  assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://198.51.100.1:8080");
 });
 
 test("configureNetworking skips explicit SOCKS proxy metadata from HTTP rotation", async () => {
