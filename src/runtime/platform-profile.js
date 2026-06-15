@@ -54,6 +54,7 @@ const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
 const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
 const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 500;
 const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 64;
+const DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT = 1;
 const DEFAULT_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc";
 
@@ -1063,20 +1064,37 @@ function proxyHealthcheckConcurrency(env = process.env) {
   ])) ?? DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY;
 }
 
+function proxyHealthcheckTargetCount(env = process.env) {
+  return parsePositiveInt(resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_TARGET_COUNT",
+    "GEONODE_PROXY_HEALTHCHECK_TARGET_COUNT",
+    "PROXY_HEALTHCHECK_TARGET_COUNT",
+  ])) ?? DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT;
+}
+
 function isTruthyEnv(value) {
   return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
 }
 
 function proxyTraceEnabled(env = process.env) {
-  return (
-    isTruthyEnv(resolveAnyEnv(env, [
-      "TILE_DOWNLOADER_PROXY_TRACE",
-      "GEONODE_PROXY_TRACE",
-      "PROXY_TRACE",
-    ])) ||
-    isTruthyEnv(env?.PROXY_DEBUG) ||
-    isTruthyEnv(process.env.PROXY_DEBUG)
-  );
+  const explicitTrace = resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_TRACE",
+    "GEONODE_PROXY_TRACE",
+    "PROXY_TRACE",
+  ]);
+  if (explicitTrace) return isTruthyEnv(explicitTrace);
+  if (env?.PROXY_DEBUG || process.env.PROXY_DEBUG) {
+    return isTruthyEnv(env?.PROXY_DEBUG) || isTruthyEnv(process.env.PROXY_DEBUG);
+  }
+  return Boolean(resolveProxyHealthcheckUrl(env));
+}
+
+function proxyRequestTraceEnabled(env = process.env) {
+  return isTruthyEnv(resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_TRACE_REQUESTS",
+    "GEONODE_PROXY_TRACE_REQUESTS",
+    "PROXY_TRACE_REQUESTS",
+  ]));
 }
 
 function describeProxyTraceUrl(urlLike) {
@@ -1090,6 +1108,14 @@ function describeProxyTraceUrl(urlLike) {
 
 function proxyTrace(env, event, fields = {}) {
   if (!proxyTraceEnabled(env)) return;
+  const requestEvents = new Set([
+    "request",
+    "response",
+    "request-error",
+    "request-bypass",
+    "rotate-stick",
+  ]);
+  if (requestEvents.has(event) && !proxyRequestTraceEnabled(env)) return;
   const suffix = Object.entries(fields)
     .filter(([, value]) => value !== undefined && value !== null && value !== "")
     .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
@@ -1119,15 +1145,29 @@ async function filterProxyListByHealthcheck({
   timeoutMs,
   maxCandidates,
   concurrency,
+  targetCount,
   env = process.env,
 }) {
   if (!healthcheckUrl || !Array.isArray(proxies) || proxies.length === 0) return proxies || [];
 
   const candidates = proxies.slice(0, maxCandidates);
-  const healthy = new Array(candidates.length).fill(false);
+  const healthyCandidates = [];
+  const healthySeen = new Set();
   let nextIndex = 0;
+  let stopped = false;
+  const wantedHealthy = Math.max(1, targetCount || DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT);
+  const stopController = new AbortController();
+
+  function buildHealthcheckSignal() {
+    const timeoutSignal = AbortSignal.timeout(timeoutMs);
+    if (typeof AbortSignal.any === "function") {
+      return AbortSignal.any([timeoutSignal, stopController.signal]);
+    }
+    return timeoutSignal;
+  }
 
   async function checkCandidate(index) {
+    if (stopped) return;
     const proxy = candidates[index];
     const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
     if (!dispatcher) return;
@@ -1139,21 +1179,30 @@ async function filterProxyListByHealthcheck({
     try {
       const response = await undici.fetch(healthcheckUrl, {
         dispatcher,
-        signal: AbortSignal.timeout(timeoutMs),
+        signal: buildHealthcheckSignal(),
         headers: {
           "user-agent": "Mozilla/5.0 (compatible; tile-downloader/1.0; +https://www.arcgis.com)",
           accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
         },
       });
-      healthy[index] = isProxyHealthcheckResponseOk(response);
-      proxyTrace(env, healthy[index] ? "healthcheck-ok" : "healthcheck-fail", {
+      const healthy = isProxyHealthcheckResponseOk(response);
+      proxyTrace(env, healthy ? "healthcheck-ok" : "healthcheck-fail", {
         protocol,
         proxy,
         status: response.status,
         contentType: response.headers?.get?.("content-type") || "unknown",
       });
       await response.body?.cancel?.().catch?.(() => {});
+      if (healthy && !stopped && !healthySeen.has(proxy)) {
+        healthySeen.add(proxy);
+        healthyCandidates.push(proxy);
+        if (healthyCandidates.length >= wantedHealthy) {
+          stopped = true;
+          stopController.abort("healthy proxy found");
+        }
+      }
     } catch (error) {
+      if (stopped) return;
       proxyTrace(env, "healthcheck-error", {
         protocol,
         proxy,
@@ -1167,20 +1216,21 @@ async function filterProxyListByHealthcheck({
   const workerCount = Math.min(Math.max(1, concurrency || 1), candidates.length);
   await Promise.all(
     Array.from({ length: workerCount }, async () => {
-      while (nextIndex < candidates.length) {
+      while (!stopped && nextIndex < candidates.length) {
         const index = nextIndex++;
         await checkCandidate(index);
       }
     })
   );
 
-  const healthyCandidates = candidates.filter((_, index) => healthy[index]);
   proxyTrace(env, "healthcheck-summary", {
     protocol,
     candidates: candidates.length,
     healthy: healthyCandidates.length,
     timeoutMs,
     concurrency: workerCount,
+    target: wantedHealthy,
+    stopped: healthyCandidates.length >= wantedHealthy,
   });
   return healthyCandidates;
 }
@@ -1196,6 +1246,7 @@ async function filterProxyEnvironmentByHealthcheck({
   const timeoutMs = proxyHealthcheckTimeoutMs(env);
   const maxCandidates = proxyHealthcheckMaxCandidates(env);
   const concurrency = proxyHealthcheckConcurrency(env);
+  const targetCount = proxyHealthcheckTargetCount(env);
   const healthcheckProtocol = (() => {
     try {
       return new URL(healthcheckUrl).protocol;
@@ -1214,6 +1265,7 @@ async function filterProxyEnvironmentByHealthcheck({
     timeoutMs,
     maxCandidates,
     concurrency,
+    targetCount,
     env,
   });
   const httpProxyList =

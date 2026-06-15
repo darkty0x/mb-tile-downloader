@@ -136,7 +136,7 @@ function printUsage(exitCode = 0) {
 Production tile downloader
 
 Usage:
-  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify] [--proxy-trace]
+  node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
   [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
@@ -221,7 +221,6 @@ function parseArgs(argv) {
     dryRun: false,
     skipVerifyAfterDownload: false,
     esriFastMode: false,
-    proxyTrace: false,
     maxConcurrentRequests: null,
     rowRecoveryPasses: null,
     recoveryBackoffMs: null,
@@ -238,7 +237,9 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
     else if (arg === "--esri-fast") opts.esriFastMode = true;
-    else if (arg === "--proxy-trace") opts.proxyTrace = true;
+    else if (arg === "--proxy-trace") {
+      // Deprecated compatibility no-op. Proxy pickup logs are automatic for Esri health checks.
+    }
     else if (arg === "--max-concurrent-requests") {
       opts.maxConcurrentRequests = parsePositiveInt(args[++i], "--max-concurrent-requests");
       if (opts.maxConcurrentRequests === null) {
@@ -385,9 +386,6 @@ async function runOneConfig(configPath, opts) {
           ...(proxyHealthcheckUrl
             ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrl }
             : null),
-          ...(opts.proxyTrace
-            ? { TILE_DOWNLOADER_PROXY_TRACE: "1" }
-            : null),
         };
     const proxyRotation = opts.dryRun
       ? null
@@ -407,12 +405,11 @@ async function runOneConfig(configPath, opts) {
     console.log(`Platform: ${config.platformProfile.os}`);
     console.log(`Output: ${config.output.dir}`);
     console.log(`State DB: ${stateDbPath}`);
-    console.log(
-      `Proxy trace: ${
-        opts.proxyTrace || process.env.TILE_DOWNLOADER_PROXY_TRACE === "1" ? "enabled" : "disabled"
-      }`
-    );
     if (!opts.dryRun && proxyHealthcheckUrl) {
+      console.log("Proxy pickup: enabled");
+      if (process.env.TILE_DOWNLOADER_PROXY_TRACE_REQUESTS === "1") {
+        console.log("Proxy request trace: enabled");
+      }
       console.log(`Proxy healthcheck: ${proxyHealthcheckUrl}`);
     }
       console.log(

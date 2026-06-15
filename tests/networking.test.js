@@ -254,6 +254,42 @@ test("configureNetworking filters proxy candidates with a real tile healthcheck"
   assert.equal(undici.state.fetchCalls[2].dispatcher.options.httpsProxy, "http://good-proxy:8080");
 });
 
+test("configureNetworking stops healthchecking after the first healthy proxy by default", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
+  let healthchecks = 0;
+  undici.fetch = async (input, init = {}) => {
+    undici.state.fetchCalls.push({
+      input: String(input),
+      dispatcher: init.dispatcher,
+    });
+    if (String(input) === healthcheckUrl) {
+      healthchecks++;
+      return new Response("jpg", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureTestNetworking(
+    profile(),
+    {
+      GEONODE_HTTPS_PROXY_LIST: "http://first-proxy:8080, http://second-proxy:8080",
+      TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: healthcheckUrl,
+      TILE_DOWNLOADER_PROXY_HEALTHCHECK_CONCURRENCY: "1",
+    },
+    { undici, targetGlobal }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(healthchecks, 1);
+  assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://first-proxy:8080");
+});
+
 test("configureNetworking rejects when configured proxies all fail the target healthcheck", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };

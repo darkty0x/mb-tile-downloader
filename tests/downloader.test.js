@@ -85,7 +85,7 @@ test("downloader dry-run skips proxy discovery", async () => {
   assert.ok(stdout.includes("Mode: dry-run"), stdout);
 });
 
-test("downloader accepts --proxy-trace and prints trace state", async () => {
+test("downloader accepts deprecated --proxy-trace as a compatibility no-op", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-proxy-trace-"));
   const configPath = path.join(dir, "esri.config.json");
   await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
@@ -99,7 +99,7 @@ test("downloader accepts --proxy-trace and prints trace state", async () => {
     }
   );
 
-  assert.ok(stdout.includes("Proxy trace: enabled"), stdout);
+  assert.ok(stdout.includes("Mode: dry-run"), stdout);
 });
 
 test("downloader refuses to start Esri download when no healthy proxy is found", async () => {
@@ -110,7 +110,7 @@ test("downloader refuses to start Esri download when no healthy proxy is found",
   await assert.rejects(
     async () => execFileAsync(
       process.execPath,
-      ["downloader.js", configPath, "--proxy-trace"],
+      ["downloader.js", configPath],
       {
         cwd: process.cwd(),
         timeout: 5_000,
