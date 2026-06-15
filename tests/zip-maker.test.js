@@ -267,6 +267,7 @@ test("zip-maker defaults max archive size to 20 GiB", async () => {
   );
 
   assert.match(stdout, /Max archive size: 20 GiB/);
+  assert.match(stdout, /Delete after archive: false/);
 });
 
 test("zip-maker splits archive output when max archive size is exceeded", async () => {
@@ -303,6 +304,39 @@ test("zip-maker splits archive output when max archive size is exceeded", async 
   assert.match(stdout, /tiles_vector_5_000027-000027_y000019-000021\.part-001\.zip/);
 });
 
+test("zip-maker does not split small archives from per-file footer overestimation", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "vector", "5", "27"), { recursive: true });
+  for (let y = 1; y <= 10; y++) {
+    await writeFile(path.join(tilesDir, "vector", "5", "27", `${y}.vector.pbf`), "tile");
+  }
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      maxArchiveSizeBytes: 200000,
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 1, yEnd: 10 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(stdout, /DRY RUN: would zip 10 files -> .*tiles_vector_5_000027-000027_y000001-000010\.zip/);
+  assert.doesNotMatch(stdout, /part-001\.zip/);
+});
+
 test("zip-maker rejects archive filename collisions for different ranges", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");
@@ -337,7 +371,41 @@ test("zip-maker rejects archive filename collisions for different ranges", async
   );
 });
 
-test("zip-maker deletes only archived y files and keeps sibling y files", async () => {
+test("zip-maker keeps source files by default after archive", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  const rowDir = path.join(tilesDir, "vector", "11", "1738");
+  await mkdir(rowDir, { recursive: true });
+  await writeFile(path.join(rowDir, "1264.vector.pbf"), "tile-a");
+  await writeFile(path.join(rowDir, "1265.vector.pbf"), "tile-b");
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      ranges: [{ zoom: 11, xStart: 1738, xEnd: 1738, yStart: 1264, yEnd: 1265 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  assert.match(stdout, /Delete after archive: false/);
+  await stat(path.join(rowDir, "1264.vector.pbf"));
+  await stat(path.join(rowDir, "1265.vector.pbf"));
+  await stat(path.join(archivesDir, "tiles_vector_11_001738-001738_y001264-001265.zip"));
+});
+
+test("zip-maker deletes only archived y files when explicitly requested", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");
   const archivesDir = path.join(dir, "archives");
@@ -362,7 +430,7 @@ test("zip-maker deletes only archived y files and keeps sibling y files", async 
 
   await execFileAsync(
     process.execPath,
-    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    ["zip-maker.js", configPath, "--delete-after-archive", `--archive-dir=${archivesDir}`],
     { cwd: path.resolve(".") }
   );
 
@@ -421,7 +489,7 @@ test("zip-maker invalidates downloader sqlite when archived source files are del
 
   await execFileAsync(
     process.execPath,
-    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    ["zip-maker.js", configPath, "--delete-after-archive", `--archive-dir=${archivesDir}`],
     { cwd: path.resolve(".") }
   );
 

@@ -56,15 +56,15 @@ function printUsage(exitCode = 0) {
       "",
       "Create one fast ZIP archive for each complete tile range.",
       "",
-      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path] [--max-archive-size=<bytes|KB|MB|GB>]`,
+      `Usage: node ${cmd} [downloadConfigPath] [--dry-run] [--delete-after-archive] [--keep] [--layer=satellite|esri-satellite|vector] [--archive-dir=path] [--tiles-dir=path] [--max-archive-size=<bytes|KB|MB|GB>]`,
       "",
       "Default layout:",
       "  source tiles: <outputDir>/<layer>/<z>/<x>/<y>.<ext>",
       "  archives:     <archiveDir>/tiles_<layer>_<z>_<xStart>-<xEnd>.zip",
       "",
       "The script is resumable at range level. It skips finished archives,",
-      "restarts partial .tmp archives, and deletes only archived source files",
-      "after the final ZIP is complete.",
+      "restarts partial .tmp archives, and keeps source tiles by default.",
+      "Use --delete-after-archive only when source deletion is intended.",
       "",
     ].join("\n")
   );
@@ -158,7 +158,7 @@ function formatArchiveSize(bytes) {
 function estimateZipEntryBytes(fileSize, zipName) {
   const nameBytes = Buffer.byteLength(zipName, "utf8");
   // Local header + ZIP64 extra + file data + central entry + ZIP64 extra + file name bytes repeated in both headers.
-  return Number(fileSize) + 124 + nameBytes * 2 + ZIP_ARCHIVE_FOOTER_BYTES;
+  return Number(fileSize) + 124 + nameBytes * 2;
 }
 
 function clamp(value, min, max) {
@@ -171,6 +171,7 @@ function parseArgs(argv) {
     configPath: null,
     dryRun: false,
     keep: false,
+    deleteAfterArchive: false,
     layer: null,
     archiveDir: null,
     tilesDir: null,
@@ -181,6 +182,7 @@ function parseArgs(argv) {
   for (const arg of args) {
     if (arg === "--help" || arg === "-h") printUsage(0);
     else if (arg === "--dry-run") opts.dryRun = true;
+    else if (arg === "--delete-after-archive") opts.deleteAfterArchive = true;
     else if (arg === "--keep") opts.keep = true;
     else if (arg === "--include-incomplete") opts.onlyComplete = false;
     else if (arg.startsWith("--layer=")) opts.layer = arg.slice("--layer=".length);
@@ -458,7 +460,7 @@ async function splitTaskByArchiveSize(task, maxArchiveSizeBytes) {
 
   const segments = [];
   let current = null;
-  let currentBytes = 0;
+  let currentBytes = ZIP_ARCHIVE_FOOTER_BYTES;
 
   for (let x = task.xStart; x <= task.xEnd; x++) {
     for (let y = task.yStart; y <= task.yEnd; y++) {
@@ -491,7 +493,7 @@ async function splitTaskByArchiveSize(task, maxArchiveSizeBytes) {
           extension: task.extension,
           expected: 1,
         };
-        currentBytes = estimatedBytes;
+        currentBytes = ZIP_ARCHIVE_FOOTER_BYTES + estimatedBytes;
         continue;
       }
 
@@ -1131,7 +1133,9 @@ async function main() {
   const xPadWidth = Number(archiveConfig.xPadWidth || 6);
   const fileNameTemplate =
     archiveConfig.fileNameTemplate || "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
-  const deleteAfterArchive = opts.keep ? false : archiveConfig.deleteAfterArchive !== false;
+  const deleteAfterArchive = opts.keep
+    ? false
+    : opts.deleteAfterArchive || archiveConfig.deleteAfterArchive === true;
   const deleteExistingArchivedSources =
     !opts.keep && archiveConfig.deleteExistingArchivedSources === true;
   const writeProbe = archiveConfig.writeArchiveProbe !== false;

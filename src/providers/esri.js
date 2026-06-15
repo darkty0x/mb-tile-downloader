@@ -28,7 +28,7 @@ function normalizeHashes(value) {
 }
 
 function useKnownUnavailableTileHashes(config) {
-  return config.tile?.useKnownUnavailableTileHashes === true || config.useKnownUnavailableTileHashes === true;
+  return config.tile?.useKnownUnavailableTileHashes !== false && config.useKnownUnavailableTileHashes !== false;
 }
 
 export function createEsriProvider(config) {

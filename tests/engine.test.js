@@ -451,6 +451,126 @@ test("Configured Esri unavailable placeholder responses are missing after retrie
   db.close();
 });
 
+test("Esri existing unavailable placeholder files are redownloaded instead of skipped", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const replacement = Buffer.from("real imagery tile");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const existingPath = path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg");
+  let fetches = 0;
+
+  await mkdir(path.dirname(existingPath), { recursive: true });
+  await writeFile(existingPath, placeholder);
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "esri-existing-unavailable",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: { extension: "jpg", yScheme: "xyz", unavailableTileSha256: placeholderHash },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        { zoomStart: 14, zoomEnd: 14, xStart: 9603, xEnd: 9603, yStart: 5824, yEnd: 5824, label: "a" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async () => {
+      fetches++;
+      return new Response(replacement, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tileFilesSkipped, 0);
+  assert.equal(result.tilesMissing, 0);
+  assert.equal(result.tilesFailed, 0);
+  assert.equal(fetches, 1);
+  const saved = await stat(existingPath);
+  assert.equal(saved.size, replacement.length);
+
+  db.close();
+});
+
+test("Esri unavailable placeholder responses block the proxy and retry a real tile", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const replacement = Buffer.from("real imagery tile");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const marked = [];
+  let fetches = 0;
+  const proxyRotation = {
+    markProxyBlocked(protocolOrProxy, ms, proxy = null) {
+      marked.push({ proxy: proxy || protocolOrProxy, protocolOrProxy, ms });
+    },
+    hasHealthyCandidate() {
+      return true;
+    },
+  };
+
+  await withEnv({ TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2" }, async () => {
+    const result = await runDownloadJob({
+      config: {
+        jobName: "esri-placeholder-proxy-rotate",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz", unavailableTileSha256: placeholderHash },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 14, zoomEnd: 14, xStart: 9603, xEnd: 9603, yStart: 5824, yEnd: 5824, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 2, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+        verifyAfterDownload: false,
+      },
+      stateDb: db,
+      progress: false,
+      skipVerifyAfterDownload: true,
+      proxyRotation,
+      fetchImpl: async () => {
+        fetches++;
+        const response = new Response(fetches === 1 ? placeholder : replacement, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+        response[PROXY_INFO_SYMBOL] = {
+          proxy: fetches === 1 ? "https://placeholder.proxy.example:8080" : "https://good.proxy.example:8080",
+          protocol: "https:",
+          url: "https://example.test/14/5824/9603",
+        };
+        return response;
+      },
+    });
+
+    assert.equal(result.tilesDownloaded, 1);
+    assert.equal(result.tilesMissing, 0);
+    assert.equal(result.tilesFailed, 0);
+  });
+
+  assert.equal(fetches, 2);
+  assert.equal(marked.length, 1);
+  assert.equal(marked[0].proxy, "https://placeholder.proxy.example:8080");
+  const saved = await stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg"));
+  assert.equal(saved.size, replacement.length);
+
+  db.close();
+});
+
 test("row recovery retries failed tiles before range verification", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

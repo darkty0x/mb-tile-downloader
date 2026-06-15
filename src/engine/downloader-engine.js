@@ -258,6 +258,9 @@ function createProviderRuntime({
       noteResponse() {
         return false;
       },
+      noteUnavailable() {
+        return false;
+      },
       noteSuccess() {},
     };
   }
@@ -365,6 +368,12 @@ function createProviderRuntime({
     noteSuccess() {
       recentBlocks.length = 0;
     },
+    noteUnavailable(proxy = null, protocol = null) {
+      if (!proxy || !proxyRotation?.markProxyBlocked) return false;
+      proxyRotation.markProxyBlocked(protocol || proxy, proxyBlockMs, proxy);
+      const healthyCandidateProtocol = protocol || proxy;
+      return !hasHealthyCandidateFor(healthyCandidateProtocol);
+    },
   };
 }
 
@@ -398,10 +407,18 @@ function tilePath(config, provider, z, x, y) {
   return path.join(config.output.dir, normalized);
 }
 
-async function existsNonZero(filePath) {
+async function existsNonZero(filePath, provider = null) {
   try {
     const st = await fsp.stat(filePath);
-    return st.isFile() && st.size > 0;
+    if (!st.isFile() || st.size <= 0) return false;
+    if (provider?.isUnavailable) {
+      const buffer = await fsp.readFile(filePath);
+      if (provider.isUnavailable(buffer)) {
+        await fsp.rm(filePath, { force: true });
+        return false;
+      }
+    }
+    return true;
   } catch {
     return false;
   }
@@ -447,7 +464,7 @@ async function downloadOneTile({
   y,
 }) {
   const finalPath = tilePath(config, provider, z, x, y);
-  if (await existsNonZero(finalPath)) return "skipped";
+  if (await existsNonZero(finalPath, provider)) return "skipped";
 
   await fsp.mkdir(path.dirname(finalPath), { recursive: true });
   await removeStaleTempFiles(finalPath);
@@ -528,6 +545,9 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
+          if (providerRuntime.noteUnavailable) {
+            providerRuntime.noteUnavailable(proxy, protocol);
+          }
           if (retryUnavailableTile) {
             networkAttempt++;
             if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -739,7 +759,7 @@ async function verifyRange({
       let rowMissing = 0;
       for (let y = range.yStart; y <= range.yEnd; y++) {
         expected++;
-        if (await existsNonZero(tilePath(config, provider, z, x, y))) {
+        if (await existsNonZero(tilePath(config, provider, z, x, y), provider)) {
           present++;
           rowPresent++;
         } else {
