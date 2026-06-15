@@ -229,6 +229,37 @@ test("delete-unavailable removes Esri unavailable placeholder files and keeps va
 
   await assert.rejects(() => access(unavailablePath));
   await access(validPath);
-  assert.ok(stdout.includes("Unavailable tiles deleted: 1"), stdout);
-  assert.ok(stdout.includes("Tiles scanned: 2"), stdout);
+  assert.match(stdout, /^Unavailable tiles deleted: 1$/m);
+  assert.match(stdout, /^Tiles scanned: 2$/m);
+});
+
+test("delete-unavailable scans existing files, not every configured coordinate", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-delete-existing-only-"));
+  const outputDir = path.join(dir, "download");
+  const placeholder = Buffer.from("unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const unavailablePath = path.join(outputDir, "esri-satellite", "14", "1", "0.jpg");
+  const configPath = path.join(dir, "esri.config.json");
+  await mkdir(path.dirname(unavailablePath), { recursive: true });
+  await writeFile(unavailablePath, placeholder);
+  await writeFile(configPath, JSON.stringify({
+    provider: "esri",
+    ranges: [{ zoomStart: 14, zoomEnd: 14, xStart: 1, xEnd: 1, yStart: 0, yEnd: 9999 }],
+    output: { dir: outputDir },
+    tile: { unavailableTileSha256: placeholderHash },
+  }));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", "delete-unavailable", configPath],
+    {
+      cwd: process.cwd(),
+      timeout: 5_000,
+      env: process.env,
+    }
+  );
+
+  await assert.rejects(() => access(unavailablePath));
+  assert.match(stdout, /^Tiles scanned: 1$/m);
+  assert.match(stdout, /^Unavailable tiles deleted: 1$/m);
 });

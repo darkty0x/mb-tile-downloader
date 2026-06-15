@@ -10,9 +10,7 @@ import { splitConfigByRows } from "./src/config/config-splitter.js";
 import { runDownloadJob } from "./src/engine/downloader-engine.js";
 import { createProvider } from "./src/providers/index.js";
 import {
-  localEsriTileStatus,
   proxyHealthcheckUrlForConfig,
-  tilePathForConfig,
 } from "./src/runtime/proxy-healthcheck-target.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
 import { TileStateDb } from "./src/state/state-db.js";
@@ -498,6 +496,42 @@ function assertPathInsideOutput(config, filePath) {
   }
 }
 
+async function* walkExistingFiles(rootDir) {
+  let dir;
+  try {
+    dir = await fsp.opendir(rootDir);
+  } catch (err) {
+    if (err.code === "ENOENT") return;
+    throw err;
+  }
+
+  for await (const entry of dir) {
+    const filePath = path.join(rootDir, entry.name);
+    if (entry.isDirectory()) {
+      yield* walkExistingFiles(filePath);
+    } else if (entry.isFile()) {
+      yield filePath;
+    }
+  }
+}
+
+function providerExtensionSuffix(provider) {
+  const extension = String(provider.extension || "").trim().toLowerCase();
+  if (!extension) return "";
+  return extension.startsWith(".") ? extension : `.${extension}`;
+}
+
+async function isUnavailableTileFile(provider, filePath) {
+  let buffer;
+  try {
+    buffer = await fsp.readFile(filePath);
+  } catch (err) {
+    if (err.code === "ENOENT") return false;
+    throw err;
+  }
+  return Boolean(provider.isUnavailable?.(buffer));
+}
+
 async function deleteUnavailableForConfig(configPath) {
   const config = await loadConfig(configPath, { env: process.env });
   const provider = createProvider(config);
@@ -506,37 +540,28 @@ async function deleteUnavailableForConfig(configPath) {
   }
 
   let tilesScanned = 0;
-  let missingFilesIgnored = 0;
   let unavailableDeleted = 0;
+  const extensionSuffix = providerExtensionSuffix(provider);
 
   console.log("");
   console.log(`Config: ${config.configPath}`);
   console.log(`Provider: ${config.provider}`);
   console.log(`Output: ${config.output.dir}`);
 
-  for (const range of config.ranges) {
-    for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
-      for (let x = range.xStart; x <= range.xEnd; x++) {
-        for (let y = range.yStart; y <= range.yEnd; y++) {
-          tilesScanned++;
-          const filePath = tilePathForConfig(config, provider, z, x, y);
-          assertPathInsideOutput(config, filePath);
-          const status = await localEsriTileStatus(config, provider, z, x, y);
-          if (status === "missing") {
-            missingFilesIgnored++;
-            continue;
-          }
-          if (status === "unavailable") {
-            await fsp.unlink(filePath);
-            unavailableDeleted++;
-          }
-        }
-      }
+  for await (const filePath of walkExistingFiles(config.output.dir)) {
+    assertPathInsideOutput(config, filePath);
+    if (extensionSuffix && !filePath.toLowerCase().endsWith(extensionSuffix)) continue;
+    tilesScanned++;
+    if (await isUnavailableTileFile(provider, filePath)) {
+      await fsp.unlink(filePath);
+      unavailableDeleted++;
+    }
+    if (tilesScanned > 0 && tilesScanned % 10_000 === 0) {
+      console.log(`  cleanup progress: scanned=${tilesScanned} deleted=${unavailableDeleted}`);
     }
   }
 
   console.log(`Tiles scanned: ${tilesScanned}`);
-  console.log(`Missing files ignored: ${missingFilesIgnored}`);
   console.log(`Unavailable tiles deleted: ${unavailableDeleted}`);
 }
 
