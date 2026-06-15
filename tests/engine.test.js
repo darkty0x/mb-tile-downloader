@@ -777,6 +777,77 @@ test("Esri unavailable fallback searches older Wayback releases before marking m
   db.close();
 });
 
+test("Esri retryable current-tile blocks can fall back to Wayback instead of failing", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const parent = quadrantJpeg();
+  const requestedUrls = [];
+
+  await withEnv(
+    {
+      TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
+      TILE_DOWNLOADER_ESRI_ENABLE_COOLDOWN: "0",
+    },
+    async () => {
+      const result = await runDownloadJob({
+        config: {
+          jobName: "esri-retryable-fallback",
+          provider: "esri",
+          layer: "satellite",
+          format: "jpg",
+          configHash: "hash",
+          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+          tile: { extension: "jpg", yScheme: "xyz" },
+          url: { template: "https://example.test/{z}/{y}/{x}" },
+          ranges: [
+            { zoomStart: 14, zoomEnd: 14, xStart: 9863, xEnd: 9863, yStart: 5300, yEnd: 5300, label: "a" },
+          ],
+          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+          performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+          verifyAfterDownload: false,
+        },
+        stateDb: db,
+        progress: false,
+        skipVerifyAfterDownload: true,
+        fetchImpl: async (url) => {
+          requestedUrls.push(String(url));
+          if (String(url) === "https://example.test/14/5300/9863") {
+            return new Response("blocked", { status: 403 });
+          }
+          if (String(url) === "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json") {
+            return Response.json({ Selection: [{ M: "10842" }] });
+          }
+          if (String(url).includes("/tile/10842/14/5300/9863")) {
+            return new Response("not found", { status: 404 });
+          }
+          if (String(url) === "https://example.test/13/2650/4931") {
+            return new Response("blocked", { status: 403 });
+          }
+          if (String(url).includes("/tile/10842/13/2650/4931")) {
+            return new Response(parent, {
+              status: 200,
+              headers: { "content-type": "image/jpeg" },
+            });
+          }
+          return new Response("not found", { status: 404 });
+        },
+      });
+
+      assert.equal(result.tilesDownloaded, 1);
+      assert.equal(result.tilesMissing, 0);
+      assert.equal(result.tilesFailed, 0);
+      assert.ok(
+        requestedUrls.includes(
+          "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/13/2650/4931"
+        ),
+        "expected retryable current-tile block to use Wayback parent fallback"
+      );
+    }
+  );
+
+  db.close();
+});
+
 test("Esri existing unavailable placeholder files are redownloaded instead of skipped", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -1137,6 +1208,7 @@ test("Esri enters cooldown after repeated temporary block responses", async () =
       TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS: "1000",
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
       TILE_DOWNLOADER_ROW_RECOVERY_PASSES: "1",
+      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
     },
     async () => {
       const result = await runDownloadJob({
@@ -1163,6 +1235,7 @@ test("Esri enters cooldown after repeated temporary block responses", async () =
           TILE_DOWNLOADER_ESRI_COOLDOWN_MS: "50",
           TILE_DOWNLOADER_ESRI_BLOCK_WINDOW_MS: "1000",
           TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
+          TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
         },
         sleepImpl: async (ms) => {
           sleeps.push(ms);

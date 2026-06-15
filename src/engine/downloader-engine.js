@@ -797,6 +797,27 @@ async function downloadOneTile({
   const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
   let lastUnavailableTile = null;
 
+  async function writeFallbackTile() {
+    if (provider.name !== "esri") return false;
+    const fallbackBuffer = await fetchUnavailableFallback({
+      config,
+      provider,
+      fetchImpl,
+      timeoutMs,
+      env,
+      z,
+      x,
+      y,
+    });
+    if (!fallbackBuffer) return false;
+    await fsp.writeFile(tmpPath, fallbackBuffer);
+    const st = await fsp.stat(tmpPath);
+    if (!st.isFile() || st.size === 0) throw new Error("empty fallback tile");
+    await fsp.rename(tmpPath, finalPath);
+    providerRuntime.noteSuccess();
+    return true;
+  }
+
   let networkAttempt = 0;
   let requestAttempt = 0;
   while (networkAttempt < maxRetries) {
@@ -841,6 +862,7 @@ async function downloadOneTile({
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
+        if ((resp.status === 403 || resp.status === 429) && await writeFallbackTile()) return "downloaded";
         if (blocked) return "blocked";
         networkAttempt++;
         if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -864,24 +886,7 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
-          const fallbackBuffer = await fetchUnavailableFallback({
-            config,
-            provider,
-            fetchImpl,
-            timeoutMs,
-            env,
-            z,
-            x,
-            y,
-          });
-          if (fallbackBuffer) {
-            await fsp.writeFile(tmpPath, fallbackBuffer);
-            const st = await fsp.stat(tmpPath);
-            if (!st.isFile() || st.size === 0) throw new Error("empty fallback tile");
-            await fsp.rename(tmpPath, finalPath);
-            providerRuntime.noteSuccess();
-            return "downloaded";
-          }
+          if (await writeFallbackTile()) return "downloaded";
           if (providerRuntime.noteUnavailable) {
             providerRuntime.noteUnavailable(proxy, protocol);
           }
