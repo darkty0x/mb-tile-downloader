@@ -104,6 +104,33 @@ function stripProcessProxyEnv(env = process.env) {
   return sanitized;
 }
 
+function renderUrlTemplate(template, values) {
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
+    if (values[key] === undefined || values[key] === null) {
+      throw new Error(`Missing URL template value: ${key}`);
+    }
+    return encodeURIComponent(String(values[key]));
+  });
+}
+
+function esriRequestY(z, y, yScheme) {
+  if (String(yScheme || "xyz").toLowerCase() !== "tms") return y;
+  return 2 ** z - 1 - y;
+}
+
+function proxyHealthcheckUrlForConfig(config) {
+  if (config.provider !== "esri") return "";
+  const range = Array.isArray(config.ranges) ? config.ranges[0] : null;
+  if (!range) return "";
+  const z = range.zoomStart;
+  const x = range.xStart;
+  const y = esriRequestY(z, range.yStart, config.tile?.yScheme || config.requestYScheme || "xyz");
+  const template =
+    config.url?.template ||
+    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+  return renderUrlTemplate(template, { z, x, y });
+}
+
 function printUsage(exitCode = 0) {
   console.log(`
 Production tile downloader
@@ -346,7 +373,12 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
-  const proxyRuntimeEnv = stripProcessProxyEnv(process.env);
+  const proxyRuntimeEnv = {
+    ...stripProcessProxyEnv(process.env),
+    ...(proxyHealthcheckUrlForConfig(config)
+      ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrlForConfig(config) }
+      : null),
+  };
 
   try {
     const proxyRotation = await configureNetworking(config.platformProfile, proxyRuntimeEnv);

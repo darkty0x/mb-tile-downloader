@@ -43,6 +43,8 @@ const DEFAULT_PROXY_MAX_RESPONSE_TIME_MS = 100;
 const DEFAULT_PROXY_LIST_MAX_PAGES = 5;
 const DEFAULT_PROXY_FAILURE_BLOCK_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
+const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
+const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 80;
 const DEFAULT_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=100&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps";
 
@@ -242,6 +244,36 @@ function filterBlockedProxies(splitProxies, blocked = { http: new Set(), https: 
     http: (splitProxies?.http || []).filter((proxy) => !blockedHttp.has(String(proxy).toLowerCase())),
     https: (splitProxies?.https || []).filter((proxy) => !blockedHttps.has(String(proxy).toLowerCase())),
   };
+}
+
+function mergeProxyLists(primary = [], fallback = []) {
+  const merged = [...primary, ...fallback];
+  const seen = new Set();
+  const deduped = [];
+  for (const item of merged) {
+    const normalized = normalizeProxyEntry(item);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    deduped.push(normalized);
+  }
+  return deduped;
+}
+
+function includeHttpTunnelProxiesForHttps(splitProxies) {
+  const http = mergeProxyLists(splitProxies?.http || []);
+  const https = mergeProxyLists(splitProxies?.https || [], http);
+  return { http, https };
+}
+
+function hasProxyCandidates(splitProxies) {
+  return (splitProxies?.http?.length || 0) > 0 || (splitProxies?.https?.length || 0) > 0;
+}
+
+async function validateProxySplit(splitProxies, options = {}) {
+  if (typeof options.validateSplit !== "function") return splitProxies;
+  return options.validateSplit(splitProxies);
 }
 
 function normalizeProxyEntry(candidate, fallbackProtocol = "http") {
@@ -695,11 +727,12 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
         })
         .map((candidate) => normalizeProxyEntry(candidate))
         .filter(Boolean);
-      const split = splitNormalizedProxiesByProtocol(candidates);
+      const split = includeHttpTunnelProxiesForHttps(splitNormalizedProxiesByProtocol(candidates));
       const filteredSplit = filterBlockedProxies(split, blockedProxySet);
-      if (filteredSplit.http.length > 0 || filteredSplit.https.length > 0) {
-        await writeCachedProxyList(env, filteredSplit);
-        return filteredSplit;
+      const validatedSplit = await validateProxySplit(filteredSplit, options);
+      if (hasProxyCandidates(validatedSplit)) {
+        await writeCachedProxyList(env, validatedSplit);
+        return validatedSplit;
       }
 
       const nextPage = parseNextPageHint(parsedBody, page, baseLimit);
@@ -712,7 +745,7 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
   return null;
 }
 
-async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fetchImpl) {
+async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fetchImpl, options = {}) {
   const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl) return proxyEnv;
 
@@ -720,14 +753,15 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
 
   const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
   const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
-  const explicitProxySplit = filterBlockedProxies(
+  const explicitProxySplit = await validateProxySplit(filterBlockedProxies(
+    includeHttpTunnelProxiesForHttps(
     {
       http: Array.isArray(proxyEnv?.httpProxyList) ? proxyEnv.httpProxyList : [],
       https: Array.isArray(proxyEnv?.httpsProxyList) ? proxyEnv.httpsProxyList : [],
-    },
+    }),
     blockedProxySet
-  );
-  if (explicitProxySplit.http.length > 0 || explicitProxySplit.https.length > 0) {
+  ), options);
+  if (hasProxyCandidates(explicitProxySplit)) {
     return {
       ...proxyEnv,
       httpProxyList: explicitProxySplit.http,
@@ -738,14 +772,15 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   }
 
   const cached = await readCachedProxyList(env);
-  const filteredCached = filterBlockedProxies(
+  const filteredCached = await validateProxySplit(filterBlockedProxies(
+    includeHttpTunnelProxiesForHttps(
     {
       http: Array.isArray(cached?.http) ? cached.http : [],
       https: Array.isArray(cached?.https) ? cached.https : [],
-    },
+    }),
     blockedProxySet
-  );
-  if (filteredCached.http.length > 0 || filteredCached.https.length > 0) {
+  ), options);
+  if (hasProxyCandidates(filteredCached)) {
     return {
       ...proxyEnv,
       httpProxyList: filteredCached.http,
@@ -758,8 +793,12 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   const apiSplit = await loadProxyListFromApi(env, fetchImpl, {
     maxResponseTimeMs,
     blockedProxySet,
+    validateSplit: options.validateSplit,
   });
-  const split = filterBlockedProxies(apiSplit || (await readCachedProxyList(env)), blockedProxySet);
+  const split = apiSplit || await validateProxySplit(filterBlockedProxies(
+    includeHttpTunnelProxiesForHttps(await readCachedProxyList(env)),
+    blockedProxySet
+  ), options);
   const splitHttp = Array.isArray(split?.http) ? split.http : [];
   const splitHttps = Array.isArray(split?.https) ? split.https : [];
 
@@ -780,19 +819,6 @@ function resolveProxyListFromEnv(env, keys) {
     if (typeof value === "string" && value.trim()) return parseProxyList(value);
   }
   return [];
-}
-
-function mergeProxyLists(primary, fallback) {
-  const merged = [...primary, ...fallback];
-  const seen = new Set();
-  const deduped = [];
-  for (const item of merged) {
-    const key = String(item).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(item);
-  }
-  return deduped;
 }
 
 function providerConcurrencyCap(provider, env = process.env) {
@@ -891,6 +917,115 @@ function buildProxyDispatcher(undici, proxyUrl, agentOptions, proxyEnv, protocol
     httpProxy: proxyUrl,
     noProxy: proxyEnv.noProxy || undefined,
   });
+}
+
+function resolveProxyHealthcheckUrl(env = process.env) {
+  return resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL",
+    "GEONODE_PROXY_HEALTHCHECK_URL",
+    "PROXY_HEALTHCHECK_URL",
+  ]);
+}
+
+function proxyHealthcheckTimeoutMs(env = process.env) {
+  return parsePositiveInt(resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS",
+    "GEONODE_PROXY_HEALTHCHECK_TIMEOUT_MS",
+    "PROXY_HEALTHCHECK_TIMEOUT_MS",
+  ])) ?? DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS;
+}
+
+function proxyHealthcheckMaxCandidates(env = process.env) {
+  return parsePositiveInt(resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_MAX_CANDIDATES",
+    "GEONODE_PROXY_HEALTHCHECK_MAX_CANDIDATES",
+    "PROXY_HEALTHCHECK_MAX_CANDIDATES",
+  ])) ?? DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES;
+}
+
+function isProxyHealthcheckResponseOk(response) {
+  if (!response || !response.ok) return false;
+  const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
+  return contentType.startsWith("image/") || contentType === "application/octet-stream";
+}
+
+async function filterProxyListByHealthcheck({
+  undici,
+  protocol,
+  proxies,
+  agentOptions,
+  proxyEnv,
+  healthcheckUrl,
+  timeoutMs,
+  maxCandidates,
+}) {
+  if (!healthcheckUrl || !Array.isArray(proxies) || proxies.length === 0) return proxies || [];
+
+  const healthy = [];
+  const candidates = proxies.slice(0, maxCandidates);
+  for (const proxy of candidates) {
+    const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
+    if (!dispatcher) continue;
+    try {
+      const response = await undici.fetch(healthcheckUrl, {
+        dispatcher,
+        signal: AbortSignal.timeout(timeoutMs),
+        headers: {
+          "user-agent": "Mozilla/5.0 (compatible; tile-downloader/1.0; +https://www.arcgis.com)",
+          accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
+        },
+      });
+      if (isProxyHealthcheckResponseOk(response)) healthy.push(proxy);
+      await response.body?.cancel?.().catch?.(() => {});
+    } catch {
+      // Candidate failed the real target check; skip it.
+    }
+  }
+  return healthy;
+}
+
+async function filterProxyEnvironmentByHealthcheck({
+  undici,
+  proxyEnv,
+  agentOptions,
+  env,
+}) {
+  const healthcheckUrl = resolveProxyHealthcheckUrl(env);
+  if (!healthcheckUrl) return proxyEnv;
+  const timeoutMs = proxyHealthcheckTimeoutMs(env);
+  const maxCandidates = proxyHealthcheckMaxCandidates(env);
+  const healthcheckProtocol = (() => {
+    try {
+      return new URL(healthcheckUrl).protocol;
+    } catch {
+      return "https:";
+    }
+  })();
+
+  const httpsProxyList = await filterProxyListByHealthcheck({
+    undici,
+    protocol: healthcheckProtocol === "http:" ? "http:" : "https:",
+    proxies: proxyEnv.httpsProxyList,
+    agentOptions,
+    proxyEnv,
+    healthcheckUrl,
+    timeoutMs,
+    maxCandidates,
+  });
+  const httpProxyList =
+    healthcheckProtocol === "http:"
+      ? httpsProxyList
+      : (proxyEnv.httpProxyList || []).filter(
+          (proxy) => !(proxyEnv.httpsProxyList || []).includes(proxy) || httpsProxyList.includes(proxy)
+        );
+
+  return {
+    ...proxyEnv,
+    httpProxyList,
+    httpsProxyList,
+    httpProxy: httpProxyList[0] || "",
+    httpsProxy: httpsProxyList[0] || "",
+  };
 }
 
 function createProxyRotationState(
@@ -1132,10 +1267,29 @@ export async function configureNetworking(profile) {
     if (typeof baseFetch !== "function") return;
 
     const baseProxyEnv = resolveProxyEnvironment(env);
+    const validateSplit = async (splitProxies) => {
+      const checked = await filterProxyEnvironmentByHealthcheck({
+        undici,
+        proxyEnv: {
+          httpProxy: splitProxies.http?.[0] || "",
+          httpsProxy: splitProxies.https?.[0] || "",
+          httpProxyList: splitProxies.http || [],
+          httpsProxyList: splitProxies.https || [],
+          noProxy: "",
+        },
+        agentOptions,
+        env,
+      });
+      return {
+        http: checked.httpProxyList || [],
+        https: checked.httpsProxyList || [],
+      };
+    };
     const proxyEnv = await resolveProxyEnvironmentFromSource(
       baseProxyEnv,
       env,
-      (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init)
+      (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
+      { validateSplit }
     );
 
     if (process.env.PROXY_DEBUG) {
