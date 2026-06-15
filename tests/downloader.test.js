@@ -101,3 +101,34 @@ test("downloader accepts --proxy-trace and prints trace state", async () => {
 
   assert.ok(stdout.includes("Proxy trace: enabled"), stdout);
 });
+
+test("downloader refuses to start Esri download when no healthy proxy is found", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-no-proxy-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
+
+  await assert.rejects(
+    async () => execFileAsync(
+      process.execPath,
+      ["downloader.js", configPath, "--proxy-trace"],
+      {
+        cwd: process.cwd(),
+        timeout: 5_000,
+        env: {
+          ...process.env,
+          GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
+          GEONODE_PROXY_LIST_CACHE_PATH: path.join(dir, "proxy-list-cache.json"),
+          GEONODE_PROXY_BLACKLIST_PATH: path.join(dir, "proxy-blacklist.json"),
+          TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "100",
+        },
+      }
+    ),
+    (error) => {
+      const output = `${error.stdout || ""}\n${error.stderr || ""}`;
+      assert.match(output, /No healthy proxy candidates|Proxy setup did not produce a healthy proxy/);
+      assert.equal(output.includes("Mode: download/resume"), false);
+      assert.equal(output.includes("▶ Range"), false);
+      return true;
+    }
+  );
+});

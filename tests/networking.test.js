@@ -396,8 +396,39 @@ test("configureNetworking uses default hardcoded proxy source URL when env is no
 
   assert.equal(apiCalled, 1);
   assert.ok(apiUrlObserved.startsWith("https://proxylist.geonode.com/api/proxy-list"));
+  const apiUrl = new URL(apiUrlObserved);
+  assert.equal(apiUrl.searchParams.get("limit"), "500");
+  assert.equal(apiUrl.searchParams.has("protocols"), false);
   assert.equal(undici.state.fetchCalls.length, 1);
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
+});
+
+test("configureNetworking expands old Geonode source URLs instead of keeping the tiny protocol-filtered list", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  let apiUrlObserved = "";
+  const fetchImpl = async (input) => {
+    apiUrlObserved = String(input);
+    return new Response(JSON.stringify({
+      data: [{ ip: "198.51.100.1", port: "8080", protocol: "http" }],
+    }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+
+  await configureTestNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL:
+        "https://proxylist.geonode.com/api/proxy-list?limit=100&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps",
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  const apiUrl = new URL(apiUrlObserved);
+  assert.equal(apiUrl.searchParams.get("limit"), "500");
+  assert.equal(apiUrl.searchParams.has("protocols"), false);
 });
 
 test("configureNetworking follows proxy API pagination when the first page has no usable candidates", async () => {

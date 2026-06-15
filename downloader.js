@@ -392,6 +392,14 @@ async function runOneConfig(configPath, opts) {
     const proxyRotation = opts.dryRun
       ? null
       : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
+    if (
+      !opts.dryRun &&
+      proxyHealthcheckUrl &&
+      proxyRuntimeEnv?.TILE_DOWNLOADER_PROXY_REQUIRED !== "0" &&
+      !proxyRotation
+    ) {
+      throw new Error("Proxy setup did not produce a healthy proxy; refusing to start download");
+    }
     console.log("");
     console.log(`Config: ${config.configPath}`);
     console.log(`Job: ${config.jobName}`);
