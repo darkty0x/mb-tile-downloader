@@ -57,6 +57,14 @@ const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 64;
 const DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT = 1;
 const DEFAULT_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc";
+const DEFAULT_PROXY_LIST_URLS = [
+  DEFAULT_PROXY_LIST_URL,
+  "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all",
+  "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
+  "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
+  "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
+  "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt",
+];
 
 const PLATFORM_LIMITS = {
   linux: {
@@ -154,9 +162,25 @@ function normalizeProxyListSourceUrl(sourceUrl) {
 }
 
 function resolveProxyListSourceUrl(env = process.env) {
-  return normalizeProxyListSourceUrl(
-    resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.URL) || DEFAULT_PROXY_LIST_URL
-  );
+  return resolveProxyListSourceUrls(env)[0] || "";
+}
+
+function resolveProxyListSourceUrls(env = process.env) {
+  const explicit = resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.URL);
+  const rawSources = explicit
+    ? explicit.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)
+    : DEFAULT_PROXY_LIST_URLS;
+  const seen = new Set();
+  const sources = [];
+  for (const source of rawSources) {
+    const normalized = normalizeProxyListSourceUrl(source);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    sources.push(normalized);
+  }
+  return sources;
 }
 
 function resolveProxyBlacklistPath(env = process.env) {
@@ -253,6 +277,33 @@ function parseProxyList(value) {
     if (seen.has(lower)) continue;
     seen.add(lower);
     deduped.push(item);
+  }
+  return deduped;
+}
+
+function parseProxyTextCandidates(value) {
+  if (typeof value !== "string") return [];
+  const parsed = value
+    .split(/[\s,]+/)
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+
+  const deduped = [];
+  const seen = new Set();
+  for (const item of parsed) {
+    const normalized = normalizeProxyEntry(item);
+    if (!normalized) continue;
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(normalized);
+    } catch {
+      continue;
+    }
+    if (!parsedUrl.hostname || !parsedUrl.port) continue;
+    const lower = normalized.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    deduped.push(normalized);
   }
   return deduped;
 }
@@ -647,13 +698,18 @@ function splitNormalizedProxiesByProtocol(candidates) {
 async function readCachedProxyList(env) {
   const cachePath =
     resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.CACHE_PATH) || DEFAULT_PROXY_LIST_CACHE_PATH;
-  const sourceUrl = resolveProxyListSourceUrl(env);
-  if (!cachePath || !sourceUrl) return [];
+  const sourceUrls = resolveProxyListSourceUrls(env);
+  if (!cachePath || sourceUrls.length === 0) return [];
   try {
     const raw = await fsp.readFile(cachePath, "utf8");
     const parsed = JSON.parse(raw);
     if (!parsed || typeof parsed !== "object") return [];
-    if (parsed.sourceUrl && parsed.sourceUrl !== sourceUrl) return [];
+    const knownSources = new Set(sourceUrls);
+    if (Array.isArray(parsed.sourceUrls)) {
+      if (!parsed.sourceUrls.some((sourceUrl) => knownSources.has(sourceUrl))) return [];
+    } else if (parsed.sourceUrl && !knownSources.has(parsed.sourceUrl)) {
+      return [];
+    }
     const expiresAt = Number(parsed.expiresAt);
     if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return [];
     let rawCandidates = [];
@@ -679,10 +735,9 @@ async function readCachedProxyList(env) {
   }
 }
 
-async function writeCachedProxyList(env, splitProxies) {
+async function writeCachedProxyList(env, splitProxies, sourceUrl = resolveProxyListSourceUrl(env)) {
   const cachePath = resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.CACHE_PATH) || DEFAULT_PROXY_LIST_CACHE_PATH;
   if (!cachePath) return;
-  const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl) return;
   const ttlMs =
     parseNonNegativeInt(resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.TTL_MS)) ??
@@ -692,6 +747,7 @@ async function writeCachedProxyList(env, splitProxies) {
     const payload = {
       version: 1,
       sourceUrl,
+      sourceUrls: resolveProxyListSourceUrls(env),
       fetchedAt: Date.now(),
       expiresAt,
       proxies: {
@@ -706,27 +762,33 @@ async function writeCachedProxyList(env, splitProxies) {
   }
 }
 
+function parseProxyCandidatesFromResponseBody(body, contentType) {
+  const trimmedBody = String(body || "").trim();
+  if (!trimmedBody) return { parsedBody: null, rawCandidates: [] };
+  const normalizedContentType = String(contentType || "").toLowerCase();
+  const looksJson =
+    normalizedContentType.includes("json") ||
+    trimmedBody.startsWith("{") ||
+    trimmedBody.startsWith("[");
+
+  if (!looksJson) {
+    return { parsedBody: null, rawCandidates: parseProxyTextCandidates(trimmedBody) };
+  }
+
+  const parsedBody = JSON.parse(trimmedBody);
+  return {
+    parsedBody,
+    rawCandidates: gatherProxyCandidatesFromPayload(parsedBody),
+  };
+}
+
 async function loadProxyListFromApi(env, fetchImpl, options = {}) {
-  const sourceUrl = resolveProxyListSourceUrl(env);
-  if (!sourceUrl || !fetchImpl) return null;
+  const sourceUrls = resolveProxyListSourceUrls(env);
+  if (sourceUrls.length === 0 || !fetchImpl) return null;
   const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) ?? DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
   const blockedProxySet =
     options.blockedProxySet ||
     toBlockedProxySet(options.persistedProxyBlacklist);
-  const basePage = (() => {
-    try {
-      return parsePositiveInteger(new URL(sourceUrl).searchParams.get("page")) || 1;
-    } catch {
-      return 1;
-    }
-  })();
-  const baseLimit = (() => {
-    try {
-      return parsePositiveInteger(new URL(sourceUrl).searchParams.get("limit"));
-    } catch {
-      return null;
-    }
-  })();
   const maxPages = parsePositiveInteger(
     resolveAnyEnv(env, [
       "GEONODE_PROXY_LIST_MAX_PAGES",
@@ -734,7 +796,24 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
       "PROXY_LIST_MAX_PAGES",
     ])
   ) ?? DEFAULT_PROXY_LIST_MAX_PAGES;
-  try {
+
+  for (const sourceUrl of sourceUrls) {
+    const basePage = (() => {
+      try {
+        return parsePositiveInteger(new URL(sourceUrl).searchParams.get("page")) || 1;
+      } catch {
+        return 1;
+      }
+    })();
+    const baseLimit = (() => {
+      try {
+        return parsePositiveInteger(new URL(sourceUrl).searchParams.get("limit"));
+      } catch {
+        return null;
+      }
+    })();
+
+    try {
     const visitedPages = new Set();
     let page = basePage;
     for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
@@ -753,32 +832,21 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
           page,
           status: response?.status || "no-response",
         });
-        return null;
+        break;
       }
       const body = await response.text();
       const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
-      let parsedBody = null;
-      const trimmedBody = body.trim();
-      if (contentType.includes("json")) {
-        try {
-          parsedBody = JSON.parse(body);
-        } catch {
-          proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
-          return null;
-        }
-      } else if (trimmedBody.startsWith("{") || trimmedBody.startsWith("[")) {
-        try {
-          parsedBody = JSON.parse(body);
-        } catch {
-          proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
-          return null;
-        }
-      } else {
-        proxyTrace(env, "proxy-api-page-error", { page, reason: "non-json" });
-        return null;
+      let parsedBody;
+      let rawCandidates;
+      try {
+        const parsed = parseProxyCandidatesFromResponseBody(body, contentType);
+        parsedBody = parsed.parsedBody;
+        rawCandidates = parsed.rawCandidates;
+      } catch {
+        proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
+        break;
       }
 
-      const rawCandidates = gatherProxyCandidatesFromPayload(parsedBody);
       const latencyFilteredCandidates = rawCandidates
         .filter((candidate) => shouldUseLatencyFilteredCandidate(candidate, maxResponseTimeMs));
       const candidates = latencyFilteredCandidates
@@ -807,11 +875,11 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
           http: validatedSplit.http.length,
           https: validatedSplit.https.length,
         });
-        await writeCachedProxyList(env, validatedSplit);
+        await writeCachedProxyList(env, validatedSplit, sourceUrl);
         return validatedSplit;
       }
 
-      const nextPage = parseNextPageHint(parsedBody, page, baseLimit);
+      const nextPage = parsedBody ? parseNextPageHint(parsedBody, page, baseLimit) : null;
       proxyTrace(env, "proxy-api-page-no-healthy", {
         page,
         nextPage: nextPage || "none",
@@ -819,12 +887,12 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
       if (!nextPage) break;
       page = nextPage;
     }
-  } catch (error) {
+    } catch (error) {
     proxyTrace(env, "proxy-api-error", {
       code: error?.code || error?.cause?.code || "error",
       message: error?.message || String(error),
     });
-    return null;
+    }
   }
   proxyTrace(env, "proxy-api-exhausted", { maxPages });
   return null;

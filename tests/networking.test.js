@@ -497,6 +497,55 @@ test("configureNetworking uses default hardcoded proxy source URL when env is no
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
+test("configureNetworking falls back from Geonode 429 to hardcoded text proxy sources", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
+  const requests = [];
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    requests.push(url);
+    if (url.startsWith("https://proxylist.geonode.com/api/proxy-list")) {
+      return new Response("rate limited", { status: 429 });
+    }
+    if (url.startsWith("https://api.proxyscrape.com/v2/")) {
+      return new Response("203.0.113.9:8080\n203.0.113.10:8080\n", {
+        status: 200,
+        headers: { "content-type": "text/plain" },
+      });
+    }
+    return new Response("", { status: 404 });
+  };
+  undici.fetch = async (input, init = {}) => {
+    undici.state.fetchCalls.push({
+      input: String(input),
+      dispatcher: init.dispatcher,
+    });
+    if (String(input) === healthcheckUrl) {
+      return new Response("jpg", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureTestNetworking(
+    profile(),
+    {
+      TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: healthcheckUrl,
+      TILE_DOWNLOADER_PROXY_HEALTHCHECK_CONCURRENCY: "1",
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.ok(requests.some((url) => url.startsWith("https://proxylist.geonode.com/api/proxy-list")));
+  assert.ok(requests.some((url) => url.startsWith("https://api.proxyscrape.com/v2/")));
+  assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://203.0.113.9:8080");
+});
+
 test("configureNetworking expands old Geonode source URLs instead of keeping the tiny protocol-filtered list", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
