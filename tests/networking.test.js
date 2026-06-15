@@ -229,6 +229,58 @@ test("configureNetworking rejects when configured proxies all fail the target he
   assert.equal(undici.state.fetchCalls.length, 1);
 });
 
+test("configureNetworking rejects when API proxy candidates all fail the target healthcheck", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const apiBase = "https://proxy.example/api/proxies";
+  const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
+  const requests = [];
+  const fetchImpl = async (input) => {
+    const url = String(input);
+    if (url.startsWith(apiBase)) {
+      requests.push(url);
+      return new Response(JSON.stringify({
+        page: url.includes("page=2") ? 2 : 1,
+        total: 2,
+        limit: 1,
+        data: [{ ip: url.includes("page=2") ? "203.0.113.2" : "203.0.113.1", port: "8080", protocol: "http" }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+  undici.fetch = async (input, init = {}) => {
+    undici.state.fetchCalls.push({
+      input: String(input),
+      dispatcher: init.dispatcher,
+    });
+    if (String(input) === healthcheckUrl) {
+      return new Response("blocked", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await assert.rejects(
+    () => configureTestNetworking(
+      profile(),
+      {
+        GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
+        TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: healthcheckUrl,
+      },
+      { undici, targetGlobal, fetchImpl }
+    ),
+    NoHealthyProxyError
+  );
+
+  assert.equal(requests.length, 2);
+  assert.equal(undici.state.fetchCalls.length, 2);
+});
+
 test("configureNetworking uses API http proxies as HTTPS tunnel candidates", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };

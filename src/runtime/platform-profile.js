@@ -48,11 +48,11 @@ const DEFAULT_PROXY_BLACKLIST_PATH = path.resolve(
 );
 const DEFAULT_PROXY_LIST_TTL_MS = 15 * 60 * 1000;
 const DEFAULT_PROXY_MAX_RESPONSE_TIME_MS = null;
-const DEFAULT_PROXY_LIST_MAX_PAGES = 5;
+const DEFAULT_PROXY_LIST_MAX_PAGES = 50;
 const DEFAULT_PROXY_FAILURE_BLOCK_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
 const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
-const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 80;
+const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 100;
 const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 16;
 const DEFAULT_PROXY_LIST_URL =
   "https://proxylist.geonode.com/api/proxy-list?limit=100&page=1&sort_by=lastChecked&sort_type=desc&protocols=http%2Chttps";
@@ -704,8 +704,19 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
       visitedPages.add(page);
 
       const requestUrl = page === basePage ? sourceUrl : buildProxyPageUrl(sourceUrl, page);
+      proxyTrace(env, "proxy-api-page-start", {
+        page,
+        maxPages,
+        url: describeProxyTraceUrl(requestUrl),
+      });
       const response = await fetchImpl(requestUrl);
-      if (!response || typeof response.ok !== "boolean" || !response.ok) return null;
+      if (!response || typeof response.ok !== "boolean" || !response.ok) {
+        proxyTrace(env, "proxy-api-page-error", {
+          page,
+          status: response?.status || "no-response",
+        });
+        return null;
+      }
       const body = await response.text();
       const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
       let parsedBody = null;
@@ -714,20 +725,25 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
         try {
           parsedBody = JSON.parse(body);
         } catch {
+          proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
           return null;
         }
       } else if (trimmedBody.startsWith("{") || trimmedBody.startsWith("[")) {
         try {
           parsedBody = JSON.parse(body);
         } catch {
+          proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
           return null;
         }
       } else {
+        proxyTrace(env, "proxy-api-page-error", { page, reason: "non-json" });
         return null;
       }
 
-      const candidates = gatherProxyCandidatesFromPayload(parsedBody)
-        .filter((candidate) => shouldUseLatencyFilteredCandidate(candidate, maxResponseTimeMs))
+      const rawCandidates = gatherProxyCandidatesFromPayload(parsedBody);
+      const latencyFilteredCandidates = rawCandidates
+        .filter((candidate) => shouldUseLatencyFilteredCandidate(candidate, maxResponseTimeMs));
+      const candidates = latencyFilteredCandidates
         .sort((a, b) => {
           const aMs = parseResponseTimeMs(a);
           const bMs = parseResponseTimeMs(b);
@@ -739,19 +755,40 @@ async function loadProxyListFromApi(env, fetchImpl, options = {}) {
         .filter(Boolean);
       const split = includeHttpTunnelProxiesForHttps(splitNormalizedProxiesByProtocol(candidates));
       const filteredSplit = filterBlockedProxies(split, blockedProxySet);
+      proxyTrace(env, "proxy-api-page-candidates", {
+        page,
+        raw: rawCandidates.length,
+        afterLatency: latencyFilteredCandidates.length,
+        http: filteredSplit.http.length,
+        https: filteredSplit.https.length,
+      });
       const validatedSplit = await validateProxySplit(filteredSplit, options);
       if (hasProxyCandidates(validatedSplit)) {
+        proxyTrace(env, "proxy-api-page-healthy", {
+          page,
+          http: validatedSplit.http.length,
+          https: validatedSplit.https.length,
+        });
         await writeCachedProxyList(env, validatedSplit);
         return validatedSplit;
       }
 
       const nextPage = parseNextPageHint(parsedBody, page, baseLimit);
+      proxyTrace(env, "proxy-api-page-no-healthy", {
+        page,
+        nextPage: nextPage || "none",
+      });
       if (!nextPage) break;
       page = nextPage;
     }
-  } catch {
+  } catch (error) {
+    proxyTrace(env, "proxy-api-error", {
+      code: error?.code || error?.cause?.code || "error",
+      message: error?.message || String(error),
+    });
     return null;
   }
+  proxyTrace(env, "proxy-api-exhausted", { maxPages });
   return null;
 }
 
@@ -760,7 +797,6 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   if (!sourceUrl) return proxyEnv;
 
   const maxResponseTimeMs = parseProxyMaxResponseTimeMs(env);
-  const hadProxyCandidates = hasProxyEnvironment(proxyEnv);
 
   const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
   const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
@@ -814,9 +850,9 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   const splitHttps = Array.isArray(split?.https) ? split.https : [];
 
   if (splitHttp.length === 0 && splitHttps.length === 0) {
-    if (hadProxyCandidates && options.requireHealthyProxy) {
+    if (options.requireHealthyProxy) {
       throw new NoHealthyProxyError(
-        "Configured proxy candidates were found, but none passed the target health check"
+        "No healthy proxy candidates were found after checking configured, cached, and API proxy sources"
       );
     }
     return proxyEnv;
@@ -1446,7 +1482,7 @@ export async function configureNetworking(profile) {
       baseProxyEnv,
       env,
       (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
-      { validateSplit, requireHealthyProxy: proxyRequired(env) }
+      { validateSplit, requireHealthyProxy: proxyRequired(env) && Boolean(resolveProxyHealthcheckUrl(env)) }
     );
 
     if (process.env.PROXY_DEBUG) {
