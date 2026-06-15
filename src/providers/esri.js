@@ -1,6 +1,6 @@
 import crypto from "node:crypto";
 
-const DEFAULT_UNAVAILABLE_TILE_HASHES = new Set([
+const KNOWN_UNAVAILABLE_TILE_HASHES = new Set([
   "9eafd300d61393184a4abc1d458564cfd1cd9b6f9c4e9c74687045c0a0e5b858",
 ]);
 
@@ -27,6 +27,10 @@ function normalizeHashes(value) {
     .filter(Boolean);
 }
 
+function useKnownUnavailableTileHashes(config) {
+  return config.tile?.useKnownUnavailableTileHashes === true || config.useKnownUnavailableTileHashes === true;
+}
+
 export function createEsriProvider(config) {
   const template =
     config.url?.template ||
@@ -34,7 +38,7 @@ export function createEsriProvider(config) {
   const extension = config.tile?.extension || "jpg";
   const yScheme = config.tile?.yScheme || config.requestYScheme || "xyz";
   const hashes = new Set([
-    ...DEFAULT_UNAVAILABLE_TILE_HASHES,
+    ...(useKnownUnavailableTileHashes(config) ? KNOWN_UNAVAILABLE_TILE_HASHES : []),
     ...normalizeHashes(config.tile?.unavailableTileSha256 || config.unavailableTileSha256),
     ...normalizeHashes(config.tile?.unavailableTileHashes || config.unavailableTileHashes),
   ]);

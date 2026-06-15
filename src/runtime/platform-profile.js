@@ -1089,14 +1089,6 @@ function proxyTraceEnabled(env = process.env) {
   return Boolean(resolveProxyHealthcheckUrl(env));
 }
 
-function proxyRequestTraceEnabled(env = process.env) {
-  return isTruthyEnv(resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_TRACE_REQUESTS",
-    "GEONODE_PROXY_TRACE_REQUESTS",
-    "PROXY_TRACE_REQUESTS",
-  ]));
-}
-
 function describeProxyTraceUrl(urlLike) {
   try {
     const url = new URL(String(urlLike));
@@ -1115,7 +1107,7 @@ function proxyTrace(env, event, fields = {}) {
     "request-bypass",
     "rotate-stick",
   ]);
-  if (requestEvents.has(event) && !proxyRequestTraceEnabled(env)) return;
+  if (requestEvents.has(event)) return;
   const suffix = Object.entries(fields)
     .filter(([, value]) => value !== undefined && value !== null && value !== "")
     .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)

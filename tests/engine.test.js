@@ -356,7 +356,52 @@ test("Esri retries 404 responses before accepting a tile as failed", async () =>
   db.close();
 });
 
-test("Esri unavailable placeholder responses are missing after retries, not proxy failures", async () => {
+test("Esri 200 image responses are downloaded when unavailable hashes are not configured", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  let fetches = 0;
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "esri-200-image",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        { zoomStart: 14, zoomEnd: 14, xStart: 9603, xEnd: 9603, yStart: 5824, yEnd: 5824, label: "a" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async () => {
+      fetches++;
+      return new Response(placeholder, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesMissing, 0);
+  assert.equal(result.tilesFailed, 0);
+  assert.equal(fetches, 1);
+  const saved = await stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg"));
+  assert.equal(saved.size, placeholder.length);
+
+  db.close();
+});
+
+test("Configured Esri unavailable placeholder responses are missing after retries, not proxy failures", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   const placeholder = Buffer.from("esri unavailable placeholder");

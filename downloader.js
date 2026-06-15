@@ -407,9 +407,6 @@ async function runOneConfig(configPath, opts) {
     console.log(`State DB: ${stateDbPath}`);
     if (!opts.dryRun && proxyHealthcheckUrl) {
       console.log("Proxy pickup: enabled");
-      if (process.env.TILE_DOWNLOADER_PROXY_TRACE_REQUESTS === "1") {
-        console.log("Proxy request trace: enabled");
-      }
       console.log(`Proxy healthcheck: ${proxyHealthcheckUrl}`);
     }
       console.log(
