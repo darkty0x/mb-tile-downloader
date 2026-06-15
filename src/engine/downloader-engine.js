@@ -484,7 +484,6 @@ function unavailableFallbackConfig(config, provider, env = process.env) {
     type: "parent-overzoom",
     source: "wayback",
     release: "latest",
-    maxParentZoomOffset: 1,
     jpegQuality: 92,
     ...(configured && typeof configured === "object" ? configured : {}),
   };
@@ -644,6 +643,43 @@ async function fetchUnavailableFallback({
   const quality = parsePositiveInt(fallback.jpegQuality) || 92;
   const attempts = Math.max(1, parsePositiveInt(fallback.fallbackFetchAttempts) || 3);
   const source = String(fallback.source || "wayback").toLowerCase();
+
+  for (let offset = 1; offset <= maxOffset; offset++) {
+    if (z - offset < 0) break;
+    if (fallback.tryCurrentParent === false) break;
+    const url = buildCurrentFallbackUrl({ provider, z, x, y, offset });
+    try {
+      const overzoomed = await tryFallbackCandidate({
+        url,
+        provider,
+        fetchImpl,
+        timeoutMs,
+        z,
+        x,
+        y,
+        offset,
+        quality,
+        attempts,
+      });
+      if (overzoomed) {
+        traceEvent(env, "tile-unavailable-fallback", {
+          provider: provider.name,
+          source: "current-parent",
+          offset,
+          url: describeTraceUrl(url),
+        });
+        return overzoomed;
+      }
+    } catch (error) {
+      traceEvent(env, "tile-unavailable-fallback-error", {
+        provider: provider.name,
+        offset,
+        url: describeTraceUrl(url),
+        error: error?.message || String(error),
+      });
+    }
+  }
+
   let waybackReleases = [];
   if (source === "wayback") {
     try {
@@ -696,41 +732,6 @@ async function fetchUnavailableFallback({
 
   for (let offset = 1; offset <= maxOffset; offset++) {
     if (z - offset < 0) break;
-
-    if (fallback.tryCurrentParent !== false) {
-      const url = buildCurrentFallbackUrl({ provider, z, x, y, offset });
-      try {
-        const overzoomed = await tryFallbackCandidate({
-          url,
-          provider,
-          fetchImpl,
-          timeoutMs,
-          z,
-          x,
-          y,
-          offset,
-          quality,
-          attempts,
-        });
-        if (overzoomed) {
-          traceEvent(env, "tile-unavailable-fallback", {
-            provider: provider.name,
-            source: "current-parent",
-            offset,
-            url: describeTraceUrl(url),
-          });
-          return overzoomed;
-        }
-      } catch (error) {
-        traceEvent(env, "tile-unavailable-fallback-error", {
-          provider: provider.name,
-          offset,
-          url: describeTraceUrl(url),
-          error: error?.message || String(error),
-        });
-      }
-    }
-
     for (const release of waybackReleases) {
       const url = buildWaybackFallbackUrl({ fallback, release, z, x, y, offset });
       try {

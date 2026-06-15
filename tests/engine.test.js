@@ -628,6 +628,7 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
         extension: "jpg",
         yScheme: "xyz",
         unavailableTileSha256: placeholderHash,
+        unavailableFallback: { maxParentZoomOffset: 1 },
       },
       url: { template: "https://example.test/{z}/{y}/{x}" },
       ranges: [
@@ -669,9 +670,9 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
   assert.equal(result.tilesFailed, 0);
   assert.deepEqual(requestedUrls, [
     "https://example.test/14/5825/9605",
+    "https://example.test/13/2912/4802",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/14/5825/9605",
-    "https://example.test/13/2912/4802",
     "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/13/2912/4802",
   ]);
 
@@ -707,7 +708,7 @@ test("Esri unavailable fallback searches older Wayback releases before marking m
         extension: "jpg",
         yScheme: "xyz",
         unavailableTileSha256: placeholderHash,
-        unavailableFallback: { releaseConfigUrl },
+        unavailableFallback: { releaseConfigUrl, maxParentZoomOffset: 1 },
       },
       url: { template: "https://example.test/{z}/{y}/{x}" },
       ranges: [
@@ -773,6 +774,73 @@ test("Esri unavailable fallback searches older Wayback releases before marking m
     ),
     "expected fallback to try the older Wayback parent tile"
   );
+
+  db.close();
+});
+
+test("Esri unavailable fallback tries deeper current parents before older Wayback scans", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const grandparent = quadrantJpeg();
+  const requestedUrls = [];
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "esri-deeper-current-parent-fallback",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: { extension: "jpg", yScheme: "xyz", unavailableTileSha256: placeholderHash },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        { zoomStart: 15, zoomEnd: 15, xStart: 19211, xEnd: 19211, yStart: 11648, yEnd: 11648, label: "a" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url));
+      if (String(url) === "https://example.test/15/11648/19211") {
+        return new Response(placeholder, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url) === "https://example.test/14/5824/9605") {
+        return new Response(placeholder, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url) === "https://example.test/13/2912/4802") {
+        return new Response(grandparent, {
+          status: 200,
+          headers: { "content-type": "image/jpeg" },
+        });
+      }
+      if (String(url) === "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json") {
+        return Response.json({ Selection: [{ M: "10842" }, { M: "16513" }] });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesMissing, 0);
+  assert.equal(result.tilesFailed, 0);
+  assert.deepEqual(requestedUrls, [
+    "https://example.test/15/11648/19211",
+    "https://example.test/14/5824/9605",
+    "https://example.test/13/2912/4802",
+  ]);
 
   db.close();
 });
@@ -1292,6 +1360,7 @@ test("Esri retries a blocked proxy and continues within tile retry budget", asyn
       TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD: "1",
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
       TILE_DOWNLOADER_ESRI_PROXY_BLOCK_MS: "1000",
+      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
     },
     proxyRotation,
     fetchImpl: async () => {
