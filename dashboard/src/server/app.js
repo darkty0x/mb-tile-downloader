@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 import { createPgDb } from "./db.js";
 import { loadServerConfig } from "./config.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
-import { createPostgresSecretVault, createSecretVault } from "./secrets.js";
+import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
 import { createTelegramNotifier } from "./telegram.js";
 
@@ -251,11 +251,24 @@ export function createDashboardApp({
         if (req.method === "POST" && url.pathname === "/api/secrets") {
           if (!secretVault) throw new Error("secret vault is not configured");
           const body = await readJson(req);
-          const secret = await secretVault.createSecret(body);
+          const values = splitSecretValues(body.secretType, body.value);
+          if (!values.length) throw new Error("secret value is required");
+          const created = [];
+          for (const [index, value] of values.entries()) {
+            created.push(await secretVault.createSecret({
+              ...body,
+              value,
+              label: values.length > 1
+                ? `${body.label || body.secretType} ${index + 1}`
+                : body.label,
+            }));
+          }
+          const secret = created[0];
           json(res, 200, {
             secret: (await secretVault
               .listSecretsForBrowser({ machineId: secret.machineId || undefined }))
               .find((item) => item.secretId === secret.secretId),
+            secrets: await secretVault.listSecretsForBrowser({ machineId: body.machineId || undefined }),
           });
           return;
         }

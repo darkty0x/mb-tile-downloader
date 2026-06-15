@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardApp } from "../dashboard/src/server/app.js";
+import { createSecretVault } from "../dashboard/src/server/secrets.js";
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 
 async function request(server, { method = "GET", path = "/", headers = {}, body } = {}) {
@@ -256,4 +257,36 @@ test("dashboard app exposes secret update and delete management routes", async (
   assert.equal(deleted.body.secretId, "secret-a");
   assert.equal(calls[0][0], "update");
   assert.equal(calls[1][0], "delete");
+});
+
+test("dashboard secret route imports proxy lists as global pool items", async (t) => {
+  let id = 0;
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => `secret-${++id}`,
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+  const headers = { authorization: "Bearer admin-token" };
+
+  const saved = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    headers,
+    body: {
+      secretType: "proxy_txt",
+      label: "premium proxy",
+      value: "http://proxy-a.example:8080, http://proxy-b.example:8080",
+    },
+  });
+  const listed = await request(server, {
+    path: "/api/secrets",
+    headers,
+  });
+
+  assert.equal(saved.status, 200);
+  assert.equal(listed.body.secrets.filter((secret) => secret.secretType === "proxy_txt").length, 2);
+  assert.equal(listed.body.secrets.every((secret) => secret.machineId === null), true);
+  assert.equal(listed.body.secrets.every((secret) => secret.usage === "available"), true);
 });

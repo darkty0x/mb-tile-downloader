@@ -37,12 +37,16 @@ export async function materializeSecrets({
   await writeFile(tmpEnvPath, `${envLines.join("\n")}${envLines.length ? "\n" : ""}`);
   await rename(tmpEnvPath, envPath);
 
-  const proxySecret = secrets.find((secret) => secret.secretType === "proxy_txt" && secret.value);
+  const proxyText = secrets
+    .filter((secret) => secret.secretType === "proxy_txt")
+    .map((secret) => secret.value)
+    .filter(Boolean)
+    .join("\n");
   let proxyPath = null;
-  if (proxySecret) {
+  if (proxyText) {
     proxyPath = path.join(projectDir, "proxy.txt");
     const tmpProxyPath = `${proxyPath}.tmp`;
-    const normalized = normalizeProxyText(proxySecret.value);
+    const normalized = normalizeProxyText(proxyText);
     await writeFile(tmpProxyPath, `${normalized}${normalized ? "\n" : ""}`);
     await rename(tmpProxyPath, proxyPath);
   }

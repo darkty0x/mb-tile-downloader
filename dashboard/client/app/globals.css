@@ -147,18 +147,42 @@ md-text-button {
   --md-filled-button-label-text-size: 12px;
   --md-outlined-button-label-text-size: 12px;
   --md-text-button-label-text-size: 12px;
+  --md-filled-button-label-text-line-height: 16px;
+  --md-outlined-button-label-text-line-height: 16px;
+  --md-text-button-label-text-line-height: 16px;
   --md-filled-button-label-text-weight: 700;
   --md-outlined-button-label-text-weight: 700;
   --md-text-button-label-text-weight: 700;
   --md-filled-button-container-height: 34px;
   --md-outlined-button-container-height: 34px;
   --md-text-button-container-height: 34px;
+  --md-filled-button-icon-size: 16px;
+  --md-outlined-button-icon-size: 16px;
+  --md-text-button-icon-size: 16px;
+  --md-filled-button-leading-space: 14px;
+  --md-filled-button-trailing-space: 14px;
+  --md-filled-button-with-leading-icon-leading-space: 12px;
+  --md-filled-button-with-leading-icon-trailing-space: 14px;
+  --md-outlined-button-leading-space: 14px;
+  --md-outlined-button-trailing-space: 14px;
+  --md-outlined-button-with-leading-icon-leading-space: 12px;
+  --md-outlined-button-with-leading-icon-trailing-space: 14px;
+  --md-text-button-leading-space: 10px;
+  --md-text-button-trailing-space: 10px;
+  --md-text-button-with-leading-icon-leading-space: 8px;
+  --md-text-button-with-leading-icon-trailing-space: 10px;
 }
 
 md-filled-button.material-button,
 md-outlined-button.material-button,
 md-text-button.material-button {
   display: inline-flex;
+  max-width: 100%;
+  vertical-align: middle;
+}
+
+.material-button svg[slot="icon"] {
+  display: block;
 }
 
 md-filled-button.danger-button,

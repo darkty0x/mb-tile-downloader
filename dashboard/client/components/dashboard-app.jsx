@@ -17,21 +17,29 @@ const COMMANDS = [
 const TABS = [
   ["overview", "Overview", "overview"],
   ["servers", "Servers", "servers"],
+  ["secrets", "Secrets", "secrets"],
 ];
 
 const SERVER_TABS = [
   ["control", "Control", "control"],
   ["configs", "Config", "config"],
   ["env", "Env", "env"],
-  ["secrets", "Secrets", "secrets"],
   ["console", "Console", "console"],
 ];
 
 const SECRET_LABELS = {
   mapbox_token: "Mapbox Token",
-  proxy_txt: "Proxy List",
+  proxy_txt: "Proxy",
   storj_access: "Storj Access",
 };
+
+const SECRET_POOL_THRESHOLDS = {
+  mapbox_token: 2,
+  proxy_txt: 50,
+};
+
+const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
+const SECRET_SECTION_VISIBLE_LIMIT = 40;
 
 const SAMPLE_CONFIG = {
   provider: "esri",
@@ -93,6 +101,7 @@ function useDashboardState() {
   const [configs, setConfigs] = useState([]);
   const [envProfiles, setEnvProfiles] = useState([]);
   const [secrets, setSecrets] = useState([]);
+  const [secretPool, setSecretPool] = useState([]);
   const [events, setEvents] = useState([]);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
   const [selectedTab, setSelectedTab] = useState("overview");
@@ -147,23 +156,37 @@ function useDashboardState() {
     setEvents(nextEvents);
   }
 
+  async function refreshSecretPool() {
+    if (!adminToken) {
+      setSecretPool([]);
+      return;
+    }
+    const { secrets: nextSecretPool } = await api("/api/secrets");
+    setSecretPool(nextSecretPool);
+  }
+
   async function refreshAll() {
     if (!adminToken) {
       setMachines([]);
       setConfigs([]);
       setEnvProfiles([]);
       setSecrets([]);
+      setSecretPool([]);
       setEvents([]);
       setSelectedMachineId(null);
       return;
     }
     setLoading(true);
     try {
-      const { machines: nextMachines } = await api("/api/machines");
+      const [{ machines: nextMachines }, { secrets: nextSecretPool }] = await Promise.all([
+        api("/api/machines"),
+        api("/api/secrets"),
+      ]);
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
         : nextMachines[0]?.machineId || null;
       setMachines(nextMachines);
+      setSecretPool(nextSecretPool);
       setSelectedMachineId(nextSelected);
       await refreshMachineData(nextSelected);
     } finally {
@@ -178,6 +201,7 @@ function useDashboardState() {
       setConfigs([]);
       setEnvProfiles([]);
       setSecrets([]);
+      setSecretPool([]);
       setEvents([]);
       setSelectedMachineId(null);
       return undefined;
@@ -201,6 +225,7 @@ function useDashboardState() {
       configs,
       envProfiles,
       secrets,
+      secretPool,
       events,
       selectedMachineId,
       selectedMachine,
@@ -222,6 +247,7 @@ function useDashboardState() {
       setNotice,
       refreshAll,
       refreshMachineData,
+      refreshSecretPool,
       async selectMachine(machineId) {
         setSelectedMachineId(machineId);
         setSelectedServerTab("control");
@@ -273,7 +299,7 @@ function useDashboardState() {
       },
       async saveSecret(formData, id, existingType) {
         const body = {
-          machineId: selectedMachineId,
+          machineId: formData.get("machineId") || null,
           label: formData.get("label") || formData.get("secretType") || existingType,
           status: formData.get("status"),
         };
@@ -285,6 +311,7 @@ function useDashboardState() {
           body: JSON.stringify(body),
         });
         setEditor({ type: "summary" });
+        await refreshSecretPool();
         await refreshMachineData();
       },
       async deleteRecord(type, id) {
@@ -295,6 +322,7 @@ function useDashboardState() {
         };
         await api(paths[type], { method: "DELETE" });
         setEditor({ type: "summary" });
+        if (type === "secret") await refreshSecretPool();
         await refreshMachineData();
       },
     },
@@ -304,33 +332,36 @@ function useDashboardState() {
 function Rail({ state, actions }) {
   return (
     <aside className="ptg-scrollbar sticky top-0 flex h-screen flex-col gap-5 overflow-auto border-r border-[var(--ptg-rail-outline)] bg-[var(--ptg-rail)] px-3 py-4 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
-      <section className="flex items-center gap-2.5 px-0.5 pb-1">
+      <section className="flex items-center gap-2 px-0.5 pb-1">
         <LogoMark />
         <div className="min-w-0">
-          <h1 className="truncate text-[13.5px] font-[760] leading-tight">PTG Dashboard</h1>
-          <p className="mt-0.5 text-[11px] leading-tight text-[var(--ptg-rail-muted)]">PTG Management Dashboard</p>
+          <h1 className="truncate text-[13px] font-[760] leading-tight">PTG Dashboard</h1>
+          <p className="mt-0.5 text-[11px] leading-[1.15] text-[var(--ptg-rail-muted)]">PTG Management Dashboard</p>
         </div>
       </section>
 
       <nav className="grid gap-1.5" aria-label="Dashboard sections">
-        {TABS.map(([tab, label, icon]) => (
-          <button
-            key={tab}
-            type="button"
-            onClick={() => actions.setSelectedTab(tab)}
-            className={`state-layer grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-2.5 text-left text-[12.5px] font-[680] ${
-              state.selectedTab === tab
-                ? "border-[#315f6a] bg-[var(--ptg-rail-active)] text-[var(--ptg-rail-text)] shadow-[inset_3px_0_0_var(--ptg-primary)]"
-                : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-[var(--ptg-rail-text)]"
-            }`}
-          >
-            <span className="flex min-w-0 items-center gap-2">
-              <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#69d9ff]" : ""}`} />
-              <span className="truncate">{label}</span>
-            </span>
-            {tab === "servers" ? <strong className="rounded-full bg-[#22324a] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{state.machines.length}</strong> : null}
-          </button>
-        ))}
+        {TABS.map(([tab, label, icon]) => {
+          const count = tab === "servers" ? state.machines.length : tab === "secrets" ? state.secretPool.length : null;
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => actions.setSelectedTab(tab)}
+              className={`state-layer grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-2.5 text-left text-[12.5px] font-[680] ${
+                state.selectedTab === tab
+                  ? "border-[#315f6a] bg-[var(--ptg-rail-active)] text-[var(--ptg-rail-text)] shadow-[inset_3px_0_0_var(--ptg-primary)]"
+                  : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-[var(--ptg-rail-text)]"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#69d9ff]" : ""}`} />
+                <span className="truncate">{label}</span>
+              </span>
+              {count === null ? null : <strong className="rounded-full bg-[#22324a] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
+            </button>
+          );
+        })}
       </nav>
 
       <form className="mt-auto grid grid-cols-[minmax(0,1fr)_40px] gap-2" onSubmit={(event) => {
@@ -392,6 +423,152 @@ function Stats({ state }) {
       <MetricCard icon="layers" label="Active Config" value={state.activeConfig?.name || "None"} />
       <MetricCard icon={failures ? "warning" : "control"} label="Latest Event" value={latest?.severity || (failures ? `${failures} errors` : "Idle")} />
     </section>
+  );
+}
+
+function machineLabel(state, machineId) {
+  if (!machineId) return "Available";
+  const machine = state.machines.find((item) => item.machineId === machineId);
+  return machine?.displayName || machineId;
+}
+
+function secretCounts(secrets, secretType) {
+  const items = secrets.filter((secret) => secret.secretType === secretType);
+  const available = items.filter((secret) => secret.status === "active" && !secret.machineId).length;
+  const assigned = items.filter((secret) => secret.status === "active" && secret.machineId).length;
+  const disabled = items.length - available - assigned;
+  return { total: items.length, available, assigned, disabled };
+}
+
+function SecretsDashboard({ state, actions }) {
+  const mapbox = secretCounts(state.secretPool, "mapbox_token");
+  const proxies = secretCounts(state.secretPool, "proxy_txt");
+  const serverCount = state.machines.length;
+  const alerts = [
+    {
+      type: "mapbox_token",
+      label: "Mapbox keys",
+      available: mapbox.available,
+      threshold: SECRET_POOL_THRESHOLDS.mapbox_token * serverCount,
+    },
+    {
+      type: "proxy_txt",
+      label: "Proxies",
+      available: proxies.available,
+      threshold: SECRET_POOL_THRESHOLDS.proxy_txt * serverCount,
+    },
+  ].filter((alert) => serverCount > 0 && alert.available <= alert.threshold);
+
+  return (
+    <section className="screen-enter mt-3 grid gap-2.5">
+      <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
+        <MetricCard icon="key" label="Mapbox Available" value={`${mapbox.available}/${mapbox.total}`} />
+        <MetricCard icon="secrets" label="Proxy Available" value={`${proxies.available}/${proxies.total}`} />
+        <MetricCard icon="servers" label="Assigned Items" value={mapbox.assigned + proxies.assigned} />
+        <MetricCard icon={alerts.length ? "warning" : "check"} label="Pool Alerts" value={alerts.length || "Clear"} />
+      </section>
+
+      {alerts.length ? (
+        <Surface className="grid gap-2 border-[rgba(143,95,0,0.25)] bg-[#fff9ed]">
+          <SectionTitle title="Capacity Alerts" meta={`${serverCount} servers connected`} />
+          {alerts.map((alert) => (
+            <div key={alert.type} className="flex flex-wrap items-center gap-2 rounded-lg border border-[rgba(143,95,0,0.18)] bg-white px-3 py-2 text-[12px]">
+              <StatusPill status="warn">low</StatusPill>
+              <strong>{alert.label}</strong>
+              <span className="text-[var(--ptg-on-surface-variant)]">available {alert.available}, alert threshold {alert.threshold}</span>
+            </div>
+          ))}
+        </Surface>
+      ) : null}
+
+      <section className="grid grid-cols-2 gap-2.5 max-xl:grid-cols-1">
+        <SecretResourceSection
+          title="Mapbox API Keys"
+          meta={`${mapbox.available} available | ${mapbox.assigned} assigned | ${mapbox.disabled} disabled`}
+          icon="key"
+          secretType="mapbox_token"
+          state={state}
+          actions={actions}
+        />
+        <SecretResourceSection
+          title="Proxy Pool"
+          meta={`${proxies.available} available | ${proxies.assigned} assigned | ${proxies.disabled} disabled`}
+          icon="secrets"
+          secretType="proxy_txt"
+          state={state}
+          actions={actions}
+        />
+      </section>
+    </section>
+  );
+}
+
+function SecretResourceSection({ title, meta, icon, secretType, state, actions }) {
+  const items = state.secretPool
+    .filter((secret) => secret.secretType === secretType)
+    .slice()
+    .sort((a, b) => {
+      const rank = (secret) => secret.status === "active" && !secret.machineId ? 0 : secret.status !== "active" ? 1 : 2;
+      return rank(a) - rank(b) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label);
+    });
+  const visibleItems = items.slice(0, SECRET_SECTION_VISIBLE_LIMIT);
+  const addLabel = secretType === "proxy_txt" ? "Add Proxies" : "Add Key";
+
+  return (
+    <Surface className="min-h-[360px] max-w-full overflow-hidden">
+      <SectionTitle
+        title={title}
+        meta={meta}
+        action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType })}>{addLabel}</AppButton>}
+      />
+      <div className="grid gap-2">
+        {visibleItems.length ? visibleItems.map((secret) => (
+          <SecretResourceRow key={secret.secretId} secret={secret} icon={icon} state={state} actions={actions} />
+        )) : <EmptyLine>No {title.toLowerCase()} stored yet</EmptyLine>}
+        {items.length > visibleItems.length ? (
+          <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] px-3 py-2 text-center text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">
+            Showing {visibleItems.length} of {items.length} items
+          </p>
+        ) : null}
+      </div>
+    </Surface>
+  );
+}
+
+function SecretResourceRow({ secret, icon, state, actions }) {
+  const active = secret.status === "active";
+  const assigned = Boolean(secret.machineId);
+  const usageStatus = active && !assigned ? "active" : active ? "busy" : secret.status;
+  const usageLabel = active && !assigned ? "available" : active ? machineLabel(state, secret.machineId) : secret.status;
+
+  async function disable() {
+    await actions.api(`/api/secrets/${encodeURIComponent(secret.secretId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "disabled" }),
+    });
+    await actions.refreshSecretPool();
+    await actions.refreshMachineData();
+  }
+
+  return (
+    <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[28px_minmax(0,1fr)]">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#eaf8fb] text-[var(--ptg-primary-dark)]">
+        <Icon name={icon} className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <strong className="block min-w-0 truncate text-[12.5px] font-[760] leading-4">{secret.label}</strong>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+          <StatusPill status={usageStatus}>{usageLabel}</StatusPill>
+          <small className="min-w-0 flex-1 truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+        </div>
+        {assigned ? <small className="mt-0.5 block truncate text-[10.5px] text-[var(--ptg-on-surface-variant)]">{secret.machineId}</small> : null}
+      </div>
+      <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
+        {active ? <IconButton label="Disable" icon="stop" onClick={() => disable().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
+        <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
+        <IconButton label="Delete" icon="trash" onClick={() => actions.deleteRecord("secret", secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+      </div>
+    </div>
   );
 }
 
@@ -539,7 +716,7 @@ function ServerPanel({ state, actions }) {
         ))}
       </div>
 
-      <nav className="grid grid-cols-5 gap-1 rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
+      <nav className="grid grid-cols-4 gap-1 rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
         {SERVER_TABS.map(([tab, label, icon]) => (
           <button
             key={tab}
@@ -703,20 +880,20 @@ function EditorDrawer({ state, actions }) {
   if (editor.type === "summary") return null;
   const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
   const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
-  const secret = editor.type === "secret" ? state.secrets.find((item) => item.secretId === editor.id) : null;
+  const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
     <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#fbfdfc] p-4 shadow-[var(--ptg-shadow-2)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record)}</h3>
-          <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">{state.selectedMachine?.machineId || "No machine"}</p>
+          <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">{editor.type.includes("secret") ? "Global resource pool" : state.selectedMachine?.machineId || "No machine"}</p>
         </div>
         <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
       </div>
       {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} actions={actions} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
-      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} actions={actions} /> : null}
+      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
     </aside>
   );
 }
@@ -769,21 +946,28 @@ function EnvForm({ record, actions }) {
   );
 }
 
-function SecretForm({ record, actions }) {
+function SecretForm({ record, editor, actions }) {
   const id = record?.secretId || "";
+  const secretType = record?.secretType || editor?.secretType || "mapbox_token";
   return (
     <form className="grid gap-3" onSubmit={(event) => {
       event.preventDefault();
       actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
     }}>
-      <SelectInput label="Type" name="secretType" defaultValue={record?.secretType || "mapbox_token"} disabled={Boolean(id)}>
+      <input type="hidden" name="machineId" value={record?.machineId || ""} />
+      <SelectInput label="Type" name="secretType" defaultValue={secretType} disabled={Boolean(id)}>
         {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </SelectInput>
       <TextInput label="Label" name="label" defaultValue={record?.label || ""} placeholder="primary" />
       <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
-        {["active", "inactive", "error"].map((status) => <option key={status} value={status}>{status}</option>)}
+        {SECRET_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
       </SelectInput>
-      <TextArea label="Value" name="value" spellCheck="false" placeholder={id ? "Leave blank to keep current value" : "Paste token, access grant, or comma-separated proxy URLs"} />
+      <TextArea
+        label="Value"
+        name="value"
+        spellCheck="false"
+        placeholder={id ? "Leave blank to keep current value" : secretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
+      />
       <div className="flex flex-wrap gap-2">
         <AppButton variant="filled" icon="check" type="submit">Save Secret</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
@@ -796,7 +980,7 @@ export default function DashboardApp() {
   useMaterialWeb();
   const { state, actions } = useDashboardState();
   return (
-    <main className={`grid min-h-screen grid-cols-[214px_minmax(0,1fr)_392px] bg-[var(--ptg-background)] max-lg:grid-cols-[204px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`grid min-h-screen grid-cols-[230px_minmax(0,1fr)_392px] bg-[var(--ptg-background)] max-lg:grid-cols-[214px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
       <section className="min-w-0 overflow-hidden p-4">
         <Header state={state} />
@@ -808,6 +992,8 @@ export default function DashboardApp() {
               <p className="mt-1 text-[13px] text-[var(--ptg-on-surface-variant)]">Enter the dashboard admin token to load fleet state.</p>
             </div>
           </section>
+        ) : state.selectedTab === "secrets" ? (
+          <SecretsDashboard state={state} actions={actions} />
         ) : (
           <section className="screen-enter mt-3 grid gap-2.5">
             <Stats state={state} />

@@ -37,18 +37,22 @@ const paths = {
   disk: [<path key="a" d="M5 6h14l2 8v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4l2-8Z" />, <path key="b" d="M6 14h12M8 17h.01M12 17h4" />],
 };
 
-export function Icon({ name, className = "", decorative = true }) {
+export function Icon({ name, className = "", decorative = true, title, ...props }) {
   return (
     <svg
-      aria-hidden={decorative ? "true" : undefined}
+      aria-hidden={decorative && !title ? "true" : undefined}
       className={className}
       fill="none"
+      role={!decorative || title ? "img" : undefined}
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth="2"
+      strokeWidth="1.9"
+      vectorEffect="non-scaling-stroke"
       viewBox="0 0 24 24"
+      {...props}
     >
+      {title ? <title>{title}</title> : null}
       {paths[name] || paths.overview}
     </svg>
   );
@@ -56,7 +60,7 @@ export function Icon({ name, className = "", decorative = true }) {
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-9 w-[72px] overflow-visible" viewBox="0 0 180 92">
+    <svg aria-hidden="true" className="h-8 w-14 shrink-0 overflow-visible" viewBox="0 0 180 92">
       <ellipse className="brand-orbit-blue" cx="90" cy="46" rx="78" ry="22" stroke="#12aeea" strokeLinecap="round" strokeWidth="3.5" fill="none" transform="rotate(-22 90 46)" />
       <ellipse className="brand-orbit-red" cx="88" cy="47" rx="73" ry="20" stroke="#ff2535" strokeLinecap="round" strokeWidth="8" fill="none" transform="rotate(20 88 47)" />
       <text x="32" y="62" fill="#14aee5" fontFamily="Impact, Arial Black, sans-serif" fontSize="44" fontWeight="900" letterSpacing="0">

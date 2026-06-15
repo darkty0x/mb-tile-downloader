@@ -4,7 +4,7 @@ import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { createPostgresSecretVault, createSecretVault } from "../dashboard/src/server/secrets.js";
+import { SECRET_POOL_TARGETS, createPostgresSecretVault, createSecretVault } from "../dashboard/src/server/secrets.js";
 import { materializeSecrets } from "../src/agent/secret-materializer.js";
 
 test("secret vault encrypts plaintext and redacts browser results", () => {
@@ -36,6 +36,51 @@ test("agent sync receives decrypted secret values", () => {
   const agentSecrets = vault.listSecretsForAgent({ machineId: "worker-a" });
 
   assert.equal(agentSecrets[0].value, "http://u:p@1.2.3.4:8080");
+});
+
+test("secret pool assigns mapbox keys and proxy items to only one machine", () => {
+  let id = 0;
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+  });
+  for (let index = 1; index <= 3; index++) {
+    vault.createSecret({
+      secretType: "mapbox_token",
+      label: `mapbox-${index}`,
+      value: `pk.token-${index}`,
+    });
+  }
+  for (let index = 1; index <= SECRET_POOL_TARGETS.proxy_txt * 2; index++) {
+    vault.createSecret({
+      secretType: "proxy_txt",
+      label: `proxy-${index}`,
+      value: `http://proxy-${index}.example:8080`,
+    });
+  }
+  vault.createSecret({
+    secretType: "proxy_txt",
+    label: "expired",
+    value: "http://expired.example:8080",
+    status: "disabled",
+  });
+
+  const workerA = vault.listSecretsForAgent({ machineId: "worker-a" });
+  const workerB = vault.listSecretsForAgent({ machineId: "worker-b" });
+  const mapboxA = workerA.find((secret) => secret.secretType === "mapbox_token");
+  const mapboxB = workerB.find((secret) => secret.secretType === "mapbox_token");
+  const proxiesA = workerA.filter((secret) => secret.secretType === "proxy_txt");
+  const proxiesB = workerB.filter((secret) => secret.secretType === "proxy_txt");
+  const overlap = proxiesA.filter((a) => proxiesB.some((b) => b.secretId === a.secretId));
+
+  assert.ok(mapboxA);
+  assert.ok(mapboxB);
+  assert.notEqual(mapboxA.secretId, mapboxB.secretId);
+  assert.equal(proxiesA.length, SECRET_POOL_TARGETS.proxy_txt);
+  assert.equal(proxiesB.length, SECRET_POOL_TARGETS.proxy_txt);
+  assert.equal(overlap.length, 0);
+  assert.equal(proxiesA.some((secret) => /expired/.test(secret.value)), false);
+  assert.equal(vault.listSecretsForBrowser().filter((secret) => secret.usage === "available" && secret.secretType === "mapbox_token").length, 1);
 });
 
 test("secret vault supports update status and delete", () => {
@@ -82,10 +127,37 @@ test("postgres secret vault persists encrypted rows and returns redacted browser
         rows.set(secret_id, row);
         return { rows: [{ ...row }] };
       }
+      if (/SELECT \* FROM secrets WHERE secret_type=\$1/.test(sql)) {
+        return {
+          rows: [...rows.values()].filter((row) => row.secret_type === params[0]),
+        };
+      }
       if (/SELECT \* FROM secrets WHERE machine_id=\$1/.test(sql)) {
         return {
           rows: [...rows.values()].filter((row) => row.machine_id === params[0]),
         };
+      }
+      if (/SELECT secret_id FROM secrets WHERE secret_type=\$1 AND machine_id=\$2/.test(sql)) {
+        return {
+          rows: [...rows.values()]
+            .filter((row) => row.secret_type === params[0] && row.machine_id === params[1] && row.status === "active")
+            .map((row) => ({ secret_id: row.secret_id })),
+        };
+      }
+      if (/SELECT secret_id FROM secrets WHERE secret_type=\$1 AND machine_id IS NULL/.test(sql)) {
+        return {
+          rows: [...rows.values()]
+            .filter((row) => row.secret_type === params[0] && row.machine_id === null && row.status === "active")
+            .slice(0, params[1])
+            .map((row) => ({ secret_id: row.secret_id })),
+        };
+      }
+      if (/UPDATE secrets SET machine_id=\$1/.test(sql)) {
+        const row = rows.get(params[2]);
+        if (!row || row.machine_id !== null || row.status !== "active") return { rows: [] };
+        row.machine_id = params[0];
+        row.updated_at = params[1];
+        return { rows: [{ secret_id: row.secret_id }] };
       }
       throw new Error(`unhandled SQL: ${sql}`);
     },
@@ -130,6 +202,11 @@ test("secret materializer writes env and normalized proxy.txt atomically", async
         label: "proxy",
         value: "http://a.example:8080, http://b.example:8080\nhttp://c.example:8080",
       },
+      {
+        secretType: "proxy_txt",
+        label: "proxy 2",
+        value: "http://d.example:8080",
+      },
     ],
   });
 
@@ -139,6 +216,6 @@ test("secret materializer writes env and normalized proxy.txt atomically", async
   assert.match(envFile, /MAPBOX_ACCESS_TOKENS=pk\.token-a/);
   assert.equal(
     proxyFile,
-    "http://a.example:8080\nhttp://b.example:8080\nhttp://c.example:8080\n"
+    "http://a.example:8080\nhttp://b.example:8080\nhttp://c.example:8080\nhttp://d.example:8080\n"
   );
 });

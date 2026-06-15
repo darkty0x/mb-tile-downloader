@@ -10,6 +10,7 @@ const statusStyles = {
   error: "bg-[rgba(197,35,51,0.12)] text-[var(--ptg-error)]",
   conflict: "bg-[rgba(197,35,51,0.12)] text-[var(--ptg-error)]",
   danger: "bg-[rgba(197,35,51,0.12)] text-[var(--ptg-error)]",
+  disabled: "bg-[rgba(98,114,122,0.14)] text-[var(--ptg-on-surface-variant)]",
   inactive: "bg-[var(--ptg-surface-container)] text-[var(--ptg-on-surface-variant)]",
   offline: "bg-[var(--ptg-surface-container)] text-[var(--ptg-on-surface-variant)]",
   neutral: "bg-[var(--ptg-surface-container)] text-[var(--ptg-on-surface-variant)]",
@@ -17,7 +18,7 @@ const statusStyles = {
 
 export function StatusPill({ status = "neutral", children = status }) {
   return (
-    <span className={`inline-flex min-h-[22px] items-center rounded-full px-2 py-0.5 text-[11.5px] font-[680] ${statusStyles[status] || statusStyles.neutral}`}>
+    <span className={`inline-flex min-h-5 max-w-full items-center overflow-hidden truncate whitespace-nowrap rounded-full px-2 py-0.5 text-[11px] font-[720] leading-none ${statusStyles[status] || statusStyles.neutral}`}>
       {children}
     </span>
   );
@@ -32,7 +33,7 @@ export function SectionTitle({ title, meta, action }) {
     <div className="mb-2.5 flex min-h-8 items-center justify-between gap-3">
       <div className="min-w-0">
         <h3 className="truncate text-[13px] font-[760] text-[var(--ptg-on-surface)]">{title}</h3>
-        {meta ? <p className="mt-0.5 truncate text-[11.5px] font-[560] text-[var(--ptg-on-surface-variant)]">{meta}</p> : null}
+        {meta ? <p className="mt-0.5 text-[11.5px] font-[560] leading-snug text-[var(--ptg-on-surface-variant)]">{meta}</p> : null}
       </div>
       {action}
     </div>
@@ -45,7 +46,7 @@ export function MetricCard({ icon, label, value }) {
       <span className="row-span-2 inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#eaf8fb] text-[var(--ptg-primary-dark)]">
         <Icon name={icon} className="h-4 w-4" />
       </span>
-      <span className="truncate text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]">{label}</span>
+      <span className="text-[11px] font-[700] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
       <strong className="min-w-0 overflow-hidden text-ellipsis text-[17px] font-[780] leading-tight">{value}</strong>
     </Surface>
   );
@@ -54,7 +55,7 @@ export function MetricCard({ icon, label, value }) {
 export function AppButton({ variant = "outlined", icon, children, className = "", ...props }) {
   const Tag = variant === "filled" ? "md-filled-button" : "md-outlined-button";
   return (
-    <Tag {...props} className={`material-button ${className}`}>
+    <Tag {...props} className={`material-button ${icon ? "material-button-with-icon" : ""} ${className}`}>
       {icon ? <Icon slot="icon" name={icon} className="h-4 w-4" /> : null}
       {children}
     </Tag>
@@ -63,7 +64,7 @@ export function AppButton({ variant = "outlined", icon, children, className = ""
 
 export function IconButton({ icon, label, className = "", ...props }) {
   return (
-    <button aria-label={label} title={label} className={`state-layer inline-flex h-9 w-9 items-center justify-center rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface)] ${className}`} {...props}>
+    <button aria-label={label} title={label} className={`state-layer inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface)] ${className}`} {...props}>
       <Icon name={icon} className="h-4 w-4" />
     </button>
   );
