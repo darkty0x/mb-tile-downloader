@@ -132,6 +132,28 @@ test("configureNetworking rotates across HTTPS proxy list for successive request
   assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://secondary-proxy:8080");
 });
 
+test("configureNetworking blocks http tunnel proxies in the HTTPS rotation bucket", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  const rotation = await configureTestNetworking(
+    profile(),
+    {
+      GEONODE_HTTPS_PROXY_LIST: "http://blocked-proxy:8080, http://good-proxy:8080",
+    },
+    { undici, targetGlobal }
+  );
+
+  rotation.markProxyBlocked("https:", 60_000, "http://blocked-proxy:8080");
+
+  await withDeterministicRandom([0], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  });
+
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://good-proxy:8080");
+});
+
 test("configureNetworking loads proxy list from a proxy API and rotates against it", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };

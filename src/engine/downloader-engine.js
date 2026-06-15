@@ -87,6 +87,10 @@ function esriBlockThreshold(env = process.env) {
   return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_BLOCK_THRESHOLD) ?? 3;
 }
 
+function esriProxyBlockThreshold(env = process.env) {
+  return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_PROXY_BLOCK_THRESHOLD) ?? 1;
+}
+
 function esriCooldownMs(env = process.env) {
   return parsePositiveInt(env.TILE_DOWNLOADER_ESRI_COOLDOWN_MS) ?? 10 * 60 * 1000;
 }
@@ -234,6 +238,7 @@ function createProviderRuntime({
   }
 
   const threshold = esriBlockThreshold(env);
+  const proxyThreshold = esriProxyBlockThreshold(env);
   const cooldownMs = esriCooldownMs(env);
   const windowMs = esriBlockWindowMs(env);
   const proxyBlockMs = esriProxyBlockMs(env);
@@ -306,7 +311,7 @@ function createProviderRuntime({
       }
 
       entry.attempts.push(now);
-      const shouldBanProxy = entry.attempts.length >= threshold;
+      const shouldBanProxy = entry.attempts.length >= proxyThreshold;
       if (!shouldBanProxy) {
         perProxyBlocks.set(key, entry);
         return false;
@@ -315,7 +320,7 @@ function createProviderRuntime({
       const failedAttempts = entry.attempts.length;
       entry.attempts = [];
       entry.blockedUntil = Math.max(entry.blockedUntil || 0, now + proxyBlockMs);
-      if (proxyRotation?.markProxyBlocked) proxyRotation.markProxyBlocked(proxy, proxyBlockMs);
+      if (proxyRotation?.markProxyBlocked) proxyRotation.markProxyBlocked(protocol || proxy, proxyBlockMs, proxy);
       const healthyCandidateProtocol = protocol || proxy;
       const globalBlock = !hasHealthyCandidateFor(healthyCandidateProtocol);
       if (globalBlock) {
@@ -327,7 +332,7 @@ function createProviderRuntime({
         provider: providerName,
         status,
         count: failedAttempts,
-        threshold,
+        threshold: proxyThreshold,
         cooldownMs: globalBlock ? cooldownMs : proxyBlockMs,
       });
       return globalBlock;

@@ -1007,20 +1007,23 @@ function createProxyRotationState(
       }
       return false;
     },
-    markProxyBlocked(protocolOrProxy, blockMs) {
-      const parsedKey = protocolKeyFromCandidate(protocolOrProxy);
+    markProxyBlocked(protocolOrProxy, blockMs, proxyUrl = null) {
+      const candidate = proxyUrl || protocolOrProxy;
+      const parsedKey = proxyUrl
+        ? protocolKey(protocolOrProxy)
+        : protocolKeyFromCandidate(protocolOrProxy);
       const now = Date.now();
       const until = Number.isFinite(blockMs) ? now + blockMs : now;
       const keys = parsedKey ? [parsedKey] : ["http", "https"];
       for (const key of keys) {
-        const keyState = failureState[key].get(protocolOrProxy) || {
+        const keyState = failureState[key].get(candidate) || {
           failures: 0,
           until: 0,
           blockedUntil: 0,
         };
         keyState.blockedUntil = Math.max(keyState.blockedUntil || 0, until);
         keyState.failures = Math.max(keyState.failures, maxConsecutiveFailures);
-        failureState[key].set(protocolOrProxy, keyState);
+        failureState[key].set(candidate, keyState);
       }
       void persist(failureState);
     },

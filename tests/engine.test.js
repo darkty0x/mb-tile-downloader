@@ -657,6 +657,59 @@ test("Esri retries a blocked proxy and continues within tile retry budget", asyn
   db.close();
 });
 
+test("Esri blocks a proxy after the first 403 by default", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const marked = [];
+  const proxyUrl = "https://blocked.proxy.example:8080";
+  const proxyRotation = {
+    markProxyBlocked(protocolOrProxy, ms, proxy = null) {
+      marked.push({ proxy: proxy || protocolOrProxy, protocolOrProxy, ms });
+    },
+    hasHealthyCandidate() {
+      return true;
+    },
+  };
+
+  await withEnv({ TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1" }, async () => {
+    await runDownloadJob({
+      config: {
+        jobName: "esri-proxy-default-block",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+        verifyAfterDownload: false,
+      },
+      stateDb: db,
+      progress: false,
+      rowRecoveryPasses: 0,
+      proxyRotation,
+      fetchImpl: async () => {
+        const response = new Response("blocked", { status: 403 });
+        response[PROXY_INFO_SYMBOL] = {
+          proxy: proxyUrl,
+          protocol: "https:",
+          url: "https://example.test/1/1/1",
+        };
+        return response;
+      },
+    });
+  });
+
+  assert.equal(marked.length, 1);
+  assert.equal(marked[0].proxy, proxyUrl);
+  db.close();
+});
+
 test("Esri 403/429 responses mark the proxy as blocked for configured duration", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -664,8 +717,8 @@ test("Esri 403/429 responses mark the proxy as blocked for configured duration",
   const blockMs = 24 * 60 * 60 * 1000;
   const proxyUrl = "https://blocked.proxy.example:8080";
   const proxyRotation = {
-    markProxyBlocked(proxy, ms) {
-      marked.push({ proxy, ms });
+    markProxyBlocked(protocolOrProxy, ms, proxy = null) {
+      marked.push({ proxy: proxy || protocolOrProxy, protocolOrProxy, ms });
     },
   };
 
