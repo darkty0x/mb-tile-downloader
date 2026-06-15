@@ -1,4 +1,5 @@
 .env
+proxy.txt
 .tile-state
 /configs
 .DS_Store

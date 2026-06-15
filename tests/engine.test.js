@@ -237,6 +237,51 @@ test("token state is persisted when all Mapbox tokens become unusable", async ()
   db.close();
 });
 
+test("persisted unusable Mapbox token state is loaded before downloading", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const seenTokens = [];
+  db.saveMapboxTokenState({
+    tokens: [
+      { token: "bad-token", status: "exhausted", reason: "prior HTTP 403" },
+      { token: "good-token", status: "active", reason: null },
+    ],
+  });
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "token-resume",
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: { extension: "vector.pbf", yScheme: "xyz" },
+      url: { hosts: ["a"], tileset: "mapbox.test" },
+      ranges: [
+        { zoomStart: 6, zoomEnd: 6, xStart: 55, xEnd: 55, yStart: 39, yEnd: 39, label: "one" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1 },
+      verifyAfterDownload: true,
+    },
+    stateDb: db,
+    progress: false,
+    env: { MAPBOX_ACCESS_TOKENS: "bad-token,good-token" },
+    fetchImpl: async (url) => {
+      const token = new URL(url).searchParams.get("access_token");
+      seenTokens.push(token);
+      if (token === "bad-token") return new Response("forbidden", { status: 403 });
+      return new Response("tile");
+    },
+  });
+
+  assert.deepEqual(seenTokens, ["good-token"]);
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesFailed, 0);
+  db.close();
+});
+
 test("Mapbox token rotations do not consume tile retry budget", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -510,7 +555,6 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
   const replacement = Buffer.from("real imagery tile");
   const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
   const marked = [];
-  const runtimeEnv = {};
   let fetches = 0;
   const proxyRotation = {
     markProxyBlocked(protocolOrProxy, ms, proxy = null) {
@@ -542,7 +586,7 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
       stateDb: db,
       progress: false,
       skipVerifyAfterDownload: true,
-      env: runtimeEnv,
+      env: {},
       proxyRotation,
       fetchImpl: async () => {
         fetches++;
@@ -567,7 +611,6 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
   assert.equal(fetches, 2);
   assert.equal(marked.length, 1);
   assert.equal(marked[0].proxy, "https://placeholder.proxy.example:8080");
-  assert.equal(runtimeEnv.TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL, "https://example.test/14/5824/9603");
   const saved = await stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg"));
   assert.equal(saved.size, replacement.length);
 
@@ -616,6 +659,47 @@ test("row recovery retries failed tiles before range verification", async () => 
       assert.equal(fetches, 2);
     }
   );
+
+  db.close();
+});
+
+test("range verification reports final failed tiles once", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  let fetches = 0;
+
+  await withEnv({ TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1" }, async () => {
+    const result = await runDownloadJob({
+      config: {
+        jobName: "verify-failure-count",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+        verifyAfterDownload: true,
+      },
+      stateDb: db,
+      progress: false,
+      rowRecoveryPasses: 0,
+      recoveryBackoffMs: 1,
+      fetchImpl: async () => {
+        fetches++;
+        return new Response("busy", { status: 500 });
+      },
+    });
+
+    assert.equal(result.tilesDownloaded, 0);
+    assert.equal(result.tilesFailed, 1);
+    assert.equal(fetches, 2);
+  });
 
   db.close();
 });
@@ -985,7 +1069,7 @@ test("Esri 403/429 responses mark the proxy as blocked for configured duration",
       assert.equal(marked.length, 1);
       assert.equal(marked[0].proxy, proxyUrl);
       assert.equal(marked[0].ms, blockMs);
-      assert.equal(result.tilesFailed, 2);
+      assert.equal(result.tilesFailed, 1);
       assert.equal(result.tilesDownloaded, 0);
     }
   );
@@ -1060,7 +1144,7 @@ test("path templates cannot escape the configured output directory", async () =>
   db.close();
 });
 
-test("verified ranges are skipped on resume without rechecking files", async () => {
+test("verified range state is rechecked against output files on resume", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   db.markRangeVerified({
@@ -1099,8 +1183,9 @@ test("verified ranges are skipped on resume without rechecking files", async () 
     onRangeVerified: () => verified++,
   });
 
-  assert.equal(result.rangesSkippedVerified, 1);
-  assert.equal(result.rangesVerified, 1);
-  assert.equal(verified, 1);
+  assert.equal(result.rangesSkippedVerified, 0);
+  assert.equal(result.rangesVerified, 2);
+  assert.equal(result.tilesDownloaded, 2);
+  assert.equal(verified, 2);
   db.close();
 });

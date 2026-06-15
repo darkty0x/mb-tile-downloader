@@ -139,11 +139,6 @@ function describeTraceUrl(urlLike) {
   }
 }
 
-function promoteProxyHealthcheckUrl(env, providerName, url) {
-  if (providerName !== "esri" || !env || typeof env !== "object" || !url) return;
-  env.TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL = String(url);
-}
-
 function normalizeProxyProtocol(candidate) {
   if (typeof candidate !== "string") return "";
   const normalized = candidate.trim();
@@ -526,7 +521,6 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
-        promoteProxyHealthcheckUrl(env, provider.name, url);
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
         if (blocked) return "blocked";
         networkAttempt++;
@@ -551,7 +545,6 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
-          promoteProxyHealthcheckUrl(env, provider.name, url);
           if (providerRuntime.noteUnavailable) {
             providerRuntime.noteUnavailable(proxy, protocol);
           }
@@ -755,6 +748,8 @@ async function verifyRange({
   let present = 0;
   let missing = 0;
   let repairedDownloaded = 0;
+  let providerMissing = 0;
+  let failed = 0;
   let rowsDone = 0;
   const rowsTotal = [...iterRows([range])].length;
   const tilesTotal = rowsTotal * (range.yEnd - range.yStart + 1);
@@ -786,6 +781,7 @@ async function verifyRange({
         yEnd: range.yEnd,
         expected: rowExpected,
       };
+      let repairedResult = null;
       if (rowMissing > 0) {
         const repaired = await processRow({
           config,
@@ -808,7 +804,10 @@ async function verifyRange({
           yStart: range.yStart,
           yEnd: range.yEnd,
         });
+        repairedResult = repaired;
         repairedDownloaded += repaired.downloaded;
+        providerMissing += repaired.missing;
+        failed += repaired.failed;
         present -= rowPresent;
         missing -= rowMissing;
         rowPresent = repaired.downloaded + repaired.skippedFiles;
@@ -829,8 +828,8 @@ async function verifyRange({
         stateDb.markRowPartial({
           ...key,
           downloaded: rowPresent,
-          missing: rowMissing,
-          failed: rowMissing,
+          missing: repairedResult?.missing ?? rowMissing,
+          failed: repairedResult?.failed ?? rowMissing,
         });
       }
       rowsDone++;
@@ -843,6 +842,8 @@ async function verifyRange({
     expected,
     present,
     missing,
+    providerMissing,
+    failed,
     repairedDownloaded,
   };
 }
@@ -875,9 +876,11 @@ export async function runDownloadJob({
 
   const provider = createProvider(config);
   const tokens = config.provider === "mapbox" ? loadMapboxTokensFromEnv(env) : [];
+  const savedTokenState =
+    config.provider === "mapbox" ? stateDb.loadMapboxTokenState(tokens) : [];
   const tokenPool =
     config.provider === "mapbox"
-      ? new MapboxTokenPool(tokens)
+      ? new MapboxTokenPool(tokens, savedTokenState)
       : null;
 
   let rowsPlanned = 0;
@@ -923,28 +926,10 @@ export async function runDownloadJob({
       const rangeCount = config.ranges.length;
       const rangeRows = [...iterRows([range])];
       const rangeTiles = rangeRows.reduce((sum, row) => sum + row.yEnd - row.yStart + 1, 0);
-      const rangeKey = {
-        jobName: config.jobName,
-        configHash: config.configHash,
-        layer: config.layer,
-        rangeIndex,
-      };
-      if (!forceVerify && stateDb.shouldSkipRange(rangeKey)) {
-        rangesSkippedVerified++;
-        rowsSkipped += rangeRows.length;
-        tileFilesSkipped += rangeTiles;
-        reporter.rangeStart({
-          rangeIndex,
-          rangeCount,
-          range,
-          rows: rangeRows.length,
-          tiles: rangeTiles,
-        });
-        console.log(`  ↳ range ${rangeIndex}/${rangeCount} already verified; skipping`);
-        continue;
-      }
       let rangeRowsDone = 0;
       let rangeTilesDone = 0;
+      let rangeTilesMissing = 0;
+      let rangeTilesFailed = 0;
       reporter.rangeStart({
         rangeIndex,
         rangeCount,
@@ -985,6 +970,8 @@ export async function runDownloadJob({
             tileFilesSkipped += result.skippedFiles;
             tilesMissing += result.missing;
             tilesFailed += result.failed;
+            rangeTilesMissing += result.missing;
+            rangeTilesFailed += result.failed;
             rangeRowsDone++;
             rangeTilesDone += result.expected;
             reporter.rowDone({
@@ -1033,6 +1020,8 @@ export async function runDownloadJob({
         });
         rangesVerified++;
         tilesDownloaded += verified.repairedDownloaded;
+        tilesMissing = Math.max(0, tilesMissing - rangeTilesMissing + verified.providerMissing);
+        tilesFailed = Math.max(0, tilesFailed - rangeTilesFailed + verified.failed);
         stateDb.markRangeVerified({
           jobName: config.jobName,
           configHash: config.configHash,
@@ -1043,7 +1032,6 @@ export async function runDownloadJob({
           present: verified.present,
           missing: verified.missing,
         });
-        if (verified.missing > 0) tilesFailed += verified.missing;
         if (onRangeVerified) onRangeVerified(verified);
         reporter.rangeVerified({ rangeIndex, rangeCount, verified });
       }

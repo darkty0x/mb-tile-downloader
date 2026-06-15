@@ -7,8 +7,6 @@ import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
-import { proxyHealthcheckUrlForConfig } from "../src/runtime/proxy-healthcheck-target.js";
-
 const execFileAsync = promisify(execFile);
 
 function esriConfig(pathName) {
@@ -78,9 +76,7 @@ test("downloader dry-run skips proxy discovery", async () => {
       timeout: 3_000,
       env: {
         ...process.env,
-        GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
-        GEONODE_HTTPS_PROXY_LIST: "http://127.0.0.1:9",
-        TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "5000",
+        TILE_DOWNLOADER_PROXY_LIST: "http://127.0.0.1:9",
       },
     }
   );
@@ -105,16 +101,13 @@ test("downloader --no-proxy skips proxy discovery without requiring a healthy pr
       timeout: 5_000,
       env: {
         ...process.env,
-        GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
-        TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "100",
+        TILE_DOWNLOADER_PROXY_LIST: "http://127.0.0.1:9",
       },
     }
   );
 
-  assert.ok(stdout.includes("Proxy pickup: disabled (--no-proxy)"), stdout);
-  assert.equal(stdout.includes("Proxy pickup: enabled"), false);
-  assert.equal(stdout.includes("proxy-api-page-start"), false);
-  assert.equal(stdout.includes("healthcheck-start"), false);
+  assert.ok(stdout.includes("Proxy: disabled (--no-proxy)"), stdout);
+  assert.equal(stdout.includes("Proxy: enabled from env"), false);
   assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
 });
 
@@ -135,68 +128,30 @@ test("downloader accepts deprecated --proxy-trace as a compatibility no-op", asy
   assert.ok(stdout.includes("Mode: dry-run"), stdout);
 });
 
-test("downloader refuses to start Esri download when no healthy proxy is found", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-no-proxy-"));
+test("downloader enables paid proxy list from environment", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-env-proxy-"));
+  const outputDir = path.join(dir, "download");
+  const tilePath = path.join(outputDir, "esri-satellite", "1", "0", "0.jpg");
   const configPath = path.join(dir, "esri.config.json");
-  await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
+  await mkdir(path.dirname(tilePath), { recursive: true });
+  await writeFile(tilePath, "jpg");
+  await writeFile(configPath, JSON.stringify(esriConfig(outputDir)));
 
-  await assert.rejects(
-    async () => execFileAsync(
-      process.execPath,
-      ["downloader.js", configPath],
-      {
-        cwd: process.cwd(),
-        timeout: 5_000,
-        env: {
-          ...process.env,
-          GEONODE_PROXY_LIST_URL: "http://127.0.0.1:9/proxies",
-          GEONODE_PROXY_LIST_CACHE_PATH: path.join(dir, "proxy-list-cache.json"),
-          GEONODE_PROXY_BLACKLIST_PATH: path.join(dir, "proxy-blacklist.json"),
-          TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS: "100",
-        },
-      }
-    ),
-    (error) => {
-      const output = `${error.stdout || ""}\n${error.stderr || ""}`;
-      assert.match(output, /No healthy proxy candidates|Proxy setup did not produce a healthy proxy/);
-      assert.equal(output.includes("Mode: download/resume"), false);
-      assert.equal(output.includes("▶ Range"), false);
-      return true;
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", configPath, "--validate"],
+    {
+      cwd: process.cwd(),
+      timeout: 5_000,
+      env: {
+        ...process.env,
+        TILE_DOWNLOADER_PROXY_LIST: "http://127.0.0.1:9,http://127.0.0.2:9",
+      },
     }
   );
-});
 
-test("proxy healthcheck target prefers an existing Esri unavailable tile over an earlier missing tile", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-healthcheck-target-"));
-  const placeholder = Buffer.from("unavailable placeholder");
-  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const unavailablePath = path.join(dir, "esri-satellite", "2", "1", "1.jpg");
-  await mkdir(path.dirname(unavailablePath), { recursive: true });
-  await writeFile(unavailablePath, placeholder);
-
-  const url = await proxyHealthcheckUrlForConfig({
-    provider: "esri",
-    layer: "esri-satellite",
-    format: "jpg",
-    url: {
-      template:
-        "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    },
-    tile: {
-      extension: "jpg",
-      unavailableTileSha256: placeholderHash,
-    },
-    output: {
-      dir,
-      pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
-    },
-    ranges: [{ zoomStart: 2, zoomEnd: 2, xStart: 1, xEnd: 1, yStart: 0, yEnd: 2 }],
-  });
-
-  assert.equal(
-    url,
-    "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/2/1/1"
-  );
+  assert.ok(stdout.includes("Proxy: enabled from env"), stdout);
+  assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
 });
 
 test("delete-unavailable removes Esri unavailable placeholder files and keeps valid imagery", async () => {

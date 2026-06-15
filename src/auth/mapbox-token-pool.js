@@ -23,17 +23,25 @@ export function loadMapboxTokensFromEnv(env = process.env) {
 }
 
 export class MapboxTokenPool {
-  constructor(tokens) {
+  constructor(tokens, savedState = []) {
     if (!Array.isArray(tokens) || tokens.length === 0) {
       throw new Error(
         "MAPBOX_ACCESS_TOKENS is required for Mapbox downloads; provide one or more tokens"
       );
     }
 
+    const savedByToken = new Map(
+      (Array.isArray(savedState) ? savedState : [])
+        .filter((record) => record && typeof record.token === "string")
+        .map((record) => [record.token, record])
+    );
+    const unusableStatuses = new Set(["invalid", "exhausted"]);
     this.tokens = tokens.map((token) => ({
       token,
-      status: "active",
-      reason: null,
+      status: unusableStatuses.has(savedByToken.get(token)?.status)
+        ? savedByToken.get(token).status
+        : "active",
+      reason: savedByToken.get(token)?.reason || null,
     }));
     this.index = 0;
     this.#advanceToUsable();

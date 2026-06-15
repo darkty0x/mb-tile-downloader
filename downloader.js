@@ -9,25 +9,12 @@ import { loadConfig } from "./src/config/config-loader.js";
 import { splitConfigByRows } from "./src/config/config-splitter.js";
 import { runDownloadJob } from "./src/engine/downloader-engine.js";
 import { createProvider } from "./src/providers/index.js";
-import {
-  proxyHealthcheckUrlForConfig,
-} from "./src/runtime/proxy-healthcheck-target.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_MAX_OLD_SPACE_MB = 8192;
-const PROXY_RUNTIME_PROXY_ENV_KEYS = new Set([
-  "HTTP_PROXY",
-  "HTTPS_PROXY",
-  "http_proxy",
-  "https_proxy",
-  "ALL_PROXY",
-  "all_proxy",
-  "NO_PROXY",
-  "no_proxy",
-]);
 
 function parsePositiveInt(value, label) {
   const parsed = Number.parseInt(String(value), 10);
@@ -100,14 +87,6 @@ function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   }
 }
 
-function stripProcessProxyEnv(env = process.env) {
-  const sanitized = { ...env };
-  for (const key of PROXY_RUNTIME_PROXY_ENV_KEYS) {
-    delete sanitized[key];
-  }
-  return sanitized;
-}
-
 function printUsage(exitCode = 0) {
   console.log(`
 Production tile downloader
@@ -119,6 +98,14 @@ Usage:
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js delete-unavailable <configPath...>
   node downloader.js clear-token-state [--state-db path-or-dir]
+
+Proxy:
+  proxy.txt in the project root is used automatically when no explicit proxy list env is set.
+  Optional overrides:
+    TILE_DOWNLOADER_PROXY_LIST=http://user:pass@host1:port,http://user:pass@host2:port
+    TILE_DOWNLOADER_PROXY_LIST_FILE=/path/to/proxies.txt
+    TILE_DOWNLOADER_PROXY_USERNAME=... and TILE_DOWNLOADER_PROXY_PASSWORD=... for host:port files without auth
+    TILE_DOWNLOADER_HTTP_PROXY_LIST=... and TILE_DOWNLOADER_HTTPS_PROXY_LIST=... for protocol-specific lists
 
 Examples:
   node downloader.js configs/mapbox-pbf.config.json
@@ -241,7 +228,7 @@ function parseArgs(argv) {
     else if (arg === "--esri-fast") opts.esriFastMode = true;
     else if (arg === "--no-proxy") opts.noProxy = true;
     else if (arg === "--proxy-trace") {
-      // Deprecated compatibility no-op. Proxy pickup logs are automatic for Esri health checks.
+      // Deprecated compatibility no-op. Proxy use is reported automatically.
     }
     else if (arg === "--max-concurrent-requests") {
       opts.maxConcurrentRequests = parsePositiveInt(args[++i], "--max-concurrent-requests");
@@ -379,30 +366,14 @@ async function runOneConfig(configPath, opts) {
   const config = await loadConfig(configPath, { env: configEnv });
   const stateDbPath = stateDbPathFor(config, opts);
   const stateDb = new TileStateDb(stateDbPath);
-  const proxyHealthcheckUrl =
-    opts.dryRun || opts.noProxy ? "" : await proxyHealthcheckUrlForConfig(config);
 
   try {
     const proxyRuntimeEnv = opts.dryRun
       ? null
-      : {
-          ...stripProcessProxyEnv(process.env),
-          ...(proxyHealthcheckUrl && !opts.noProxy
-            ? { TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: proxyHealthcheckUrl }
-            : null),
-        };
+      : process.env;
     const proxyRotation = opts.dryRun || opts.noProxy
       ? null
       : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
-    if (
-      !opts.dryRun &&
-      !opts.noProxy &&
-      proxyHealthcheckUrl &&
-      proxyRuntimeEnv?.TILE_DOWNLOADER_PROXY_REQUIRED !== "0" &&
-      !proxyRotation
-    ) {
-      throw new Error("Proxy setup did not produce a healthy proxy; refusing to start download");
-    }
     console.log("");
     console.log(`Config: ${config.configPath}`);
     console.log(`Job: ${config.jobName}`);
@@ -410,15 +381,16 @@ async function runOneConfig(configPath, opts) {
     console.log(`Platform: ${config.platformProfile.os}`);
     console.log(`Output: ${config.output.dir}`);
     console.log(`State DB: ${stateDbPath}`);
-    if (!opts.dryRun && proxyHealthcheckUrl) {
-      console.log("Proxy pickup: enabled");
-      console.log(`Proxy healthcheck: ${proxyHealthcheckUrl}`);
+    if (!opts.dryRun && proxyRotation) {
+      console.log("Proxy: enabled from env");
     } else if (opts.noProxy) {
-      console.log("Proxy pickup: disabled (--no-proxy)");
+      console.log("Proxy: disabled (--no-proxy)");
+    } else if (!opts.dryRun) {
+      console.log("Proxy: disabled (no env proxy list)");
     }
-      console.log(
-        `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
-      );
+    console.log(
+      `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
+    );
     if (config.platformProfile.wasConcurrencyCapped) {
       console.log(
         `Concurrency capped from ${config.platformProfile.requestedConcurrency} to ${config.platformProfile.maxConcurrentRequests} for ${config.platformProfile.os}`

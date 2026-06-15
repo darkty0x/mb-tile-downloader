@@ -47,27 +47,27 @@ test("marks the token that failed, not whichever token is current later", () => 
   );
 });
 
-test("ignores persisted state if it says every current token is unusable", () => {
+test("uses persisted state when every current token is unusable", () => {
   const pool = new MapboxTokenPool(["token-a", "token-b"], [
     { token: "token-a", status: "invalid", reason: "old failed run" },
     { token: "token-b", status: "exhausted", reason: "old failed run" },
   ]);
 
-  assert.equal(pool.current(), "token-a");
+  assert.throws(() => pool.current(), /All Mapbox access tokens are unusable/);
   assert.deepEqual(
     pool.snapshot().tokens.map((record) => record.status),
-    ["active", "active"]
+    ["invalid", "exhausted"]
   );
 });
 
-test("starts current env tokens as active even if persisted state is partially stale", () => {
+test("uses persisted state when only some current tokens are unusable", () => {
   const pool = new MapboxTokenPool(["token-a", "token-b"], [
     { token: "token-a", status: "invalid", reason: "old failed run" },
   ]);
 
-  assert.equal(pool.current(), "token-a");
+  assert.equal(pool.current(), "token-b");
   assert.deepEqual(
     pool.snapshot().tokens.map((record) => record.status),
-    ["active", "active"]
+    ["invalid", "active"]
   );
 });

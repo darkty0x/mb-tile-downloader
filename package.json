@@ -6,6 +6,7 @@
   "type": "module",
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.js",
+    "test:smoke": "node --test --test-concurrency=1 tests/cli-smoke.test.js",
     "download": "node scripts/watchdog.js -- node downloader.js",
     "validate": "node downloader.js --validate",
     "download:mapbox-pbf": "node scripts/watchdog.js -- node downloader.js configs/mapbox-pbf.config.json",

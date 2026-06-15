@@ -1,72 +1,39 @@
 import dns from "node:dns";
+import { readFileSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { promises as fsp } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const ORIGINAL_FETCH = Symbol.for("tile-downloader.original-fetch");
 const WRAPPED_FETCH = Symbol.for("tile-downloader.wrapped-fetch");
+const MODULE_DIR = path.dirname(fileURLToPath(import.meta.url));
+const DEFAULT_PROXY_FILE = path.resolve(MODULE_DIR, "..", "..", "proxy.txt");
 
+const DEFAULT_PROXY_FAILURE_BLOCK_MS = 5 * 60 * 1000;
 const PROXY_LIST_ENV_KEYS = {
-  HTTP: ["GEONODE_HTTP_PROXY_LIST", "GEONODE_PROXY_LIST", "HTTP_PROXY_LIST", "HTTPS_PROXY_LIST"],
-  HTTPS: ["GEONODE_HTTPS_PROXY_LIST", "GEONODE_PROXY_LIST", "HTTPS_PROXY_LIST", "HTTP_PROXY_LIST"],
+  ALL: ["TILE_DOWNLOADER_PROXY_LIST", "PROXY_LIST"],
+  HTTP: ["TILE_DOWNLOADER_HTTP_PROXY_LIST", "HTTP_PROXY_LIST"],
+  HTTPS: ["TILE_DOWNLOADER_HTTPS_PROXY_LIST", "HTTPS_PROXY_LIST"],
 };
+const PROXY_LIST_FILE_ENV_KEYS = {
+  ALL: ["TILE_DOWNLOADER_PROXY_LIST_FILE", "PROXY_LIST_FILE"],
+  HTTP: ["TILE_DOWNLOADER_HTTP_PROXY_LIST_FILE", "HTTP_PROXY_LIST_FILE"],
+  HTTPS: ["TILE_DOWNLOADER_HTTPS_PROXY_LIST_FILE", "HTTPS_PROXY_LIST_FILE"],
+};
+const PROXY_AUTH_ENV_KEYS = {
+  USERNAME: ["TILE_DOWNLOADER_PROXY_USERNAME", "PROXY_USERNAME", "PROXYSCRAPE_PROXY_USERNAME"],
+  PASSWORD: ["TILE_DOWNLOADER_PROXY_PASSWORD", "PROXY_PASSWORD", "PROXYSCRAPE_PROXY_PASSWORD"],
+};
+
 export const PROXY_INFO_SYMBOL = Symbol.for("tile-downloader.proxy-info");
 
 export class NoHealthyProxyError extends Error {
-  constructor(message = "No healthy proxy candidates passed the target health check") {
+  constructor(message = "No paid proxy is available for the request") {
     super(message);
     this.name = "NoHealthyProxyError";
     this.code = "NO_HEALTHY_PROXY";
   }
 }
-
-const PROXY_SOURCE_ENV_KEYS = {
-  URL: ["GEONODE_PROXY_LIST_URL", "TILE_DOWNLOADER_PROXY_LIST_URL", "PROXY_LIST_URL"],
-  CACHE_PATH: [
-    "GEONODE_PROXY_LIST_CACHE_PATH",
-    "TILE_DOWNLOADER_PROXY_LIST_CACHE_PATH",
-    "PROXY_LIST_CACHE_PATH",
-  ],
-  TTL_MS: ["GEONODE_PROXY_LIST_TTL_MS", "TILE_DOWNLOADER_PROXY_LIST_TTL_MS", "PROXY_LIST_TTL_MS"],
-  RESPONSE_TIME_MS: [
-    "GEONODE_PROXY_MAX_RESPONSE_TIME_MS",
-    "TILE_DOWNLOADER_PROXY_MAX_RESPONSE_TIME_MS",
-    "PROXY_MAX_RESPONSE_TIME_MS",
-  ],
-  BLACKLIST_PATH: [
-    "GEONODE_PROXY_BLACKLIST_PATH",
-    "TILE_DOWNLOADER_PROXY_BLACKLIST_PATH",
-    "PROXY_BLACKLIST_PATH",
-  ],
-};
-
-const DEFAULT_PROXY_LIST_CACHE_PATH = path.resolve(process.cwd(), ".tile-state", "proxy-list-cache.json");
-const DEFAULT_PROXY_BLACKLIST_PATH = path.resolve(
-  process.cwd(),
-  ".tile-state",
-  "proxy-blacklist.json"
-);
-const DEFAULT_PROXY_LIST_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_PROXY_MAX_RESPONSE_TIME_MS = null;
-const DEFAULT_PROXY_LIST_MAX_PAGES = 50;
-const DEFAULT_PROXY_FAILURE_BLOCK_MS = 24 * 60 * 60 * 1000;
-const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
-const DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS = 5_000;
-const DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES = 500;
-const DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY = 64;
-const DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT = 1;
-const DEFAULT_GEONODE_PROXY_LIST_URL =
-  "https://proxylist.geonode.com/api/proxy-list?limit=500&page=1&sort_by=lastChecked&sort_type=desc";
-const DEFAULT_PROXY_LIST_URL =
-  "https://api.proxyscrape.com/v2/?request=getproxies&protocol=http&timeout=10000&country=all&ssl=all&anonymity=all";
-const DEFAULT_PROXY_LIST_URLS = [
-  DEFAULT_PROXY_LIST_URL,
-  "https://raw.githubusercontent.com/TheSpeedX/PROXY-List/master/http.txt",
-  "https://raw.githubusercontent.com/monosans/proxy-list/main/proxies/http.txt",
-  "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/http/data.txt",
-  "https://raw.githubusercontent.com/proxifly/free-proxy-list/main/proxies/protocols/https/data.txt",
-  DEFAULT_GEONODE_PROXY_LIST_URL,
-];
 
 const PLATFORM_LIMITS = {
   linux: {
@@ -110,23 +77,6 @@ function parsePositiveInt(value) {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
 }
 
-function parseNonNegativeInt(value) {
-  if (typeof value === "string") {
-    value = value.trim();
-    if (!value) return null;
-  }
-  const parsed = Number(value);
-  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
-}
-
-function firstDefinedEnv(env, lowerKey, upperKey) {
-  const lower = env?.[lowerKey];
-  if (typeof lower === "string" && lower.trim()) return lower.trim();
-  const upper = env?.[upperKey];
-  if (typeof upper === "string" && upper.trim()) return upper.trim();
-  return "";
-}
-
 function resolveAnyEnv(env, keys) {
   for (const key of keys) {
     const value = env?.[key];
@@ -135,920 +85,152 @@ function resolveAnyEnv(env, keys) {
   return "";
 }
 
-function hasAnyEnv(env, keys) {
-  return keys.some((key) => {
-    const value = env?.[key];
-    return typeof value === "string" && Boolean(value.trim());
-  });
+function proxyAuthFromEnv(env = process.env) {
+  return {
+    username: resolveAnyEnv(env, PROXY_AUTH_ENV_KEYS.USERNAME),
+    password: resolveAnyEnv(env, PROXY_AUTH_ENV_KEYS.PASSWORD),
+  };
 }
 
-function normalizeProxyListSourceUrl(sourceUrl) {
-  if (!sourceUrl) return "";
+function readProxyListFile(env, keys) {
+  const filePath = resolveAnyEnv(env, keys);
+  if (!filePath) return "";
   try {
-    const url = new URL(sourceUrl);
-    if (
-      url.hostname === "proxylist.geonode.com" &&
-      url.pathname.replace(/\/+$/, "") === "/api/proxy-list"
-    ) {
-      url.searchParams.delete("protocols");
-      const limit = parsePositiveInteger(url.searchParams.get("limit")) || 0;
-      if (limit < 500) url.searchParams.set("limit", "500");
-      if (!url.searchParams.get("page")) url.searchParams.set("page", "1");
-      if (!url.searchParams.get("sort_by")) url.searchParams.set("sort_by", "lastChecked");
-      if (!url.searchParams.get("sort_type")) url.searchParams.set("sort_type", "desc");
-    }
-    return url.toString();
-  } catch {
-    return sourceUrl;
+    return readFileSync(filePath, "utf8");
+  } catch (error) {
+    const wrapped = new Error(`Unable to read proxy list file: ${filePath}`);
+    wrapped.code = "PROXY_CONFIG_ERROR";
+    wrapped.cause = error;
+    throw wrapped;
   }
 }
 
-function isGeonodeProxyListSourceUrl(sourceUrl) {
-  if (!sourceUrl) return false;
+function readDefaultProxyFile(filePath) {
+  if (!filePath) return "";
   try {
-    const url = new URL(normalizeProxyListSourceUrl(sourceUrl));
-    return (
-      url.hostname === "proxylist.geonode.com" &&
-      url.pathname.replace(/\/+$/, "") === "/api/proxy-list"
-    );
-  } catch {
-    return false;
+    return readFileSync(filePath, "utf8");
+  } catch (error) {
+    if (error?.code === "ENOENT") return "";
+    const wrapped = new Error(`Unable to read default proxy file: ${filePath}`);
+    wrapped.code = "PROXY_CONFIG_ERROR";
+    wrapped.cause = error;
+    throw wrapped;
   }
 }
 
-function resolveProxyListSourceUrl(env = process.env) {
-  return resolveProxyListSourceUrls(env)[0] || "";
-}
-
-function resolveProxyListSourceUrls(env = process.env) {
-  const explicit = resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.URL);
-  const explicitSources = explicit
-    ? explicit.split(/[\n,]+/).map((item) => item.trim()).filter(Boolean)
-    : [];
-  const nonLegacyExplicitSources = explicitSources.filter(
-    (source) => !isGeonodeProxyListSourceUrl(source)
-  );
-  const rawSources = nonLegacyExplicitSources.length
-    ? nonLegacyExplicitSources
-    : DEFAULT_PROXY_LIST_URLS;
+function parseProxyList(value, auth = {}) {
+  if (typeof value !== "string") return [];
+  const parsed = value
+    .split(/[,\n]+/)
+    .map((entry) => normalizeProxyEntry(entry, auth))
+    .filter(Boolean);
   const seen = new Set();
-  const sources = [];
-  for (const source of rawSources) {
-    const normalized = normalizeProxyListSourceUrl(source);
-    if (!normalized) continue;
-    const key = normalized.toLowerCase();
+  const deduped = [];
+  for (const proxy of parsed) {
+    const key = proxy.toLowerCase();
     if (seen.has(key)) continue;
     seen.add(key);
-    sources.push(normalized);
+    deduped.push(proxy);
   }
-  return sources;
+  return deduped;
 }
 
-function resolveProxyBlacklistPath(env = process.env) {
+function normalizeProxyEntry(candidate, auth = {}) {
+  const raw = String(candidate || "").trim();
+  if (!raw) return "";
+  const withProtocol = raw.includes("://") ? raw : `http://${raw}`;
+  try {
+    const parsed = new URL(withProtocol);
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
+    if (!parsed.hostname || !parsed.port) return "";
+    const username = parsed.username || auth.username || "";
+    const password = parsed.password || (username ? auth.password : "");
+    const authPart = username
+      ? `${username}${password ? `:${password}` : ""}@`
+      : "";
+    return `${parsed.protocol}//${authPart}${parsed.host}`;
+  } catch {
+    return "";
+  }
+}
+
+function parseProxyFailureBlockMs(env = process.env) {
   return (
-    resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.BLACKLIST_PATH) || DEFAULT_PROXY_BLACKLIST_PATH
+    parsePositiveInt(
+      resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_FAILURE_BLOCK_MS", "PROXY_FAILURE_BLOCK_MS"])
+    ) || DEFAULT_PROXY_FAILURE_BLOCK_MS
   );
+}
+
+function protocolKey(protocol) {
+  return protocol === "https:" ? "https" : "http";
 }
 
 function protocolKeyFromCandidate(candidate) {
   if (candidate === "https:" || candidate === "https") return "https";
   if (candidate === "http:" || candidate === "http") return "http";
   try {
-    const parsed = new URL(candidate);
-    return parsed.protocol === "https:" ? "https" : "http";
+    return protocolKey(new URL(String(candidate)).protocol);
   } catch {
     return null;
   }
 }
 
-function buildPersistedProxyBlacklistPayload(failureState, now = Date.now()) {
-  const proxies = [];
-  for (const [protocol, entries] of Object.entries(failureState)) {
-    for (const [proxy, entry] of entries) {
-      if (!entry || !(entry.blockedUntil > now)) continue;
-      const failures = Number.isFinite(entry.failures) ? Math.max(0, entry.failures | 0) : 0;
-      const until = Number.isFinite(entry.until) ? entry.until : 0;
-      proxies.push({
-        proxy,
-        protocol,
-        blockedUntil: entry.blockedUntil,
-        failures,
-        until,
-      });
-    }
-  }
-
-  return {
-    version: 1,
-    updatedAt: now,
-    proxies,
-  };
+export function resolveProxyEnvironment(env = process.env, options = {}) {
+  return resolveProxyEnvironmentWithOptions(env, options);
 }
 
-async function loadPersistedProxyBlacklist(env = process.env, now = Date.now()) {
-  const blacklistPath = resolveProxyBlacklistPath(env);
-  try {
-    const raw = await fsp.readFile(blacklistPath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return { http: [], https: [] };
-    const result = { http: [], https: [] };
-    if (!Array.isArray(parsed.proxies)) return result;
-
-    for (const entry of parsed.proxies) {
-      if (!entry || typeof entry !== "object") continue;
-      const proxy = typeof entry.proxy === "string" ? entry.proxy.trim() : "";
-      if (!proxy) continue;
-      const blockedUntil = Number(entry.blockedUntil);
-      if (!Number.isFinite(blockedUntil) || blockedUntil <= now) continue;
-      const protocol = protocolKeyFromCandidate(entry.protocol || proxy);
-      if (!protocol || !["http", "https"].includes(protocol)) continue;
-      const failures = Number.isFinite(Number(entry.failures)) ? Number(entry.failures) : 0;
-      const until = Number.isFinite(Number(entry.until)) ? Number(entry.until) : 0;
-      result[protocol].push({ proxy, failures, until, blockedUntil });
-    }
-    return result;
-  } catch {
-    return { http: [], https: [] };
-  }
-}
-
-async function writePersistedProxyBlacklist(env = process.env, failureState) {
-  const blacklistPath = resolveProxyBlacklistPath(env);
-  if (!blacklistPath) return;
-  try {
-    await fsp.mkdir(path.dirname(blacklistPath), { recursive: true });
-    const payload = buildPersistedProxyBlacklistPayload(failureState);
-    await fsp.writeFile(blacklistPath, JSON.stringify(payload), "utf8");
-  } catch {
-    // Shared blacklist writes should not prevent downloads.
-  }
-}
-
-function parseProxyList(value) {
-  if (typeof value !== "string") return [];
-  const parsed = value
-    .split(/[\n,]/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  const deduped = [];
-  const seen = new Set();
-  for (const item of parsed) {
-    const lower = item.toLowerCase();
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-    deduped.push(item);
-  }
-  return deduped;
-}
-
-function parseProxyTextCandidates(value) {
-  if (typeof value !== "string") return [];
-  const parsed = value
-    .split(/[\s,]+/)
-    .map((entry) => entry.trim())
-    .filter(Boolean);
-
-  const deduped = [];
-  const seen = new Set();
-  for (const item of parsed) {
-    const normalized = normalizeProxyEntry(item);
-    if (!normalized) continue;
-    let parsedUrl;
-    try {
-      parsedUrl = new URL(normalized);
-    } catch {
-      continue;
-    }
-    if (!parsedUrl.hostname || !parsedUrl.port) continue;
-    const lower = normalized.toLowerCase();
-    if (seen.has(lower)) continue;
-    seen.add(lower);
-    deduped.push(normalized);
-  }
-  return deduped;
-}
-
-function toBlockedProxySet(persisted = { http: [], https: [] }) {
-  const blocked = { http: new Set(), https: new Set() };
-  for (const key of ["http", "https"]) {
-    const entries = Array.isArray(persisted?.[key]) ? persisted[key] : [];
-    for (const entry of entries) {
-      const proxy = normalizeProxyEntry(typeof entry === "string" ? entry : entry?.proxy);
-      if (!proxy) continue;
-      blocked[key].add(proxy.toLowerCase());
-    }
-  }
-  return blocked;
-}
-
-function filterBlockedProxies(splitProxies, blocked = { http: new Set(), https: new Set() }) {
-  const blockedHttp = blocked.http instanceof Set ? blocked.http : new Set();
-  const blockedHttps = blocked.https instanceof Set ? blocked.https : new Set();
-  return {
-    http: (splitProxies?.http || []).filter((proxy) => !blockedHttp.has(String(proxy).toLowerCase())),
-    https: (splitProxies?.https || []).filter((proxy) => !blockedHttps.has(String(proxy).toLowerCase())),
-  };
-}
-
-function mergeBlockedProxySets(...sets) {
-  const merged = { http: new Set(), https: new Set() };
-  for (const set of sets) {
-    for (const key of ["http", "https"]) {
-      const values = set?.[key] instanceof Set ? set[key] : new Set();
-      for (const value of values) merged[key].add(value);
-    }
-  }
-  return merged;
-}
-
-function mergeProxyLists(primary = [], fallback = []) {
-  const merged = [...primary, ...fallback];
-  const seen = new Set();
-  const deduped = [];
-  for (const item of merged) {
-    const normalized = normalizeProxyEntry(item);
-    if (!normalized) continue;
-    const key = normalized.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    deduped.push(normalized);
-  }
-  return deduped;
-}
-
-function includeHttpTunnelProxiesForHttps(splitProxies) {
-  const http = mergeProxyLists(splitProxies?.http || []);
-  const https = mergeProxyLists(splitProxies?.https || [], http);
-  return { http, https };
-}
-
-function hasProxyCandidates(splitProxies) {
-  return (splitProxies?.http?.length || 0) > 0 || (splitProxies?.https?.length || 0) > 0;
-}
-
-async function validateProxySplit(splitProxies, options = {}) {
-  if (typeof options.validateSplit !== "function") return splitProxies;
-  return options.validateSplit(splitProxies);
-}
-
-function normalizeProxyEntry(candidate, fallbackProtocol = "http") {
-  if (typeof candidate === "string") {
-    const raw = candidate.trim();
-    if (!raw) return "";
-    const maybeUrl = raw.includes("://") ? raw : `${fallbackProtocol}://${raw}`;
-    try {
-      const parsed = new URL(maybeUrl);
-      if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return "";
-      return `${parsed.protocol}//${parsed.host}`;
-    } catch {
-      return "";
-    }
-  }
-
-  if (!candidate || typeof candidate !== "object") return "";
-
-  if (typeof candidate.proxy === "string") return normalizeProxyEntry(candidate.proxy);
-  if (typeof candidate.url === "string") return normalizeProxyEntry(candidate.url);
-  if (typeof candidate.endpoint === "string") return normalizeProxyEntry(candidate.endpoint);
-  if (typeof candidate.server === "string") return normalizeProxyEntry(candidate.server);
-
-  const ip = candidate.ip || candidate.host;
-  const port = candidate.port || candidate.proxyPort;
-  if (ip && port) {
-    const protocolFromField = normalizeProtocolFromMetadata(candidate);
-    if (!protocolFromField) return "";
-    return normalizeProxyEntry(`${protocolFromField}://${ip}:${port}`, protocolFromField);
-  }
-
-  return "";
-}
-
-function normalizeProtocolFromMetadata(candidate) {
-  const protocol = typeof candidate.protocol === "string" ? candidate.protocol.toLowerCase() : "";
-  if (protocol === "https" || protocol === "http") return protocol;
-  if (protocol) return "";
-
-  if (typeof candidate.https === "boolean") return candidate.https ? "https" : "http";
-  if (typeof candidate.http === "boolean") return candidate.http ? "http" : "https";
-
-  if (Array.isArray(candidate.protocols)) {
-    if (candidate.protocols.some((item) => String(item).toLowerCase() === "https")) return "https";
-    if (candidate.protocols.some((item) => String(item).toLowerCase() === "http")) return "http";
-    if (candidate.protocols.length > 0) return "";
-  }
-
-  return "http";
-}
-
-function parseResponseTimeMs(candidate) {
-  if (!candidate || typeof candidate !== "object") return null;
-  const candidates = [
-    "latency",
-    "responseTime",
-    "responseTimeMs",
-    "responseTime_ms",
-    "response_time",
-    "response_time_ms",
-    "responseTimeInMs",
-    "latency",
-    "latency_ms",
-    "responseTimeMicros",
-    "averageResponseTime",
-    "average_response_time",
+function hasExplicitProxySource(env = process.env) {
+  const groups = [
+    ...Object.values(PROXY_LIST_ENV_KEYS),
+    ...Object.values(PROXY_LIST_FILE_ENV_KEYS),
   ];
-  for (const key of candidates) {
-    const value = candidate[key];
-    if (value === undefined || value === null || value === "") continue;
-    const parsed = Number.parseFloat(String(value).replace(/[^0-9.]/g, ""));
-    if (Number.isFinite(parsed) && parsed >= 0) return parsed;
-  }
-  return null;
+  return groups.some((keys) => Boolean(resolveAnyEnv(env, keys)));
 }
 
-function parseProxyFailureBlockMs(env = process.env) {
-  return (
-    parsePositiveInt(resolveAnyEnv(env, [
-      "TILE_DOWNLOADER_PROXY_FAILURE_BLOCK_MS",
-      "TILE_DOWNLOADER_ESRI_PROXY_BLOCK_MS",
-      "PROXY_FAILURE_BLOCK_MS",
-      "PROXY_BLOCK_MS",
-    ])) || DEFAULT_PROXY_FAILURE_BLOCK_MS
-  );
-}
-
-function parseProxyFailureThreshold(env = process.env) {
-  return (
-    parsePositiveInt(resolveAnyEnv(env, [
-      "TILE_DOWNLOADER_PROXY_FAILURE_THRESHOLD",
-      "PROXY_FAILURE_THRESHOLD",
-    ])) || DEFAULT_PROXY_FAILURE_THRESHOLD
-  );
-}
-
-function parseProxyMaxResponseTimeMs(env = process.env) {
-  return (
-    parsePositiveInt(resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.RESPONSE_TIME_MS)) ??
-    DEFAULT_PROXY_MAX_RESPONSE_TIME_MS
-  );
-}
-
-function resolveMachineIdentifier(env = process.env) {
-  const keys = [
-    "MACHINE_NAME",
-    "TILE_MACHINE_NAME",
-    "CONFIG_NAME",
-    "NAME",
-    "HOSTNAME",
-    "COMPUTERNAME",
+function resolveProxyEnvironmentWithOptions(env = process.env, options = {}) {
+  const auth = proxyAuthFromEnv(env);
+  const defaultProxyFilePath =
+    Object.prototype.hasOwnProperty.call(options, "defaultProxyFilePath") &&
+    options.defaultProxyFilePath !== undefined
+      ? options.defaultProxyFilePath
+      : DEFAULT_PROXY_FILE;
+  const defaultProxyList = hasExplicitProxySource(env)
+    ? []
+    : parseProxyList(readDefaultProxyFile(defaultProxyFilePath), auth);
+  const all = [
+    ...defaultProxyList,
+    ...parseProxyList(resolveAnyEnv(env, PROXY_LIST_ENV_KEYS.ALL), auth),
+    ...parseProxyList(readProxyListFile(env, PROXY_LIST_FILE_ENV_KEYS.ALL), auth),
   ];
-  for (const key of keys) {
-    const value = env?.[key];
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (!trimmed) continue;
-    const first = trimmed.split(",")[0]?.trim();
-    if (first) return first;
-  }
-  return "";
-}
-
-function isInvalidProxyFailure(error) {
-  if (!error || typeof error !== "object") return false;
-  const code = String(error.code || error.cause?.code || "").toUpperCase();
-  const knownCodes = new Set([
-    "ENOTFOUND",
-    "ECONNREFUSED",
-    "ECONNRESET",
-    "EHOSTUNREACH",
-    "ENETUNREACH",
-    "EAI_AGAIN",
-    "ETIMEDOUT",
-    "UND_ERR_CONNECT_TIMEOUT",
-    "UND_ERR_CONNECT",
-    "UND_ERR_HEADERS_TIMEOUT",
-    "UND_ERR_NETWORK",
-  ]);
-  if (knownCodes.has(code)) return true;
-
-  const message = String(error.message || "").toLowerCase();
-  return [
-    "enotfound",
-    "econnrefused",
-    "econnreset",
-    "enetwork",
-    "bad proxy",
-    "socket hang up",
-    "connect etimedout",
-    "connection refused",
-  ].some((needle) => message.includes(needle));
-}
-
-function shouldUseLatencyFilteredCandidate(
-  candidate,
-  maxResponseTimeMs = DEFAULT_PROXY_MAX_RESPONSE_TIME_MS
-) {
-  if (!Number.isFinite(maxResponseTimeMs) || maxResponseTimeMs <= 0) return true;
-  const parsedMs = parseResponseTimeMs(candidate);
-  if (parsedMs === null) return true;
-  return parsedMs < maxResponseTimeMs;
-}
-
-function parsePositiveInteger(value) {
-  const parsed = Number.parseInt(String(value), 10);
-  return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseFirstPositiveIntFromPayload(payload, names) {
-  for (const name of names) {
-    const value = parsePositiveInteger(payload?.[name]);
-    if (value !== null) return value;
-  }
-  return null;
-}
-
-function buildProxyPageUrl(sourceUrl, page) {
-  try {
-    const url = new URL(sourceUrl);
-    url.searchParams.set("page", String(page));
-    return url.toString();
-  } catch {
-    const separator = sourceUrl.includes("?") ? "&" : "?";
-    return `${sourceUrl}${separator}page=${page}`;
-  }
-}
-
-function parseNextPageHint(payload, currentPage, defaultLimitHint) {
-  if (!payload || typeof payload !== "object") return null;
-
-  const boolHint = String(payload.hasMore).toLowerCase();
-  if (boolHint === "true") return currentPage + 1;
-  if (boolHint === "false") return null;
-  const underscoreHint = String(payload.has_more).toLowerCase();
-  if (underscoreHint === "true") return currentPage + 1;
-  if (underscoreHint === "false") return null;
-
-  const directNext = parseFirstPositiveIntFromPayload(payload, ["nextPage", "next_page"]);
-  if (directNext !== null) return directNext;
-
-  const pagination = payload.pagination;
-  if (pagination && typeof pagination === "object") {
-    const paginationPage = parseFirstPositiveIntFromPayload(pagination, [
-      "page",
-      "currentPage",
-      "current_page",
-      "current",
-      "pageNo",
-      "page_no",
-    ]);
-    const totalPages = parseFirstPositiveIntFromPayload(pagination, [
-      "pageCount",
-      "page_count",
-      "pages",
-      "totalPages",
-      "total_pages",
-    ]);
-    if (paginationPage !== null && totalPages !== null && paginationPage < totalPages) return paginationPage + 1;
-    if (pagination.hasMore === true || pagination.has_more === true) return currentPage + 1;
-  }
-
-  const page = parseFirstPositiveIntFromPayload(payload, [
-    "page",
-    "currentPage",
-    "current_page",
-    "current",
-    "pageNo",
-    "page_no",
-  ]);
-  const pageCount = parseFirstPositiveIntFromPayload(payload, [
-    "pageCount",
-    "page_count",
-    "pages",
-    "totalPages",
-    "total_pages",
-  ]);
-  if (page !== null && pageCount !== null && page < pageCount) return page + 1;
-
-  const total = parseFirstPositiveIntFromPayload(payload, [
-    "total",
-    "total_results",
-    "totalResults",
-    "results",
-    "count",
-    "total_count",
-  ]);
-  const limit = parseFirstPositiveIntFromPayload(payload, ["limit", "pageSize", "page_size"]) ?? defaultLimitHint;
-  if (page !== null && limit !== null && total !== null && total > page * limit) return page + 1;
-
-  if (pagination && typeof pagination?.next === "string") {
-    try {
-      return parsePositiveInteger(new URL(pagination.next).searchParams.get("page"));
-    } catch {
-      return null;
-    }
-  }
-
-  return null;
-}
-
-function attachProxyInfo(target, info) {
-  if (!target || typeof target !== "object") return;
-  try {
-    target[PROXY_INFO_SYMBOL] = info;
-  } catch {
-    // Metadata assignment is best-effort.
-  }
-}
-
-function gatherProxyCandidatesFromPayload(payload, out) {
-  if (!out) out = [];
-  if (!payload) return out;
-
-  if (typeof payload === "string") {
-    out.push(payload);
-    return out;
-  }
-
-  if (!Array.isArray(payload) && typeof payload !== "object") {
-    return out;
-  }
-
-  if (Array.isArray(payload)) {
-    for (const item of payload) gatherProxyCandidatesFromPayload(item, out);
-    return out;
-  }
-
-  const arrayKeys = ["data", "results", "proxies", "proxyList", "proxy_list", "items"];
-  for (const key of arrayKeys) {
-    if (Array.isArray(payload[key])) {
-      gatherProxyCandidatesFromPayload(payload[key], out);
-    }
-  }
-
-  if (typeof payload.proxy === "string" || typeof payload.url === "string" || typeof payload.endpoint === "string") {
-    out.push(payload);
-  } else if ((payload.ip || payload.host) && (payload.port || payload.proxyPort)) {
-    out.push(payload);
-  }
-  if (Array.isArray(payload.http)) {
-    gatherProxyCandidatesFromPayload(payload.http, out);
-  }
-  if (Array.isArray(payload.https)) {
-    gatherProxyCandidatesFromPayload(payload.https, out);
-  }
-
-  return out;
-}
-
-function splitNormalizedProxiesByProtocol(candidates) {
-  const buckets = { http: [], https: [] };
-  for (const candidate of candidates) {
-    const parsed = normalizeProxyEntry(candidate);
-    if (!parsed) continue;
-    try {
-      const protocol = new URL(parsed).protocol;
-      if (protocol === "https:") buckets.https.push(parsed);
-      else buckets.http.push(parsed);
-    } catch {
-      // ignored
-    }
-  }
-  return buckets;
-}
-
-async function readCachedProxyList(env) {
-  const cachePath =
-    resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.CACHE_PATH) || DEFAULT_PROXY_LIST_CACHE_PATH;
-  const sourceUrls = resolveProxyListSourceUrls(env);
-  if (!cachePath || sourceUrls.length === 0) return [];
-  try {
-    const raw = await fsp.readFile(cachePath, "utf8");
-    const parsed = JSON.parse(raw);
-    if (!parsed || typeof parsed !== "object") return [];
-    const knownSources = new Set(sourceUrls);
-    if (Array.isArray(parsed.sourceUrls)) {
-      if (!parsed.sourceUrls.some((sourceUrl) => knownSources.has(sourceUrl))) return [];
-    } else if (parsed.sourceUrl && !knownSources.has(parsed.sourceUrl)) {
-      return [];
-    }
-    const expiresAt = Number(parsed.expiresAt);
-    if (!Number.isFinite(expiresAt) || Date.now() > expiresAt) return [];
-    let rawCandidates = [];
-    if (Array.isArray(parsed.proxies)) {
-      rawCandidates = parsed.proxies;
-    } else if (parsed.proxies && typeof parsed.proxies === "object") {
-      const cachedBuckets = [];
-      if (Array.isArray(parsed.proxies.http)) cachedBuckets.push(...parsed.proxies.http);
-      if (Array.isArray(parsed.proxies.https)) cachedBuckets.push(...parsed.proxies.https);
-      if (Array.isArray(parsed.proxies.proxies)) cachedBuckets.push(...parsed.proxies.proxies);
-      if (Array.isArray(parsed.proxies.data)) cachedBuckets.push(...parsed.proxies.data);
-      rawCandidates = cachedBuckets;
-    }
-
-    const candidates = gatherProxyCandidatesFromPayload(rawCandidates);
-    const candidateList = candidates
-      .map((candidate) => normalizeProxyEntry(candidate))
-      .filter(Boolean);
-    const split = splitNormalizedProxiesByProtocol(candidateList);
-    return split;
-  } catch {
-    return [];
-  }
-}
-
-async function writeCachedProxyList(env, splitProxies, sourceUrl = resolveProxyListSourceUrl(env)) {
-  const cachePath = resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.CACHE_PATH) || DEFAULT_PROXY_LIST_CACHE_PATH;
-  if (!cachePath) return;
-  if (!sourceUrl) return;
-  const ttlMs =
-    parseNonNegativeInt(resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.TTL_MS)) ??
-    DEFAULT_PROXY_LIST_TTL_MS;
-  const expiresAt = Date.now() + ttlMs;
-  try {
-    const payload = {
-      version: 1,
-      sourceUrl,
-      sourceUrls: resolveProxyListSourceUrls(env),
-      fetchedAt: Date.now(),
-      expiresAt,
-      proxies: {
-        http: splitProxies.http,
-        https: splitProxies.https,
-      },
-    };
-    await fsp.mkdir(path.dirname(cachePath), { recursive: true });
-    await fsp.writeFile(cachePath, JSON.stringify(payload), "utf8");
-  } catch {
-    // cache write failure should not block downloads
-  }
-}
-
-function parseProxyCandidatesFromResponseBody(body, contentType) {
-  const trimmedBody = String(body || "").trim();
-  if (!trimmedBody) return { parsedBody: null, rawCandidates: [] };
-  const normalizedContentType = String(contentType || "").toLowerCase();
-  const looksJson =
-    normalizedContentType.includes("json") ||
-    trimmedBody.startsWith("{") ||
-    trimmedBody.startsWith("[");
-
-  if (!looksJson) {
-    return { parsedBody: null, rawCandidates: parseProxyTextCandidates(trimmedBody) };
-  }
-
-  const parsedBody = JSON.parse(trimmedBody);
-  return {
-    parsedBody,
-    rawCandidates: gatherProxyCandidatesFromPayload(parsedBody),
+  const http = [
+    ...all,
+    ...parseProxyList(resolveAnyEnv(env, PROXY_LIST_ENV_KEYS.HTTP), auth),
+    ...parseProxyList(readProxyListFile(env, PROXY_LIST_FILE_ENV_KEYS.HTTP), auth),
+  ];
+  const https = [
+    ...all,
+    ...parseProxyList(resolveAnyEnv(env, PROXY_LIST_ENV_KEYS.HTTPS), auth),
+    ...parseProxyList(readProxyListFile(env, PROXY_LIST_FILE_ENV_KEYS.HTTPS), auth),
+  ];
+  const dedupe = (items) => {
+    const seen = new Set();
+    return items.filter((item) => {
+      const key = item.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
   };
-}
 
-async function loadProxyListFromApi(env, fetchImpl, options = {}) {
-  const sourceUrls = resolveProxyListSourceUrls(env);
-  if (sourceUrls.length === 0 || !fetchImpl) return null;
-  const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) ?? DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
-  const blockedProxySet =
-    options.blockedProxySet ||
-    toBlockedProxySet(options.persistedProxyBlacklist);
-  const maxPages = parsePositiveInteger(
-    resolveAnyEnv(env, [
-      "GEONODE_PROXY_LIST_MAX_PAGES",
-      "TILE_DOWNLOADER_PROXY_LIST_MAX_PAGES",
-      "PROXY_LIST_MAX_PAGES",
-    ])
-  ) ?? DEFAULT_PROXY_LIST_MAX_PAGES;
-
-  for (const sourceUrl of sourceUrls) {
-    const basePage = (() => {
-      try {
-        return parsePositiveInteger(new URL(sourceUrl).searchParams.get("page")) || 1;
-      } catch {
-        return 1;
-      }
-    })();
-    const baseLimit = (() => {
-      try {
-        return parsePositiveInteger(new URL(sourceUrl).searchParams.get("limit"));
-      } catch {
-        return null;
-      }
-    })();
-
-    try {
-    const visitedPages = new Set();
-    let page = basePage;
-    for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
-      if (visitedPages.has(page)) break;
-      visitedPages.add(page);
-
-      const requestUrl = page === basePage ? sourceUrl : buildProxyPageUrl(sourceUrl, page);
-      proxyTrace(env, "proxy-api-page-start", {
-        page,
-        maxPages,
-        url: describeProxyTraceUrl(requestUrl),
-      });
-      const response = await fetchImpl(requestUrl);
-      if (!response || typeof response.ok !== "boolean" || !response.ok) {
-        proxyTrace(env, "proxy-api-page-error", {
-          page,
-          status: response?.status || "no-response",
-        });
-        break;
-      }
-      const body = await response.text();
-      const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
-      let parsedBody;
-      let rawCandidates;
-      try {
-        const parsed = parseProxyCandidatesFromResponseBody(body, contentType);
-        parsedBody = parsed.parsedBody;
-        rawCandidates = parsed.rawCandidates;
-      } catch {
-        proxyTrace(env, "proxy-api-page-error", { page, reason: "invalid-json" });
-        break;
-      }
-
-      const latencyFilteredCandidates = rawCandidates
-        .filter((candidate) => shouldUseLatencyFilteredCandidate(candidate, maxResponseTimeMs));
-      const candidates = latencyFilteredCandidates
-        .sort((a, b) => {
-          const aMs = parseResponseTimeMs(a);
-          const bMs = parseResponseTimeMs(b);
-          const normalizedA = aMs === null ? Number.MAX_SAFE_INTEGER : aMs;
-          const normalizedB = bMs === null ? Number.MAX_SAFE_INTEGER : bMs;
-          return normalizedA - normalizedB;
-        })
-        .map((candidate) => normalizeProxyEntry(candidate))
-        .filter(Boolean);
-      const split = includeHttpTunnelProxiesForHttps(splitNormalizedProxiesByProtocol(candidates));
-      const filteredSplit = filterBlockedProxies(split, blockedProxySet);
-      proxyTrace(env, "proxy-api-page-candidates", {
-        page,
-        raw: rawCandidates.length,
-        afterLatency: latencyFilteredCandidates.length,
-        http: filteredSplit.http.length,
-        https: filteredSplit.https.length,
-      });
-      const validatedSplit = await validateProxySplit(filteredSplit, options);
-      if (hasProxyCandidates(validatedSplit)) {
-        proxyTrace(env, "proxy-api-page-healthy", {
-          page,
-          http: validatedSplit.http.length,
-          https: validatedSplit.https.length,
-        });
-        await writeCachedProxyList(env, validatedSplit, sourceUrl);
-        return validatedSplit;
-      }
-
-      const nextPage = parsedBody ? parseNextPageHint(parsedBody, page, baseLimit) : null;
-      proxyTrace(env, "proxy-api-page-no-healthy", {
-        page,
-        nextPage: nextPage || "none",
-      });
-      if (!nextPage) break;
-      page = nextPage;
-    }
-    } catch (error) {
-    proxyTrace(env, "proxy-api-error", {
-      code: error?.code || error?.cause?.code || "error",
-      message: error?.message || String(error),
-    });
-    }
-  }
-  proxyTrace(env, "proxy-api-exhausted", { maxPages });
-  return null;
-}
-
-async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fetchImpl, options = {}) {
-  const sourceUrl = resolveProxyListSourceUrl(env);
-  if (!sourceUrl) return proxyEnv;
-
-  const maxResponseTimeMs = parseProxyMaxResponseTimeMs(env);
-
-  const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
-  const blockedProxySet = mergeBlockedProxySets(
-    toBlockedProxySet(persistedProxyBlacklist),
-    options.blockedProxySet
-  );
-  const explicitRawSplit = includeHttpTunnelProxiesForHttps({
-    http: Array.isArray(proxyEnv?.httpProxyList) ? proxyEnv.httpProxyList : [],
-    https: Array.isArray(proxyEnv?.httpsProxyList) ? proxyEnv.httpsProxyList : [],
-  });
-  const explicitFilteredSplit = filterBlockedProxies(explicitRawSplit, blockedProxySet);
-  proxyTrace(env, "proxy-source-candidates", {
-    source: "configured",
-    http: explicitFilteredSplit.http.length,
-    https: explicitFilteredSplit.https.length,
-  });
-  const explicitProxySplit = await validateProxySplit(explicitFilteredSplit, options);
-  if (hasProxyCandidates(explicitProxySplit)) {
-    proxyTrace(env, "proxy-source-healthy", {
-      source: "configured",
-      http: explicitProxySplit.http.length,
-      https: explicitProxySplit.https.length,
-    });
-    return {
-      ...proxyEnv,
-      httpProxyList: explicitProxySplit.http,
-      httpsProxyList: explicitProxySplit.https,
-      httpProxy: explicitProxySplit.http[0] || "",
-      httpsProxy: explicitProxySplit.https[0] || "",
-    };
-  }
-  proxyTrace(env, "proxy-source-no-healthy", { source: "configured" });
-
-  const cached = await readCachedProxyList(env);
-  const cachedRawSplit = includeHttpTunnelProxiesForHttps({
-    http: Array.isArray(cached?.http) ? cached.http : [],
-    https: Array.isArray(cached?.https) ? cached.https : [],
-  });
-  const cachedFilteredSplit = filterBlockedProxies(cachedRawSplit, blockedProxySet);
-  proxyTrace(env, "proxy-source-candidates", {
-    source: "cache",
-    http: cachedFilteredSplit.http.length,
-    https: cachedFilteredSplit.https.length,
-  });
-  const filteredCached = await validateProxySplit(cachedFilteredSplit, options);
-  if (hasProxyCandidates(filteredCached)) {
-    proxyTrace(env, "proxy-source-healthy", {
-      source: "cache",
-      http: filteredCached.http.length,
-      https: filteredCached.https.length,
-    });
-    return {
-      ...proxyEnv,
-      httpProxyList: filteredCached.http,
-      httpsProxyList: filteredCached.https,
-      httpProxy: filteredCached.http[0] || "",
-      httpsProxy: filteredCached.https[0] || "",
-    };
-  }
-  proxyTrace(env, "proxy-source-no-healthy", { source: "cache" });
-
-  const apiSplit = await loadProxyListFromApi(env, fetchImpl, {
-    maxResponseTimeMs,
-    blockedProxySet,
-    validateSplit: options.validateSplit,
-  });
-  const split = apiSplit || await validateProxySplit(filterBlockedProxies(
-    includeHttpTunnelProxiesForHttps(await readCachedProxyList(env)),
-    blockedProxySet
-  ), options);
-  const splitHttp = Array.isArray(split?.http) ? split.http : [];
-  const splitHttps = Array.isArray(split?.https) ? split.https : [];
-
-  if (splitHttp.length === 0 && splitHttps.length === 0) {
-    if (options.requireHealthyProxy) {
-      throw new NoHealthyProxyError(
-        "No healthy proxy candidates were found after checking configured, cached, and API proxy sources"
-      );
-    }
-    return proxyEnv;
-  }
-
+  const httpProxyList = dedupe(http);
+  const httpsProxyList = dedupe(https);
   return {
-    ...proxyEnv,
-    httpProxyList: splitHttp,
-    httpsProxyList: splitHttps,
-    httpProxy: splitHttp[0] || "",
-    httpsProxy: splitHttps[0] || "",
-  };
-}
-
-function resolveProxyListFromEnv(env, keys) {
-  for (const key of keys) {
-    const value = env?.[key];
-    if (typeof value === "string" && value.trim()) return parseProxyList(value);
-  }
-  return [];
-}
-
-function providerConcurrencyCap(provider, env = process.env) {
-  const genericCap = parsePositiveInt(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS);
-  if (provider !== "esri") return genericCap;
-
-  const esriCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY);
-  return esriCap ?? genericCap ?? 64;
-}
-
-function providerRowsCap(provider, env = process.env) {
-  const envRowsForEsri =
-    parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_ROWS_IN_FLIGHT) ??
-    parsePositiveInt(env.TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT);
-  if (provider !== "esri") return parsePositiveInt(env.TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT);
-  return envRowsForEsri;
-}
-
-export function resolveProxyEnvironment(env = process.env) {
-  const explicitHttpProxyList = resolveProxyListFromEnv(env, PROXY_LIST_ENV_KEYS.HTTP);
-  const explicitHttpsProxyList = resolveProxyListFromEnv(env, PROXY_LIST_ENV_KEYS.HTTPS);
-
-  return {
-    httpProxy: explicitHttpProxyList[0] || "",
-    httpsProxy: explicitHttpsProxyList[0] || "",
-    httpProxyList: explicitHttpProxyList,
-    httpsProxyList: explicitHttpsProxyList,
-    noProxy: "",
+    httpProxy: httpProxyList[0] || "",
+    httpsProxy: httpsProxyList[0] || "",
+    httpProxyList,
+    httpsProxyList,
+    noProxy: resolveAnyEnv(env, ["NO_PROXY", "no_proxy"]),
   };
 }
 
@@ -1107,507 +289,81 @@ function buildAgentOptions(profile) {
 
 function buildProxyDispatcher(undici, proxyUrl, agentOptions, proxyEnv, protocol) {
   if (!proxyUrl) return null;
-  if (protocol === "https:") {
-    return new undici.EnvHttpProxyAgent({
-      ...agentOptions,
-      httpsProxy: proxyUrl,
-      noProxy: proxyEnv.noProxy || undefined,
-    });
-  }
+  const key = protocolKey(protocol);
+  const proxyOption = key === "https" ? { httpsProxy: proxyUrl } : { httpProxy: proxyUrl };
   return new undici.EnvHttpProxyAgent({
     ...agentOptions,
-    httpProxy: proxyUrl,
+    ...proxyOption,
     noProxy: proxyEnv.noProxy || undefined,
   });
 }
 
-function resolveProxyHealthcheckUrl(env = process.env) {
-  return resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL",
-    "GEONODE_PROXY_HEALTHCHECK_URL",
-    "PROXY_HEALTHCHECK_URL",
-  ]);
-}
-
-function proxyHealthcheckTimeoutMs(env = process.env) {
-  return parsePositiveInt(resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_TIMEOUT_MS",
-    "GEONODE_PROXY_HEALTHCHECK_TIMEOUT_MS",
-    "PROXY_HEALTHCHECK_TIMEOUT_MS",
-  ])) ?? DEFAULT_PROXY_HEALTHCHECK_TIMEOUT_MS;
-}
-
-function proxyHealthcheckMaxCandidates(env = process.env) {
-  return parsePositiveInt(resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_MAX_CANDIDATES",
-    "GEONODE_PROXY_HEALTHCHECK_MAX_CANDIDATES",
-    "PROXY_HEALTHCHECK_MAX_CANDIDATES",
-  ])) ?? DEFAULT_PROXY_HEALTHCHECK_MAX_CANDIDATES;
-}
-
-function proxyHealthcheckConcurrency(env = process.env) {
-  return parsePositiveInt(resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_CONCURRENCY",
-    "GEONODE_PROXY_HEALTHCHECK_CONCURRENCY",
-    "PROXY_HEALTHCHECK_CONCURRENCY",
-  ])) ?? DEFAULT_PROXY_HEALTHCHECK_CONCURRENCY;
-}
-
-function proxyHealthcheckTargetCount(env = process.env) {
-  return parsePositiveInt(resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_HEALTHCHECK_TARGET_COUNT",
-    "GEONODE_PROXY_HEALTHCHECK_TARGET_COUNT",
-    "PROXY_HEALTHCHECK_TARGET_COUNT",
-  ])) ?? DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT;
-}
-
-function isTruthyEnv(value) {
-  return ["1", "true", "yes", "on"].includes(String(value || "").trim().toLowerCase());
-}
-
-function proxyTraceEnabled(env = process.env) {
-  const explicitTrace = resolveAnyEnv(env, [
-    "TILE_DOWNLOADER_PROXY_TRACE",
-    "GEONODE_PROXY_TRACE",
-    "PROXY_TRACE",
-  ]);
-  if (explicitTrace) return isTruthyEnv(explicitTrace);
-  if (env?.PROXY_DEBUG || process.env.PROXY_DEBUG) {
-    return isTruthyEnv(env?.PROXY_DEBUG) || isTruthyEnv(process.env.PROXY_DEBUG);
-  }
-  return Boolean(resolveProxyHealthcheckUrl(env));
-}
-
-function describeProxyTraceUrl(urlLike) {
+function attachProxyInfo(target, info) {
+  if (!target || typeof target !== "object") return;
   try {
-    const url = new URL(String(urlLike));
-    return `${url.protocol}//${url.host}${url.pathname}`;
+    target[PROXY_INFO_SYMBOL] = info;
   } catch {
-    return String(urlLike || "").split("?")[0];
+    // Metadata assignment is best-effort.
   }
 }
 
-function proxyTrace(env, event, fields = {}) {
-  if (!proxyTraceEnabled(env)) return;
-  const requestEvents = new Set([
-    "request",
-    "response",
-    "request-error",
-    "request-bypass",
-    "rotate-stick",
-  ]);
-  if (requestEvents.has(event)) return;
-  const suffix = Object.entries(fields)
-    .filter(([, value]) => value !== undefined && value !== null && value !== "")
-    .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
-    .join(" ");
-  console.log(`proxy-trace: ${event}${suffix ? ` ${suffix}` : ""}`);
-}
-
-function proxyRequired(env = process.env) {
-  return !["0", "false", "no", "off"].includes(
-    String(env?.TILE_DOWNLOADER_PROXY_REQUIRED ?? "1").trim().toLowerCase()
-  );
-}
-
-function isProxyHealthcheckResponseOk(response) {
-  if (!response || !response.ok) return false;
-  const contentType = String(response.headers?.get?.("content-type") || "").toLowerCase();
-  return contentType.startsWith("image/") || contentType === "application/octet-stream";
-}
-
-async function filterProxyListByHealthcheck({
-  undici,
-  protocol,
-  proxies,
-  agentOptions,
-  proxyEnv,
-  healthcheckUrl,
-  timeoutMs,
-  maxCandidates,
-  concurrency,
-  targetCount,
-  env = process.env,
-}) {
-  if (!healthcheckUrl || !Array.isArray(proxies) || proxies.length === 0) return proxies || [];
-
-  const candidates = proxies.slice(0, maxCandidates);
-  const healthyCandidates = [];
-  const healthySeen = new Set();
-  let nextIndex = 0;
-  let stopped = false;
-  const wantedHealthy = Math.max(1, targetCount || DEFAULT_PROXY_HEALTHCHECK_TARGET_COUNT);
-  const stopController = new AbortController();
-
-  function buildHealthcheckSignal() {
-    const timeoutSignal = AbortSignal.timeout(timeoutMs);
-    if (typeof AbortSignal.any === "function") {
-      return AbortSignal.any([timeoutSignal, stopController.signal]);
-    }
-    return timeoutSignal;
-  }
-
-  async function checkCandidate(index) {
-    if (stopped) return;
-    const proxy = candidates[index];
-    const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
-    if (!dispatcher) return;
-    proxyTrace(env, "healthcheck-start", {
-      protocol,
-      proxy,
-      url: describeProxyTraceUrl(healthcheckUrl),
-    });
-    try {
-      const response = await undici.fetch(healthcheckUrl, {
-        dispatcher,
-        signal: buildHealthcheckSignal(),
-        headers: {
-          "user-agent": "Mozilla/5.0 (compatible; tile-downloader/1.0; +https://www.arcgis.com)",
-          accept: "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8",
-        },
-      });
-      const healthy = isProxyHealthcheckResponseOk(response);
-      proxyTrace(env, healthy ? "healthcheck-ok" : "healthcheck-fail", {
-        protocol,
-        proxy,
-        status: response.status,
-        contentType: response.headers?.get?.("content-type") || "unknown",
-      });
-      await response.body?.cancel?.().catch?.(() => {});
-      if (healthy && !stopped && !healthySeen.has(proxy)) {
-        healthySeen.add(proxy);
-        healthyCandidates.push(proxy);
-        if (healthyCandidates.length >= wantedHealthy) {
-          stopped = true;
-          stopController.abort("healthy proxy found");
-        }
-      }
-    } catch (error) {
-      if (stopped) return;
-      proxyTrace(env, "healthcheck-error", {
-        protocol,
-        proxy,
-        code: error?.code || error?.cause?.code || "error",
-        message: error?.message || String(error),
-      });
-      // Candidate failed the real target check; skip it.
-    }
-  }
-
-  const workerCount = Math.min(Math.max(1, concurrency || 1), candidates.length);
-  await Promise.all(
-    Array.from({ length: workerCount }, async () => {
-      while (!stopped && nextIndex < candidates.length) {
-        const index = nextIndex++;
-        await checkCandidate(index);
-      }
-    })
-  );
-
-  proxyTrace(env, "healthcheck-summary", {
-    protocol,
-    candidates: candidates.length,
-    healthy: healthyCandidates.length,
-    timeoutMs,
-    concurrency: workerCount,
-    target: wantedHealthy,
-    stopped: healthyCandidates.length >= wantedHealthy,
-  });
-  return healthyCandidates;
-}
-
-async function filterProxyEnvironmentByHealthcheck({
-  undici,
-  proxyEnv,
-  agentOptions,
-  env,
-}) {
-  const healthcheckUrl = resolveProxyHealthcheckUrl(env);
-  if (!healthcheckUrl) return proxyEnv;
-  const timeoutMs = proxyHealthcheckTimeoutMs(env);
-  const maxCandidates = proxyHealthcheckMaxCandidates(env);
-  const concurrency = proxyHealthcheckConcurrency(env);
-  const targetCount = proxyHealthcheckTargetCount(env);
-  const healthcheckProtocol = (() => {
-    try {
-      return new URL(healthcheckUrl).protocol;
-    } catch {
-      return "https:";
-    }
-  })();
-
-  const httpsProxyList = await filterProxyListByHealthcheck({
-    undici,
-    protocol: healthcheckProtocol === "http:" ? "http:" : "https:",
-    proxies: proxyEnv.httpsProxyList,
-    agentOptions,
-    proxyEnv,
-    healthcheckUrl,
-    timeoutMs,
-    maxCandidates,
-    concurrency,
-    targetCount,
-    env,
-  });
-  const httpProxyList =
-    healthcheckProtocol === "http:"
-      ? httpsProxyList
-      : (proxyEnv.httpProxyList || []).filter(
-          (proxy) => httpsProxyList.includes(proxy)
-        );
-
-  return {
-    ...proxyEnv,
-    httpProxyList,
-    httpsProxyList,
-    httpProxy: httpProxyList[0] || "",
-    httpsProxy: httpsProxyList[0] || "",
-  };
-}
-
-function createProxyRotationState(
-  proxyEnv,
-  persisted = { http: [], https: [] },
-  persist = () => {},
-  failureBlockMs = DEFAULT_PROXY_FAILURE_BLOCK_MS,
-  env = process.env
-) {
-  const failureState = { http: new Map(), https: new Map() };
-  const now = Date.now();
-  for (const key of ["http", "https"]) {
-    const list = Array.isArray(persisted?.[key]) ? persisted[key] : [];
-    for (const entry of list) {
-      if (!entry || typeof entry !== "object") continue;
-      const proxy = typeof entry.proxy === "string" ? entry.proxy.trim() : "";
-      const blockedUntil = Number(entry.blockedUntil);
-      if (!proxy || !Number.isFinite(blockedUntil) || blockedUntil <= now) continue;
-      failureState[key].set(proxy, {
-        failures: Number.isFinite(Number(entry.failures)) ? Math.max(0, Math.floor(entry.failures)) : 0,
-        until: Number.isFinite(Number(entry.until)) ? entry.until : 0,
-        blockedUntil,
-      });
-    }
-  }
-  const maxConsecutiveFailures = parseProxyFailureThreshold(env);
-  const failureWindowMs = 5 * 60_000;
-  const normalizedFailureBlockMs = Math.max(1, parsePositiveInt(failureBlockMs) || DEFAULT_PROXY_FAILURE_BLOCK_MS);
-  const traceEnabled = proxyTraceEnabled(env);
-  let currentProxyEnv = proxyEnv;
-  const activeProxyByProtocol = { http: null, https: null };
-
-  function protocolKey(protocol) {
-    return protocol === "https:" ? "https" : "http";
-  }
+function createProxyRotationState(proxyEnv, env = process.env) {
+  const blockedUntil = { http: new Map(), https: new Map() };
+  const nextIndex = { http: 0, https: 0 };
+  const failureBlockMs = parseProxyFailureBlockMs(env);
 
   function candidatesByProtocol(protocol) {
     return protocolKey(protocol) === "https"
-      ? currentProxyEnv.httpsProxyList || []
-      : currentProxyEnv.httpProxyList || [];
+      ? proxyEnv.httpsProxyList || []
+      : proxyEnv.httpProxyList || [];
   }
 
-  function isFailureWindowActive(entry) {
-    return entry && entry.until > Date.now();
+  function isBlocked(key, proxy) {
+    const until = blockedUntil[key].get(proxy) || 0;
+    if (until > Date.now()) return true;
+    if (until) blockedUntil[key].delete(proxy);
+    return false;
   }
 
-  function isHealthyCandidate(candidate, key) {
-    const entry = failureState[key].get(candidate);
-    if (!entry) return true;
-    const now = Date.now();
-    if (entry.blockedUntil && entry.blockedUntil > now) return false;
-    if (entry.failures >= maxConsecutiveFailures && isFailureWindowActive(entry)) return false;
-    return true;
-  }
-
-  function cleanupFailures(key) {
-    const now = Date.now();
-    for (const [candidate, entry] of failureState[key]) {
-      if (
-        (!entry.blockedUntil || entry.blockedUntil <= now) &&
-        (!entry.until || entry.until <= now)
-      ) {
-        failureState[key].delete(candidate);
-      }
-    }
-  }
-
-  function pickProxy(protocol, proxyEnv) {
+  function pickProxy(protocol) {
     const key = protocolKey(protocol);
     const candidates = candidatesByProtocol(protocol);
-    const activeProxy = activeProxyByProtocol[key];
-    if (activeProxy && candidates.includes(activeProxy) && isHealthyCandidate(activeProxy, key)) {
-      proxyTrace(env, "rotate-stick", {
-        protocol,
-        proxy: activeProxy,
-        total: candidates.length,
-      });
-      return activeProxy;
-    }
-    activeProxyByProtocol[key] = null;
+    if (candidates.length === 0) return null;
 
-    if (candidates.length === 0) {
-      proxyTrace(env, "rotate-none", { protocol, reason: "no-candidates" });
-      return null;
-    }
-
-    cleanupFailures(key);
-
-    const randomOffset = Math.floor(Math.random() * candidates.length);
-    let index = randomOffset;
-    if (Number.isNaN(index) || index < 0) index = 0;
-    let blocked = 0;
+    const start = nextIndex[key] % candidates.length;
     for (let offset = 0; offset < candidates.length; offset++) {
-      const candidateIndex = (index + offset) % candidates.length;
-      const candidate = candidates[candidateIndex];
-      if (isHealthyCandidate(candidate, key)) {
-        activeProxyByProtocol[key] = candidate;
-        proxyTrace(env, "rotate-pick", {
-          protocol,
-          proxy: candidate,
-          offset,
-          total: candidates.length,
-          blocked,
-        });
-        return candidate;
-      }
-      blocked++;
+      const index = (start + offset) % candidates.length;
+      const proxy = candidates[index];
+      if (isBlocked(key, proxy)) continue;
+      nextIndex[key] = (index + 1) % candidates.length;
+      return proxy;
     }
-    proxyTrace(env, "rotate-none", {
-      protocol,
-      reason: "all-blocked",
-      total: candidates.length,
-      blocked,
-    });
     return null;
   }
 
-  if (traceEnabled) {
-    proxyTrace(env, "rotation-ready", {
-      http: proxyEnv.httpProxyList?.length || 0,
-      https: proxyEnv.httpsProxyList?.length || 0,
-      failureThreshold: maxConsecutiveFailures,
-      blockMs: normalizedFailureBlockMs,
-    });
+  function markBlocked(protocolOrProxy, blockMs = failureBlockMs, proxyUrl = null) {
+    const proxy = proxyUrl || protocolOrProxy;
+    if (!proxy) return;
+    const parsedKey = proxyUrl
+      ? protocolKey(protocolOrProxy)
+      : protocolKeyFromCandidate(protocolOrProxy);
+    const keys = parsedKey ? [parsedKey] : ["http", "https"];
+    const until = Date.now() + Math.max(1, Number(blockMs) || failureBlockMs);
+    for (const key of keys) blockedUntil[key].set(proxy, until);
   }
 
   return {
-    pickProxy(protocol, proxyEnv) {
-      return pickProxy(protocol, proxyEnv);
-    },
-    hasHealthyCandidate(protocol, proxyEnv) {
+    pickProxy,
+    hasHealthyCandidate(protocol) {
       const key = protocolKey(protocol);
-      cleanupFailures(key);
-      const candidates = candidatesByProtocol(protocol);
-      return candidates.some((candidate) => isHealthyCandidate(candidate, key));
+      return candidatesByProtocol(protocol).some((proxy) => !isBlocked(key, proxy));
     },
-    markProxySuccess(protocol, proxy) {
-      const key = protocolKey(protocol);
-      if (!proxy) return;
-      if (failureState[key].has(proxy)) {
-        proxyTrace(env, "proxy-success-clear", { protocol, proxy });
-      }
-      failureState[key].delete(proxy);
+    markProxySuccess() {},
+    markProxyFailure(protocol, proxy) {
+      if (proxy) markBlocked(protocol, failureBlockMs, proxy);
+      return true;
     },
-    markProxyFailure(protocol, proxy, error = null) {
-      const key = protocolKey(protocol);
-      if (!proxy) return;
-      if (activeProxyByProtocol[key] === proxy) activeProxyByProtocol[key] = null;
-      const existing = failureState[key].get(proxy) || { failures: 0, until: 0, blockedUntil: 0 };
-      const failures = existing.failures + 1;
-      const shouldBlock = failures >= maxConsecutiveFailures || isInvalidProxyFailure(error);
-      const blockedUntil =
-        shouldBlock
-          ? Math.max(existing.blockedUntil || 0, Date.now() + normalizedFailureBlockMs)
-          : existing.blockedUntil;
-      failureState[key].set(proxy, {
-        failures,
-        until: Date.now() + failureWindowMs,
-        blockedUntil,
-      });
-      proxyTrace(env, shouldBlock ? "proxy-failure-block" : "proxy-failure", {
-        protocol,
-        proxy,
-        failures,
-        threshold: maxConsecutiveFailures,
-        blockMs: shouldBlock ? normalizedFailureBlockMs : 0,
-        code: error?.code || error?.cause?.code || "",
-        message: error?.message || "",
-      });
-      if (shouldBlock) {
-        void persist(failureState);
-        return true;
-      }
-      return false;
-    },
-    markProxyBlocked(protocolOrProxy, blockMs, proxyUrl = null) {
-      const candidate = proxyUrl || protocolOrProxy;
-      const parsedKey = proxyUrl
-        ? protocolKey(protocolOrProxy)
-        : protocolKeyFromCandidate(protocolOrProxy);
-      const now = Date.now();
-      const until = Number.isFinite(blockMs) ? now + blockMs : now;
-      const keys = parsedKey ? [parsedKey] : ["http", "https"];
-      for (const key of keys) {
-        if (activeProxyByProtocol[key] === candidate) activeProxyByProtocol[key] = null;
-        const keyState = failureState[key].get(candidate) || {
-          failures: 0,
-          until: 0,
-          blockedUntil: 0,
-        };
-        keyState.blockedUntil = Math.max(keyState.blockedUntil || 0, until);
-        keyState.failures = Math.max(keyState.failures, maxConsecutiveFailures);
-        failureState[key].set(candidate, keyState);
-      }
-      proxyTrace(env, "proxy-block", {
-        protocol: parsedKey || "all",
-        proxy: candidate,
-        blockMs,
-      });
-      void persist(failureState);
-    },
-    updateProxyEnvironment(nextProxyEnv) {
-      currentProxyEnv = nextProxyEnv;
-      for (const key of ["http", "https"]) {
-        const activeProxy = activeProxyByProtocol[key];
-        const candidates = key === "https"
-          ? currentProxyEnv.httpsProxyList || []
-          : currentProxyEnv.httpProxyList || [];
-        if (activeProxy && (!candidates.includes(activeProxy) || !isHealthyCandidate(activeProxy, key))) {
-          activeProxyByProtocol[key] = null;
-        }
-      }
-      proxyTrace(env, "rotation-refreshed", {
-        http: currentProxyEnv.httpProxyList?.length || 0,
-        https: currentProxyEnv.httpsProxyList?.length || 0,
-      });
-    },
-    blockedProxySet() {
-      cleanupFailures("http");
-      cleanupFailures("https");
-      const blocked = { http: new Set(), https: new Set() };
-      const now = Date.now();
-      for (const key of ["http", "https"]) {
-        for (const [candidate, entry] of failureState[key]) {
-          if (
-            (entry.blockedUntil && entry.blockedUntil > now) ||
-            (entry.failures >= maxConsecutiveFailures && isFailureWindowActive(entry))
-          ) {
-            blocked[key].add(candidate.toLowerCase());
-          }
-        }
-      }
-      return blocked;
-    },
-    buildDispatcherFor(undici, protocol, agentOptions, proxyUrl, proxyEnv, directAgent) {
-      if (!proxyUrl) return directAgent;
-      const protocolSpecific = buildProxyDispatcher(
-        undici,
-        proxyUrl,
-        agentOptions,
-        proxyEnv,
-        protocol
-      );
-      return protocolSpecific || directAgent;
-    },
+    markProxyBlocked: markBlocked,
   };
 }
 
@@ -1615,6 +371,22 @@ export function getPlatformKey(platform = process.platform) {
   if (platform === "darwin") return "darwin";
   if (platform === "win32") return "win32";
   return "linux";
+}
+
+function providerConcurrencyCap(provider, env = process.env) {
+  const genericCap = parsePositiveInt(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS);
+  if (provider !== "esri") return genericCap;
+
+  const esriCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY);
+  return esriCap ?? genericCap ?? 64;
+}
+
+function providerRowsCap(provider, env = process.env) {
+  const envRowsForEsri =
+    parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_ROWS_IN_FLIGHT) ??
+    parsePositiveInt(env.TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT);
+  if (provider !== "esri") return parsePositiveInt(env.TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT);
+  return envRowsForEsri;
 }
 
 export function buildPlatformProfile({
@@ -1639,11 +411,7 @@ export function buildPlatformProfile({
     limits.defaultMax
   );
   const requested = parsePositiveInt(requestedConcurrency) ?? defaultConcurrency;
-  const platformCappedConcurrency = clamp(
-    requested,
-    1,
-    limits.maxConcurrentRequests
-  );
+  const platformCappedConcurrency = clamp(requested, 1, limits.maxConcurrentRequests);
   const providerCap = providerConcurrencyCap(provider, env);
   const maxConcurrentRequests = providerCap
     ? Math.min(platformCappedConcurrency, providerCap)
@@ -1655,7 +423,6 @@ export function buildPlatformProfile({
     requestedRowsOverride ?? parsePositiveInt(requestedRows) ?? defaultRows;
   const rowsCap = providerRowsCap(provider, env) ?? limits.maxRowsInFlight;
   const maxRowsInFlight = clamp(requestedRowCount, 1, rowsCap);
-
   const perRowConcurrency = clamp(
     Math.floor(maxConcurrentRequests / maxRowsInFlight) || 1,
     1,
@@ -1680,12 +447,7 @@ export function buildPlatformProfile({
   };
 }
 
-export async function configureNetworking(profile) {
-  let env = process.env;
-  let runtime = {};
-  if (arguments.length >= 2 && arguments[1]) env = arguments[1];
-  if (arguments.length >= 3 && arguments[2]) runtime = arguments[2];
-
+export async function configureNetworking(profile, env = process.env, runtime = {}) {
   dns.setDefaultResultOrder("ipv4first");
 
   try {
@@ -1699,45 +461,11 @@ export async function configureNetworking(profile) {
       runtime.fetchImpl ||
       targetGlobal[ORIGINAL_FETCH] ||
       targetGlobal.fetch?.bind(targetGlobal);
-    if (typeof baseFetch !== "function") return;
+    if (typeof baseFetch !== "function") return null;
 
-    const baseProxyEnv = resolveProxyEnvironment(env);
-    const validateSplit = async (splitProxies) => {
-      const checked = await filterProxyEnvironmentByHealthcheck({
-        undici,
-        proxyEnv: {
-          httpProxy: splitProxies.http?.[0] || "",
-          httpsProxy: splitProxies.https?.[0] || "",
-          httpProxyList: splitProxies.http || [],
-          httpsProxyList: splitProxies.https || [],
-          noProxy: "",
-        },
-        agentOptions,
-        env,
-      });
-      return {
-        http: checked.httpProxyList || [],
-        https: checked.httpsProxyList || [],
-      };
-    };
-    const requireHealthyProxy = proxyRequired(env) && Boolean(resolveProxyHealthcheckUrl(env));
-    let proxyEnv = await resolveProxyEnvironmentFromSource(
-      baseProxyEnv,
-      env,
-      (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
-      { validateSplit, requireHealthyProxy }
-    );
-
-    if (process.env.PROXY_DEBUG) {
-      console.log("proxy-debug: configureNetworking enter");
-      console.log("proxy-debug: proxyEnv", proxyEnv);
-      console.log("proxy-debug: hasProxy", hasProxyEnvironment(proxyEnv), "env", {
-        hasHttpsProxy: Boolean(proxyEnv.httpsProxy),
-        hasHttpsList: proxyEnv.httpsProxyList?.length,
-        hasHttpList: proxyEnv.httpProxyList?.length,
-      });
-    }
-
+    const proxyEnv = resolveProxyEnvironment(env, {
+      defaultProxyFilePath: runtime.defaultProxyFilePath,
+    });
     if (!hasProxyEnvironment(proxyEnv) || typeof undici.EnvHttpProxyAgent !== "function") {
       if (targetGlobal[ORIGINAL_FETCH]) {
         targetGlobal.fetch = targetGlobal[ORIGINAL_FETCH];
@@ -1747,52 +475,14 @@ export async function configureNetworking(profile) {
       return null;
     }
 
-    const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
-    if (process.env.PROXY_DEBUG) console.log("proxy-debug: persisted", persistedProxyBlacklist);
-    const proxyRotation = createProxyRotationState(
-      proxyEnv,
-      persistedProxyBlacklist,
-      (failureState) => writePersistedProxyBlacklist(env, failureState),
-      parseProxyFailureBlockMs(env),
-      env
-    );
-    let refreshProxyPromise = null;
-    const refreshProxyEnvironment = async (reason) => {
-      if (!refreshProxyPromise) {
-        refreshProxyPromise = (async () => {
-          proxyTrace(env, "proxy-refresh-start", { reason });
-          const nextProxyEnv = await resolveProxyEnvironmentFromSource(
-            baseProxyEnv,
-            env,
-            (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
-            { validateSplit, requireHealthyProxy, blockedProxySet: proxyRotation.blockedProxySet() }
-          );
-          proxyEnv = nextProxyEnv;
-          proxyRotation.updateProxyEnvironment(nextProxyEnv);
-          proxyTrace(env, "proxy-refresh-done", {
-            reason,
-            http: proxyEnv.httpProxyList?.length || 0,
-            https: proxyEnv.httpsProxyList?.length || 0,
-          });
-          return nextProxyEnv;
-        })().finally(() => {
-          refreshProxyPromise = null;
-        });
-      }
-      return refreshProxyPromise;
-    };
+    const proxyRotation = createProxyRotationState(proxyEnv, env);
     targetGlobal[ORIGINAL_FETCH] = baseFetch;
     targetGlobal.fetch = async (input, init = {}) => {
-      const isRequest =
-        typeof Request !== "undefined" && input instanceof Request;
+      const isRequest = typeof Request !== "undefined" && input instanceof Request;
       const url = isRequest ? input.url : String(input);
       if (init.dispatcher) return undici.fetch(input, init);
 
       if (shouldBypassProxy(url, proxyEnv.noProxy)) {
-        proxyTrace(env, "request-bypass", {
-          url: describeProxyTraceUrl(url),
-          reason: "no-proxy-rule",
-        });
         return undici.fetch(input, {
           ...init,
           dispatcher: directAgent,
@@ -1800,74 +490,30 @@ export async function configureNetworking(profile) {
       }
 
       const protocol = new URL(url).protocol;
-      let proxy = proxyRotation.pickProxy(protocol, proxyEnv);
-      if (!proxy && requireHealthyProxy) {
-        await refreshProxyEnvironment("no-healthy-candidate");
-        proxy = proxyRotation.pickProxy(protocol, proxyEnv);
+      const proxy = proxyRotation.pickProxy(protocol);
+      if (!proxy) throw new NoHealthyProxyError();
+      const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
+      try {
+        const response = await undici.fetch(input, {
+          ...init,
+          dispatcher,
+        });
+        attachProxyInfo(response, { proxy, protocol, url });
+        return response;
+      } catch (error) {
+        proxyRotation.markProxyFailure(protocol, proxy, error);
+        attachProxyInfo(error, { proxy, protocol, url, error: true });
+        throw error;
       }
-      if (!proxy && requireHealthyProxy) {
-        throw new NoHealthyProxyError("No healthy proxy is available for the request");
-      }
-      const dispatcher = proxyRotation.buildDispatcherFor(
-        undici,
-        protocol,
-        agentOptions,
-        proxy,
-        proxyEnv,
-        directAgent
-      );
-      const activeProxy = dispatcher === directAgent ? null : proxy;
-      proxyTrace(env, "request", {
-        protocol,
-        proxy: activeProxy || "direct",
-        url: describeProxyTraceUrl(url),
-      });
-      return undici.fetch(input, {
-        ...init,
-        dispatcher: init.dispatcher || dispatcher,
-      }).then(
-        (response) => {
-          proxyTrace(env, "response", {
-            protocol,
-            proxy: activeProxy || "direct",
-            status: response.status,
-            url: describeProxyTraceUrl(url),
-          });
-          if (activeProxy) {
-            proxyRotation.markProxySuccess(protocol, activeProxy);
-            attachProxyInfo(response, {
-              proxy: activeProxy,
-              protocol,
-              url,
-            });
-          }
-          return response;
-        },
-        async (error) => {
-          proxyTrace(env, "request-error", {
-            protocol,
-            proxy: activeProxy || "direct",
-            code: error?.code || error?.cause?.code || "error",
-            message: error?.message || String(error),
-            url: describeProxyTraceUrl(url),
-          });
-          if (activeProxy) {
-            proxyRotation.markProxyFailure(protocol, activeProxy, error);
-          }
-          attachProxyInfo(error, {
-            proxy: activeProxy,
-            protocol,
-            url,
-            error: true,
-          });
-          throw error;
-        }
-      );
     };
     targetGlobal[WRAPPED_FETCH] = true;
     return proxyRotation;
   } catch (error) {
-    if (error instanceof NoHealthyProxyError || error?.code === "NO_HEALTHY_PROXY") {
+    if (
+      error instanceof NoHealthyProxyError ||
+      error?.code === "NO_HEALTHY_PROXY" ||
+      error?.code === "PROXY_CONFIG_ERROR"
+    ) {
       throw error;
     }
     if (process.env.PROXY_DEBUG) {
@@ -1876,7 +522,6 @@ export async function configureNetworking(profile) {
         error && error.message ? error.message : String(error)
       );
     }
-    // Node fetch remains usable without undici installed as a dependency.
     return null;
   }
 }
