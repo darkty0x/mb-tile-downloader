@@ -4,6 +4,9 @@
   "description": "Cross-platform production tile downloader with row-level resume and provider configs.",
   "main": "downloader.js",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "test:smoke": "node --test --test-concurrency=1 tests/cli-smoke.test.js",

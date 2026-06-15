@@ -3,15 +3,10 @@
   "scripts": {
     "dev": "node src/server/app.js",
     "test": "node --test ../tests/dashboard-*.test.js",
-    "build": "vite build src/client",
+    "build": "node scripts/build-client.js",
     "start": "node src/server/app.js"
   },
   "dependencies": {
-    "@vitejs/plugin-react": "^5.1.1",
-    "pg": "^8.16.3",
-    "react": "^19.2.3",
-    "react-dom": "^19.2.3",
-    "vite": "^8.0.16",
-    "ws": "^8.18.3"
+    "pg": "^8.16.3"
   }
 }
