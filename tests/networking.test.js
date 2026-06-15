@@ -112,7 +112,7 @@ test("configureNetworking routes HTTPS requests through proxy list entry", async
   );
 });
 
-test("configureNetworking rotates across HTTPS proxy list for successive requests", async () => {
+test("configureNetworking sticks to the selected HTTPS proxy for successive requests", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
@@ -131,7 +131,7 @@ test("configureNetworking rotates across HTTPS proxy list for successive request
 
   assert.equal(undici.state.fetchCalls.length, 2);
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://primary-proxy:8080");
-  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://secondary-proxy:8080");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://primary-proxy:8080");
 });
 
 test("configureNetworking blocks http tunnel proxies in the HTTPS rotation bucket", async () => {
@@ -154,6 +154,64 @@ test("configureNetworking blocks http tunnel proxies in the HTTPS rotation bucke
 
   assert.equal(undici.state.fetchCalls.length, 1);
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://good-proxy:8080");
+});
+
+test("configureNetworking refreshes proxy discovery after the sticky proxy fails", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const apiUrl = "https://proxy.example/api/proxies";
+  const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
+  let apiCalls = 0;
+  const fetchImpl = async (input) => {
+    if (String(input) === apiUrl) {
+      apiCalls++;
+      const ip = apiCalls === 1 ? "198.51.100.10" : "198.51.100.20";
+      return new Response(JSON.stringify({
+        data: [{ ip, port: "8080", protocol: "http" }],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+  undici.fetch = async (input, init = {}) => {
+    undici.state.fetchCalls.push({
+      input: String(input),
+      dispatcher: init.dispatcher,
+    });
+    const proxy = init.dispatcher?.options?.httpsProxy;
+    if (String(input) === healthcheckUrl) {
+      return new Response("jpg", {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    }
+    if (proxy === "http://198.51.100.10:8080") {
+      const error = new Error("expired proxy");
+      error.code = "ECONNREFUSED";
+      throw error;
+    }
+    return new Response("ok");
+  };
+
+  await configureTestNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: apiUrl,
+      TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: healthcheckUrl,
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await assert.rejects(
+    () => targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info"),
+    /expired proxy/
+  );
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(apiCalls, 2);
+  assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://198.51.100.20:8080");
 });
 
 test("configureNetworking filters proxy candidates with a real tile healthcheck", async () => {
@@ -325,7 +383,7 @@ test("configureNetworking uses API http proxies as HTTPS tunnel candidates", asy
   assert.equal(undici.state.fetchCalls.at(-1).dispatcher.options.httpsProxy, "http://198.51.100.9:8080");
 });
 
-test("configureNetworking loads proxy list from a proxy API and rotates against it", async () => {
+test("configureNetworking loads proxy list from a proxy API and sticks to the selected proxy", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
   const apiUrl = "https://proxy.example/api/proxies";
@@ -363,7 +421,7 @@ test("configureNetworking loads proxy list from a proxy API and rotates against 
   assert.equal(apiCalls, 1);
   assert.equal(undici.state.fetchCalls.length, 2);
   assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
-  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "https://198.51.100.2:8080");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
 test("configureNetworking uses default hardcoded proxy source URL when env is not set", async () => {
@@ -429,6 +487,40 @@ test("configureNetworking expands old Geonode source URLs instead of keeping the
   const apiUrl = new URL(apiUrlObserved);
   assert.equal(apiUrl.searchParams.get("limit"), "500");
   assert.equal(apiUrl.searchParams.has("protocols"), false);
+});
+
+test("configureNetworking skips explicit SOCKS proxy metadata from HTTP rotation", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const apiUrl = "https://proxy.example/api/mixed-proxies";
+  const fetchImpl = async (input) => {
+    if (String(input) === apiUrl) {
+      return new Response(JSON.stringify({
+        data: [
+          { ip: "198.51.100.10", port: "1080", protocol: "socks5" },
+          { ip: "198.51.100.11", port: "4153", protocols: ["socks4"] },
+          { ip: "198.51.100.12", port: "8080", protocol: "http" },
+        ],
+      }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await configureTestNetworking(
+    profile(),
+    {
+      GEONODE_PROXY_LIST_URL: apiUrl,
+    },
+    { undici, targetGlobal, fetchImpl }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(undici.state.fetchCalls.length, 1);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "http://198.51.100.12:8080");
 });
 
 test("configureNetworking follows proxy API pagination when the first page has no usable candidates", async () => {

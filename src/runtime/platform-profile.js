@@ -278,6 +278,17 @@ function filterBlockedProxies(splitProxies, blocked = { http: new Set(), https: 
   };
 }
 
+function mergeBlockedProxySets(...sets) {
+  const merged = { http: new Set(), https: new Set() };
+  for (const set of sets) {
+    for (const key of ["http", "https"]) {
+      const values = set?.[key] instanceof Set ? set[key] : new Set();
+      for (const value of values) merged[key].add(value);
+    }
+  }
+  return merged;
+}
+
 function mergeProxyLists(primary = [], fallback = []) {
   const merged = [...primary, ...fallback];
   const seen = new Set();
@@ -333,6 +344,7 @@ function normalizeProxyEntry(candidate, fallbackProtocol = "http") {
   const port = candidate.port || candidate.proxyPort;
   if (ip && port) {
     const protocolFromField = normalizeProtocolFromMetadata(candidate);
+    if (!protocolFromField) return "";
     return normalizeProxyEntry(`${protocolFromField}://${ip}:${port}`, protocolFromField);
   }
 
@@ -342,6 +354,7 @@ function normalizeProxyEntry(candidate, fallbackProtocol = "http") {
 function normalizeProtocolFromMetadata(candidate) {
   const protocol = typeof candidate.protocol === "string" ? candidate.protocol.toLowerCase() : "";
   if (protocol === "https" || protocol === "http") return protocol;
+  if (protocol) return "";
 
   if (typeof candidate.https === "boolean") return candidate.https ? "https" : "http";
   if (typeof candidate.http === "boolean") return candidate.http ? "http" : "https";
@@ -349,6 +362,7 @@ function normalizeProtocolFromMetadata(candidate) {
   if (Array.isArray(candidate.protocols)) {
     if (candidate.protocols.some((item) => String(item).toLowerCase() === "https")) return "https";
     if (candidate.protocols.some((item) => String(item).toLowerCase() === "http")) return "http";
+    if (candidate.protocols.length > 0) return "";
   }
 
   return "http";
@@ -822,7 +836,10 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   const maxResponseTimeMs = parseProxyMaxResponseTimeMs(env);
 
   const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
-  const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
+  const blockedProxySet = mergeBlockedProxySets(
+    toBlockedProxySet(persistedProxyBlacklist),
+    options.blockedProxySet
+  );
   const explicitRawSplit = includeHttpTunnelProxiesForHttps({
     http: Array.isArray(proxyEnv?.httpProxyList) ? proxyEnv.httpProxyList : [],
     https: Array.isArray(proxyEnv?.httpsProxyList) ? proxyEnv.httpsProxyList : [],
@@ -1203,7 +1220,7 @@ async function filterProxyEnvironmentByHealthcheck({
     healthcheckProtocol === "http:"
       ? httpsProxyList
       : (proxyEnv.httpProxyList || []).filter(
-          (proxy) => !(proxyEnv.httpsProxyList || []).includes(proxy) || httpsProxyList.includes(proxy)
+          (proxy) => httpsProxyList.includes(proxy)
         );
 
   return {
@@ -1242,13 +1259,17 @@ function createProxyRotationState(
   const failureWindowMs = 5 * 60_000;
   const normalizedFailureBlockMs = Math.max(1, parsePositiveInt(failureBlockMs) || DEFAULT_PROXY_FAILURE_BLOCK_MS);
   const traceEnabled = proxyTraceEnabled(env);
+  let currentProxyEnv = proxyEnv;
+  const activeProxyByProtocol = { http: null, https: null };
 
   function protocolKey(protocol) {
     return protocol === "https:" ? "https" : "http";
   }
 
   function candidatesByProtocol(protocol) {
-    return protocolKey(protocol) === "https" ? proxyEnv.httpsProxyList : proxyEnv.httpProxyList;
+    return protocolKey(protocol) === "https"
+      ? currentProxyEnv.httpsProxyList || []
+      : currentProxyEnv.httpProxyList || [];
   }
 
   function isFailureWindowActive(entry) {
@@ -1279,6 +1300,17 @@ function createProxyRotationState(
   function pickProxy(protocol, proxyEnv) {
     const key = protocolKey(protocol);
     const candidates = candidatesByProtocol(protocol);
+    const activeProxy = activeProxyByProtocol[key];
+    if (activeProxy && candidates.includes(activeProxy) && isHealthyCandidate(activeProxy, key)) {
+      proxyTrace(env, "rotate-stick", {
+        protocol,
+        proxy: activeProxy,
+        total: candidates.length,
+      });
+      return activeProxy;
+    }
+    activeProxyByProtocol[key] = null;
+
     if (candidates.length === 0) {
       proxyTrace(env, "rotate-none", { protocol, reason: "no-candidates" });
       return null;
@@ -1294,6 +1326,7 @@ function createProxyRotationState(
       const candidateIndex = (index + offset) % candidates.length;
       const candidate = candidates[candidateIndex];
       if (isHealthyCandidate(candidate, key)) {
+        activeProxyByProtocol[key] = candidate;
         proxyTrace(env, "rotate-pick", {
           protocol,
           proxy: candidate,
@@ -1344,6 +1377,7 @@ function createProxyRotationState(
     markProxyFailure(protocol, proxy, error = null) {
       const key = protocolKey(protocol);
       if (!proxy) return;
+      if (activeProxyByProtocol[key] === proxy) activeProxyByProtocol[key] = null;
       const existing = failureState[key].get(proxy) || { failures: 0, until: 0, blockedUntil: 0 };
       const failures = existing.failures + 1;
       const shouldBlock = failures >= maxConsecutiveFailures || isInvalidProxyFailure(error);
@@ -1380,6 +1414,7 @@ function createProxyRotationState(
       const until = Number.isFinite(blockMs) ? now + blockMs : now;
       const keys = parsedKey ? [parsedKey] : ["http", "https"];
       for (const key of keys) {
+        if (activeProxyByProtocol[key] === candidate) activeProxyByProtocol[key] = null;
         const keyState = failureState[key].get(candidate) || {
           failures: 0,
           until: 0,
@@ -1395,6 +1430,39 @@ function createProxyRotationState(
         blockMs,
       });
       void persist(failureState);
+    },
+    updateProxyEnvironment(nextProxyEnv) {
+      currentProxyEnv = nextProxyEnv;
+      for (const key of ["http", "https"]) {
+        const activeProxy = activeProxyByProtocol[key];
+        const candidates = key === "https"
+          ? currentProxyEnv.httpsProxyList || []
+          : currentProxyEnv.httpProxyList || [];
+        if (activeProxy && (!candidates.includes(activeProxy) || !isHealthyCandidate(activeProxy, key))) {
+          activeProxyByProtocol[key] = null;
+        }
+      }
+      proxyTrace(env, "rotation-refreshed", {
+        http: currentProxyEnv.httpProxyList?.length || 0,
+        https: currentProxyEnv.httpsProxyList?.length || 0,
+      });
+    },
+    blockedProxySet() {
+      cleanupFailures("http");
+      cleanupFailures("https");
+      const blocked = { http: new Set(), https: new Set() };
+      const now = Date.now();
+      for (const key of ["http", "https"]) {
+        for (const [candidate, entry] of failureState[key]) {
+          if (
+            (entry.blockedUntil && entry.blockedUntil > now) ||
+            (entry.failures >= maxConsecutiveFailures && isFailureWindowActive(entry))
+          ) {
+            blocked[key].add(candidate.toLowerCase());
+          }
+        }
+      }
+      return blocked;
     },
     buildDispatcherFor(undici, protocol, agentOptions, proxyUrl, proxyEnv, directAgent) {
       if (!proxyUrl) return directAgent;
@@ -1519,11 +1587,12 @@ export async function configureNetworking(profile) {
         https: checked.httpsProxyList || [],
       };
     };
-    const proxyEnv = await resolveProxyEnvironmentFromSource(
+    const requireHealthyProxy = proxyRequired(env) && Boolean(resolveProxyHealthcheckUrl(env));
+    let proxyEnv = await resolveProxyEnvironmentFromSource(
       baseProxyEnv,
       env,
       (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
-      { validateSplit, requireHealthyProxy: proxyRequired(env) && Boolean(resolveProxyHealthcheckUrl(env)) }
+      { validateSplit, requireHealthyProxy }
     );
 
     if (process.env.PROXY_DEBUG) {
@@ -1554,6 +1623,31 @@ export async function configureNetworking(profile) {
       parseProxyFailureBlockMs(env),
       env
     );
+    let refreshProxyPromise = null;
+    const refreshProxyEnvironment = async (reason) => {
+      if (!refreshProxyPromise) {
+        refreshProxyPromise = (async () => {
+          proxyTrace(env, "proxy-refresh-start", { reason });
+          const nextProxyEnv = await resolveProxyEnvironmentFromSource(
+            baseProxyEnv,
+            env,
+            (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
+            { validateSplit, requireHealthyProxy, blockedProxySet: proxyRotation.blockedProxySet() }
+          );
+          proxyEnv = nextProxyEnv;
+          proxyRotation.updateProxyEnvironment(nextProxyEnv);
+          proxyTrace(env, "proxy-refresh-done", {
+            reason,
+            http: proxyEnv.httpProxyList?.length || 0,
+            https: proxyEnv.httpsProxyList?.length || 0,
+          });
+          return nextProxyEnv;
+        })().finally(() => {
+          refreshProxyPromise = null;
+        });
+      }
+      return refreshProxyPromise;
+    };
     targetGlobal[ORIGINAL_FETCH] = baseFetch;
     targetGlobal.fetch = async (input, init = {}) => {
       const isRequest =
@@ -1573,7 +1667,14 @@ export async function configureNetworking(profile) {
       }
 
       const protocol = new URL(url).protocol;
-      const proxy = proxyRotation.pickProxy(protocol, proxyEnv);
+      let proxy = proxyRotation.pickProxy(protocol, proxyEnv);
+      if (!proxy && requireHealthyProxy) {
+        await refreshProxyEnvironment("no-healthy-candidate");
+        proxy = proxyRotation.pickProxy(protocol, proxyEnv);
+      }
+      if (!proxy && requireHealthyProxy) {
+        throw new NoHealthyProxyError("No healthy proxy is available for the request");
+      }
       const dispatcher = proxyRotation.buildDispatcherFor(
         undici,
         protocol,
