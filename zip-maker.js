@@ -414,12 +414,35 @@ function assertUsableArchive(info, archivePath) {
   }
 }
 
-async function isRangeComplete({ outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
+async function isRangeComplete(
+  { outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension },
+  { progressLabel = null, progressEveryRows = 100, progressEveryMs = 3000 } = {}
+) {
   let files = 0;
   let missing = 0;
   let firstMissing = null;
   const expectedPerRow = yEnd - yStart + 1;
   const suffix = `.${extension}`;
+  const totalRows = xEnd - xStart + 1;
+  let checkedRows = 0;
+  let lastProgressAt = 0;
+
+  const emitProgress = (force = false) => {
+    if (!progressLabel) return;
+    const now = Date.now();
+    if (
+      !force &&
+      checkedRows !== totalRows &&
+      checkedRows % progressEveryRows !== 0 &&
+      now - lastProgressAt < progressEveryMs
+    ) {
+      return;
+    }
+    lastProgressAt = now;
+    console.log(
+      `  ${progressLabel}: checked ${checkedRows}/${totalRows} rows files=${files} missing=${missing}`
+    );
+  };
 
   for (let x = xStart; x <= xEnd; x++) {
     const rowDir = path.join(outputDir, layer, String(z), String(x));
@@ -430,6 +453,8 @@ async function isRangeComplete({ outputDir, layer, z, xStart, xEnd, yStart, yEnd
       if (err.code !== "ENOENT") throw err;
       missing += expectedPerRow;
       if (!firstMissing) firstMissing = path.join(rowDir, `${yStart}.${extension}`);
+      checkedRows++;
+      emitProgress();
       continue;
     }
 
@@ -450,61 +475,163 @@ async function isRangeComplete({ outputDir, layer, z, xStart, xEnd, yStart, yEnd
         if (!firstMissing) firstMissing = path.join(rowDir, `${y}.${extension}`);
       }
     }
+    checkedRows++;
+    emitProgress();
   }
 
   return { complete: missing === 0, files, missing, firstMissing };
 }
 
-async function splitTaskByArchiveSize(task, maxArchiveSizeBytes) {
+async function splitTaskByArchiveSize(
+  task,
+  maxArchiveSizeBytes,
+  { progressLabel = null, progressEveryFiles = 10000, progressEveryMs = 3000 } = {}
+) {
   if (!maxArchiveSizeBytes || maxArchiveSizeBytes <= 0) return [{ ...task }];
 
   const segments = [];
   let current = null;
   let currentBytes = ZIP_ARCHIVE_FOOTER_BYTES;
+  let checked = 0;
+  let existing = 0;
+  let lastProgressAt = 0;
+  const total = expectedFileCount(task);
 
-  for (let x = task.xStart; x <= task.xEnd; x++) {
-    for (let y = task.yStart; y <= task.yEnd; y++) {
-      const filePath = path.join(task.outputDir, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
-      let size;
-      try {
-        const st = await fsp.stat(filePath);
-        if (!st.isFile()) continue;
-        size = st.size;
-      } catch (err) {
-        if (err.code === "ENOENT") continue;
-        throw err;
+  const emitProgress = (force = false) => {
+    if (!progressLabel) return;
+    const now = Date.now();
+    if (
+      !force &&
+      checked !== total &&
+      checked % progressEveryFiles !== 0 &&
+      now - lastProgressAt < progressEveryMs
+    ) {
+      return;
+    }
+    lastProgressAt = now;
+    console.log(
+      `  ${progressLabel}: sized ${checked}/${total} files existing=${existing} parts=${
+        segments.length + (current ? 1 : 0)
+      }`
+    );
+  };
+
+  const pushCurrent = () => {
+    if (!current) return;
+    segments.push(current);
+    current = null;
+    currentBytes = ZIP_ARCHIVE_FOOTER_BYTES;
+  };
+
+  const estimateEntry = async (x, y) => {
+    const filePath = path.join(task.outputDir, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+    let size;
+    try {
+      const st = await fsp.stat(filePath);
+      if (!st.isFile()) {
+        checked++;
+        emitProgress();
+        return null;
+      }
+      size = st.size;
+    } catch (err) {
+      if (err.code === "ENOENT") {
+        checked++;
+        emitProgress();
+        return null;
+      }
+      throw err;
+    }
+
+    checked++;
+    existing++;
+    emitProgress();
+    const zipName = `${task.layer}/${task.z}/${x}/${y}.${task.extension}`;
+    return { x, y, bytes: estimateZipEntryBytes(size, zipName) };
+  };
+
+  const splitSingleRow = (entries) => {
+    let rowSegment = null;
+    let rowBytes = ZIP_ARCHIVE_FOOTER_BYTES;
+
+    for (const entry of entries) {
+      const projected = rowBytes + entry.bytes;
+      if (rowSegment && (entry.y !== rowSegment.yEnd + 1 || projected > maxArchiveSizeBytes)) {
+        segments.push(rowSegment);
+        rowSegment = null;
+        rowBytes = ZIP_ARCHIVE_FOOTER_BYTES;
       }
 
-      const zipName = `${task.layer}/${task.z}/${x}/${y}.${task.extension}`;
-      const estimatedBytes = estimateZipEntryBytes(size, zipName);
-      const projected = currentBytes + estimatedBytes;
-      if (!current || projected > maxArchiveSizeBytes) {
-        if (current) {
-          segments.push(current);
-        }
-        current = {
+      if (!rowSegment) {
+        rowSegment = {
           outputDir: task.outputDir,
           layer: task.layer,
           z: task.z,
-          xStart: x,
-          xEnd: x,
-          yStart: y,
-          yEnd: y,
+          xStart: entry.x,
+          xEnd: entry.x,
+          yStart: entry.y,
+          yEnd: entry.y,
           extension: task.extension,
-          expected: 1,
         };
-        currentBytes = ZIP_ARCHIVE_FOOTER_BYTES + estimatedBytes;
+        rowBytes = ZIP_ARCHIVE_FOOTER_BYTES + entry.bytes;
         continue;
       }
 
-      current.expected += 1;
-      current.xEnd = x;
-      current.yEnd = y;
-      currentBytes = projected;
+      rowSegment.yEnd = entry.y;
+      rowBytes = projected;
     }
+
+    if (rowSegment) segments.push(rowSegment);
+  };
+
+  for (let x = task.xStart; x <= task.xEnd; x++) {
+    const rowEntries = [];
+    let rowBytes = 0;
+
+    for (let y = task.yStart; y <= task.yEnd; y++) {
+      const entry = await estimateEntry(x, y);
+      if (!entry) continue;
+      rowEntries.push(entry);
+      rowBytes += entry.bytes;
+    }
+
+    if (rowEntries.length === 0) continue;
+
+    const rowIsComplete =
+      rowEntries.length === task.yEnd - task.yStart + 1 &&
+      rowEntries[0].y === task.yStart &&
+      rowEntries[rowEntries.length - 1].y === task.yEnd;
+
+    if (!rowIsComplete || ZIP_ARCHIVE_FOOTER_BYTES + rowBytes > maxArchiveSizeBytes) {
+      pushCurrent();
+      splitSingleRow(rowEntries);
+      continue;
+    }
+
+    const projected = currentBytes + rowBytes;
+    if (current && projected > maxArchiveSizeBytes) pushCurrent();
+
+    if (!current) {
+      current = {
+        outputDir: task.outputDir,
+        layer: task.layer,
+        z: task.z,
+        xStart: x,
+        xEnd: x,
+        yStart: task.yStart,
+        yEnd: task.yEnd,
+        extension: task.extension,
+      };
+      currentBytes = ZIP_ARCHIVE_FOOTER_BYTES + rowBytes;
+      continue;
+    }
+
+    current.xEnd = x;
+    currentBytes += rowBytes;
   }
 
-  if (current) segments.push(current);
+  pushCurrent();
+  emitProgress(true);
   if (segments.length > 0) return segments;
   return [{ ...task }];
 }
@@ -1214,8 +1341,100 @@ async function main() {
   let skipped = 0;
   let incomplete = 0;
   let duplicateSkipped = 0;
-  const taskItems = [];
+  const baseTaskItems = [];
   const taskByArchivePath = new Map();
+
+  const makeTaskItem = ({ baseName, task, range, rangeIdx, partIndex = 1, totalParts = 1 }) => {
+    const name = makeArchiveName(baseName, partIndex, totalParts);
+    const archivePath = path.join(archiveDir, name);
+    return {
+      name,
+      baseName,
+      task,
+      archivePath,
+      tmpPath: `${archivePath}.tmp`,
+      progressPath: `${archivePath}.progress.json`,
+      signature: taskSignature(task),
+      rangeState: {
+        rangeIndex: rangeIdx + 1,
+        label: range.label,
+        z: task.z,
+        xStart: task.xStart,
+        xEnd: task.xEnd,
+        yStart: task.yStart,
+        yEnd: task.yEnd,
+        expected: expectedFileCount(task),
+      },
+    };
+  };
+
+  const handleExistingArchive = async (item, existingArchive) => {
+    const { name, task, archivePath, tmpPath, progressPath } = item;
+    if (!existingArchive.isFile || existingArchive.size <= 0) {
+      throw new Error(
+        `Refusing to treat invalid archive path as complete: ${archivePath} isFile=${existingArchive.isFile} size=${existingArchive.size}`
+      );
+    }
+    console.log(
+      `SKIP existing: ${name} path=${archivePath} size=${existingArchive.size} mtime=${existingArchive.mtime}`
+    );
+    await appendManifest(archiveDir, {
+      event: "skip-existing",
+      archivePath,
+      size: existingArchive.size,
+      mtime: existingArchive.mtime,
+    });
+    await cleanupArchiveRuntimeFiles({ tmpPath, progressPath });
+    if (deleteExistingArchivedSources) {
+      console.log(`  ${name}: deleting source files for verified existing archive`);
+      await removeRangeFiles(task, deleteConcurrency);
+      markArchivedSourceDeleted(downloaderState, item);
+      await appendManifest(archiveDir, {
+        event: "delete-existing-source",
+        archivePath,
+        layer: task.layer,
+        z: task.z,
+        xStart: task.xStart,
+        xEnd: task.xEnd,
+      });
+    } else if (deleteAfterArchive) {
+      console.log(
+        `  ${name}: source delete skipped for pre-existing archive; set deleteExistingArchivedSources=true to enable`
+      );
+    }
+    skipped++;
+  };
+
+  const archiveTaskItem = async (item) => {
+    const { name, task, archivePath, tmpPath, progressPath } = item;
+    const existingArchive = await getArchiveFileInfo(archivePath);
+    if (existingArchive.exists) {
+      await handleExistingArchive(item, existingArchive);
+      return;
+    }
+
+    const files = expectedFileCount(task);
+    console.log(`ARCHIVE: ${name} files=${files} tmp=${tmpPath}`);
+    await archiveRange({
+      task,
+      archivePath,
+      tmpPath,
+      progressPath,
+      archiveName: name,
+      dryRun: opts.dryRun,
+      deleteAfterArchive,
+      deleteConcurrency,
+      progressEveryFiles,
+      progressEveryMs,
+      zipReadMode,
+      zipWriteBufferBytes,
+      state,
+      stateFile,
+      archiveDir,
+    });
+    if (deleteAfterArchive) markArchivedSourceDeleted(downloaderState, item);
+    archived++;
+  };
 
   for (const layer of layers) {
     const defaults = layerDefaults(layer, { ...sourceConfig, ...archiveConfig });
@@ -1241,123 +1460,61 @@ async function main() {
           yEnd: range.yEnd,
           xPadWidth,
         });
-        const splitTasks = await splitTaskByArchiveSize(task, maxArchiveSizeBytes);
-        const totalParts = splitTasks.length;
-
-        for (let partIndex = 0; partIndex < splitTasks.length; partIndex++) {
-          const splitTask = splitTasks[partIndex];
-          const name = makeArchiveName(baseName, partIndex + 1, totalParts);
-          const archivePath = path.join(archiveDir, name);
-          const tmpPath = `${archivePath}.tmp`;
-          const progressPath = `${archivePath}.progress.json`;
-
-          const item = {
-            name,
-            task: splitTask,
-            archivePath,
-            tmpPath,
-            progressPath,
-            signature: taskSignature(splitTask),
-            rangeState: {
-              rangeIndex: rangeIdx + 1,
-              label: range.label,
-              z: splitTask.z,
-              xStart: splitTask.xStart,
-              xEnd: splitTask.xEnd,
-              yStart: splitTask.yStart,
-              yEnd: splitTask.yEnd,
-              expected: expectedFileCount(splitTask),
-            },
-          };
-          const existingTask = taskByArchivePath.get(archivePath);
-          if (existingTask) {
-            if (existingTask.signature === item.signature) {
-              duplicateSkipped++;
-              continue;
-            }
-            throw new Error(
-              `Archive filename collision: ${archivePath} is used by multiple different ranges. Include yStart/yEnd in fileNameTemplate.`
-            );
+        const item = makeTaskItem({ baseName, task, range, rangeIdx });
+        const existingTask = taskByArchivePath.get(item.archivePath);
+        if (existingTask) {
+          if (existingTask.signature === item.signature) {
+            duplicateSkipped++;
+            continue;
           }
-          taskByArchivePath.set(archivePath, item);
-          taskItems.push(item);
+          throw new Error(
+            `Archive filename collision: ${item.archivePath} is used by multiple different ranges. Include yStart/yEnd in fileNameTemplate.`
+          );
         }
+        taskByArchivePath.set(item.archivePath, item);
+        baseTaskItems.push({ ...item, range, rangeIdx });
       }
     }
   }
   console.log(`Duplicate ranges skipped: ${duplicateSkipped}`);
 
   try {
-    await runPool(taskItems, archiveConcurrency, async (item) => {
-      const { name, task, archivePath, tmpPath, progressPath } = item;
-
-      const existingArchive = await getArchiveFileInfo(archivePath);
-      if (existingArchive.exists) {
-        if (!existingArchive.isFile || existingArchive.size <= 0) {
-          throw new Error(
-            `Refusing to treat invalid archive path as complete: ${archivePath} isFile=${existingArchive.isFile} size=${existingArchive.size}`
-          );
-        }
-        console.log(
-          `SKIP existing: ${name} path=${archivePath} size=${existingArchive.size} mtime=${existingArchive.mtime}`
-        );
-        await appendManifest(archiveDir, {
-          event: "skip-existing",
-          archivePath,
-          size: existingArchive.size,
-          mtime: existingArchive.mtime,
-        });
-        await cleanupArchiveRuntimeFiles({ tmpPath, progressPath });
-        if (deleteExistingArchivedSources) {
-          console.log(`  ${name}: deleting source files for verified existing archive`);
-          await removeRangeFiles(task, deleteConcurrency);
-          markArchivedSourceDeleted(downloaderState, item);
-          await appendManifest(archiveDir, {
-            event: "delete-existing-source",
-            archivePath,
-            layer: task.layer,
-            z: task.z,
-            xStart: task.xStart,
-            xEnd: task.xEnd,
-          });
-        } else if (deleteAfterArchive) {
-          console.log(
-            `  ${name}: source delete skipped for pre-existing archive; set deleteExistingArchivedSources=true to enable`
-          );
-        }
-        skipped++;
+    await runPool(baseTaskItems, archiveConcurrency, async (baseItem) => {
+      const existingBaseArchive = await getArchiveFileInfo(baseItem.archivePath);
+      if (existingBaseArchive.exists) {
+        await handleExistingArchive(baseItem, existingBaseArchive);
         return;
       }
 
-      const complete = await isRangeComplete(task);
+      const complete = await isRangeComplete(baseItem.task, {
+        progressLabel: `CHECK ${baseItem.name}`,
+        progressEveryMs,
+      });
       if (!complete.complete && opts.onlyComplete) {
         console.log(
-          `WAIT incomplete: ${name} have=${complete.files} missing=${complete.missing} first=${complete.firstMissing || "n/a"}`
+          `WAIT incomplete: ${baseItem.name} have=${complete.files} missing=${complete.missing} first=${complete.firstMissing || "n/a"}`
         );
         incomplete++;
         return;
       }
 
-      console.log(`ARCHIVE: ${name} files=${complete.files} tmp=${tmpPath}`);
-      await archiveRange({
-        task,
-        archivePath,
-        tmpPath,
-        progressPath,
-        archiveName: name,
-        dryRun: opts.dryRun,
-        deleteAfterArchive,
-        deleteConcurrency,
+      const splitTasks = await splitTaskByArchiveSize(baseItem.task, maxArchiveSizeBytes, {
+        progressLabel: `PLAN ${baseItem.name}`,
         progressEveryFiles,
         progressEveryMs,
-        zipReadMode,
-        zipWriteBufferBytes,
-        state,
-        stateFile,
-        archiveDir,
       });
-      if (deleteAfterArchive) markArchivedSourceDeleted(downloaderState, item);
-      archived++;
+      const totalParts = splitTasks.length;
+      for (let partIndex = 0; partIndex < splitTasks.length; partIndex++) {
+        const splitItem = makeTaskItem({
+          baseName: baseItem.baseName,
+          task: splitTasks[partIndex],
+          range: baseItem.range,
+          rangeIdx: baseItem.rangeIdx,
+          partIndex: partIndex + 1,
+          totalParts,
+        });
+        await archiveTaskItem(splitItem);
+      }
     });
 
     if (!opts.dryRun && incomplete === 0) {

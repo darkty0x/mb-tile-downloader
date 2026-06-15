@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
-import { mkdir, readdir, stat, writeFile } from "node:fs/promises";
+import { mkdir, readFile, readdir, stat, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import os from "node:os";
 import path from "node:path";
@@ -11,6 +11,21 @@ import { loadConfig } from "../src/config/config-loader.js";
 import { TileStateDb } from "../src/state/state-db.js";
 
 const execFileAsync = promisify(execFile);
+
+function listZipNames(buffer) {
+  const names = [];
+  for (let offset = 0; offset < buffer.length - 4; offset++) {
+    if (buffer.readUInt32LE(offset) !== 0x02014b50) continue;
+    const nameLength = buffer.readUInt16LE(offset + 28);
+    const extraLength = buffer.readUInt16LE(offset + 30);
+    const commentLength = buffer.readUInt16LE(offset + 32);
+    const nameStart = offset + 46;
+    const nameEnd = nameStart + nameLength;
+    names.push(buffer.toString("utf8", nameStart, nameEnd));
+    offset = nameEnd + extraLength + commentLength - 1;
+  }
+  return names;
+}
 
 test("zip-maker uses downloader config output.dir, layer, and tile extension", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
@@ -302,6 +317,94 @@ test("zip-maker splits archive output when max archive size is exceeded", async 
   const partNames = [...stdout.matchAll(/DRY RUN: would zip \d+ files -> .*part-(\d{3})\.zip/g)];
   assert.equal(partNames.length, 3);
   assert.match(stdout, /tiles_vector_5_000027-000027_y000019-000021\.part-001\.zip/);
+});
+
+test("zip-maker reports incomplete large ranges before archive-size planning", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(tilesDir, { recursive: true });
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      maxArchiveSizeBytes: 1,
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 1, yEnd: 2000000 }],
+    })
+  );
+
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+        { cwd: path.resolve("."), timeout: 2000 }
+      ),
+    (err) => {
+      assert.match(err.stdout, /WAIT incomplete: tiles_vector_5_000027-000027_y000001-2000000\.zip/);
+      assert.match(err.stdout, /missing=2000000/);
+      assert.doesNotMatch(err.stdout, /PLAN tiles_vector_5_000027-000027_y000001-2000000\.zip/);
+      return true;
+    }
+  );
+});
+
+test("zip-maker size split preserves tiles when the limit crosses x rows", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const tilesDir = path.join(dir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  for (const x of [27, 28]) {
+    await mkdir(path.join(tilesDir, "vector", "5", String(x)), { recursive: true });
+    for (const y of [1, 2, 3]) {
+      await writeFile(path.join(tilesDir, "vector", "5", String(x), `${y}.vector.pbf`), `tile-${x}-${y}`);
+    }
+  }
+
+  const configPath = path.join(dir, "mapbox-pbf-mcs.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-mcs",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      maxArchiveSizeBytes: 131772,
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 28, yStart: 1, yEnd: 3 }],
+    })
+  );
+
+  await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve(".") }
+  );
+
+  const zipFiles = (await readdir(archivesDir)).filter((name) => name.endsWith(".zip")).sort();
+  assert.equal(zipFiles.length, 2);
+
+  const archivedNames = [];
+  for (const zipFile of zipFiles) {
+    archivedNames.push(...listZipNames(await readFile(path.join(archivesDir, zipFile))));
+  }
+
+  assert.deepEqual(
+    archivedNames.sort(),
+    [
+      "vector/5/27/1.vector.pbf",
+      "vector/5/27/2.vector.pbf",
+      "vector/5/27/3.vector.pbf",
+      "vector/5/28/1.vector.pbf",
+      "vector/5/28/2.vector.pbf",
+      "vector/5/28/3.vector.pbf",
+    ]
+  );
 });
 
 test("zip-maker does not split small archives from per-file footer overestimation", async () => {
