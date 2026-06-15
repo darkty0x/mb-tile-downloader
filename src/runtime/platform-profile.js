@@ -12,6 +12,14 @@ const PROXY_LIST_ENV_KEYS = {
 };
 export const PROXY_INFO_SYMBOL = Symbol.for("tile-downloader.proxy-info");
 
+export class NoHealthyProxyError extends Error {
+  constructor(message = "No healthy proxy candidates passed the target health check") {
+    super(message);
+    this.name = "NoHealthyProxyError";
+    this.code = "NO_HEALTHY_PROXY";
+  }
+}
+
 const PROXY_SOURCE_ENV_KEYS = {
   URL: ["GEONODE_PROXY_LIST_URL", "TILE_DOWNLOADER_PROXY_LIST_URL", "PROXY_LIST_URL"],
   CACHE_PATH: [
@@ -39,7 +47,7 @@ const DEFAULT_PROXY_BLACKLIST_PATH = path.resolve(
   "proxy-blacklist.json"
 );
 const DEFAULT_PROXY_LIST_TTL_MS = 15 * 60 * 1000;
-const DEFAULT_PROXY_MAX_RESPONSE_TIME_MS = 100;
+const DEFAULT_PROXY_MAX_RESPONSE_TIME_MS = null;
 const DEFAULT_PROXY_LIST_MAX_PAGES = 5;
 const DEFAULT_PROXY_FAILURE_BLOCK_MS = 24 * 60 * 60 * 1000;
 const DEFAULT_PROXY_FAILURE_THRESHOLD = 3;
@@ -370,7 +378,7 @@ function parseProxyFailureThreshold(env = process.env) {
 
 function parseProxyMaxResponseTimeMs(env = process.env) {
   return (
-    parsePositiveInt(resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.RESPONSE_TIME_MS)) ||
+    parsePositiveInt(resolveAnyEnv(env, PROXY_SOURCE_ENV_KEYS.RESPONSE_TIME_MS)) ??
     DEFAULT_PROXY_MAX_RESPONSE_TIME_MS
   );
 }
@@ -430,6 +438,7 @@ function shouldUseLatencyFilteredCandidate(
   candidate,
   maxResponseTimeMs = DEFAULT_PROXY_MAX_RESPONSE_TIME_MS
 ) {
+  if (!Number.isFinite(maxResponseTimeMs) || maxResponseTimeMs <= 0) return true;
   const parsedMs = parseResponseTimeMs(candidate);
   if (parsedMs === null) return true;
   return parsedMs < maxResponseTimeMs;
@@ -662,7 +671,7 @@ async function writeCachedProxyList(env, splitProxies) {
 async function loadProxyListFromApi(env, fetchImpl, options = {}) {
   const sourceUrl = resolveProxyListSourceUrl(env);
   if (!sourceUrl || !fetchImpl) return null;
-  const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) || DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
+  const maxResponseTimeMs = parsePositiveInt(options.maxResponseTimeMs) ?? DEFAULT_PROXY_MAX_RESPONSE_TIME_MS;
   const blockedProxySet =
     options.blockedProxySet ||
     toBlockedProxySet(options.persistedProxyBlacklist);
@@ -751,6 +760,7 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   if (!sourceUrl) return proxyEnv;
 
   const maxResponseTimeMs = parseProxyMaxResponseTimeMs(env);
+  const hadProxyCandidates = hasProxyEnvironment(proxyEnv);
 
   const persistedProxyBlacklist = await loadPersistedProxyBlacklist(env);
   const blockedProxySet = toBlockedProxySet(persistedProxyBlacklist);
@@ -803,7 +813,14 @@ async function resolveProxyEnvironmentFromSource(proxyEnv, env = process.env, fe
   const splitHttp = Array.isArray(split?.http) ? split.http : [];
   const splitHttps = Array.isArray(split?.https) ? split.https : [];
 
-  if (splitHttp.length === 0 && splitHttps.length === 0) return proxyEnv;
+  if (splitHttp.length === 0 && splitHttps.length === 0) {
+    if (hadProxyCandidates && options.requireHealthyProxy) {
+      throw new NoHealthyProxyError(
+        "Configured proxy candidates were found, but none passed the target health check"
+      );
+    }
+    return proxyEnv;
+  }
 
   return {
     ...proxyEnv,
@@ -984,6 +1001,12 @@ function proxyTrace(env, event, fields = {}) {
     .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
     .join(" ");
   console.log(`proxy-trace: ${event}${suffix ? ` ${suffix}` : ""}`);
+}
+
+function proxyRequired(env = process.env) {
+  return !["0", "false", "no", "off"].includes(
+    String(env?.TILE_DOWNLOADER_PROXY_REQUIRED ?? "1").trim().toLowerCase()
+  );
 }
 
 function isProxyHealthcheckResponseOk(response) {
@@ -1423,7 +1446,7 @@ export async function configureNetworking(profile) {
       baseProxyEnv,
       env,
       (input, init = {}) => runtime.fetchImpl ? runtime.fetchImpl(input, init) : baseFetch(input, init),
-      { validateSplit }
+      { validateSplit, requireHealthyProxy: proxyRequired(env) }
     );
 
     if (process.env.PROXY_DEBUG) {
@@ -1533,6 +1556,9 @@ export async function configureNetworking(profile) {
     targetGlobal[WRAPPED_FETCH] = true;
     return proxyRotation;
   } catch (error) {
+    if (error instanceof NoHealthyProxyError || error?.code === "NO_HEALTHY_PROXY") {
+      throw error;
+    }
     if (process.env.PROXY_DEBUG) {
       console.log(
         "proxy-debug: configureNetworking failure",

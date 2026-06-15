@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { promises as fsp } from "node:fs";
 
-import { configureNetworking } from "../src/runtime/platform-profile.js";
+import { configureNetworking, NoHealthyProxyError } from "../src/runtime/platform-profile.js";
 
 async function withDeterministicRandom(values, fn) {
   const originalRandom = Math.random;
@@ -100,7 +100,9 @@ test("configureNetworking routes HTTPS requests through proxy list entry", async
     { undici, targetGlobal }
   );
 
-  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  await withDeterministicRandom([0.99], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  });
 
   assert.equal(undici.state.fetchCalls.length, 1);
   assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "proxy");
@@ -192,6 +194,39 @@ test("configureNetworking filters proxy candidates with a real tile healthcheck"
 
   assert.equal(undici.state.fetchCalls.length, 3);
   assert.equal(undici.state.fetchCalls[2].dispatcher.options.httpsProxy, "http://good-proxy:8080");
+});
+
+test("configureNetworking rejects when configured proxies all fail the target healthcheck", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+  const healthcheckUrl = "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/14/5265/9600";
+  undici.fetch = async (input, init = {}) => {
+    undici.state.fetchCalls.push({
+      input: String(input),
+      dispatcher: init.dispatcher,
+    });
+    if (String(input) === healthcheckUrl) {
+      return new Response("blocked", {
+        status: 403,
+        headers: { "content-type": "text/html" },
+      });
+    }
+    return new Response("ok");
+  };
+
+  await assert.rejects(
+    () => configureTestNetworking(
+      profile(),
+      {
+        GEONODE_HTTPS_PROXY_LIST: "http://bad-proxy:8080",
+        TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL: healthcheckUrl,
+      },
+      { undici, targetGlobal, fetchImpl: async () => new Response("not-json") }
+    ),
+    NoHealthyProxyError
+  );
+
+  assert.equal(undici.state.fetchCalls.length, 1);
 });
 
 test("configureNetworking uses API http proxies as HTTPS tunnel candidates", async () => {
@@ -338,6 +373,7 @@ test("configureNetworking follows proxy API pagination when the first page has n
     profile(),
     {
       GEONODE_PROXY_LIST_URL: `${apiBase}?page=1&limit=1`,
+      GEONODE_PROXY_MAX_RESPONSE_TIME_MS: "100",
     },
     { undici, targetGlobal, fetchImpl }
   );
@@ -641,7 +677,7 @@ test("configureNetworking respects response-time threshold override from proxy e
   assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
-test("configureNetworking filters API proxy candidates with response time above 100ms", async () => {
+test("configureNetworking does not filter API proxy candidates by response time by default", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
   const apiUrl = "https://proxy.example/api/fast-proxies";
@@ -671,16 +707,13 @@ test("configureNetworking filters API proxy candidates with response time above 
     { undici, targetGlobal, fetchImpl }
   );
 
-  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  await withDeterministicRandom([0.99], async () => {
+    await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  });
 
   assert.equal(apiCalls, 1);
   assert.equal(undici.state.fetchCalls.length, 1);
-  assert.ok(
-    ["https://198.51.100.2:8080", "https://198.51.100.3:8080"].includes(
-      undici.state.fetchCalls[0].dispatcher.options.httpsProxy
-    ),
-    "rotation should only use proxies below latency threshold"
-  );
+  assert.equal(undici.state.fetchCalls[0].dispatcher.options.httpsProxy, "https://198.51.100.1:8080");
 });
 
 test("configureNetworking uses proxy latency when response time values are above the threshold", async () => {
@@ -708,6 +741,7 @@ test("configureNetworking uses proxy latency when response time values are above
     profile(),
     {
       GEONODE_PROXY_LIST_URL: apiUrl,
+      GEONODE_PROXY_MAX_RESPONSE_TIME_MS: "100",
     },
     { undici, targetGlobal, fetchImpl }
   );
