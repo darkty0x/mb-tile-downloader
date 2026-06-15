@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { promises as fsp } from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
@@ -112,6 +113,30 @@ function shouldRetryUnavailableTile(providerName, env = process.env) {
   if (providerName !== "esri") return false;
   const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE);
   return explicit ?? true;
+}
+
+function traceEnabled(env = process.env) {
+  return ["1", "true", "yes", "on"].includes(
+    String(env?.TILE_DOWNLOADER_PROXY_TRACE || env?.PROXY_TRACE || env?.PROXY_DEBUG || "").trim().toLowerCase()
+  );
+}
+
+function traceEvent(env, event, fields = {}) {
+  if (!traceEnabled(env)) return;
+  const suffix = Object.entries(fields)
+    .filter(([, value]) => value !== undefined && value !== null && value !== "")
+    .map(([key, value]) => `${key}=${String(value).replace(/\s+/g, "_")}`)
+    .join(" ");
+  console.log(`proxy-trace: ${event}${suffix ? ` ${suffix}` : ""}`);
+}
+
+function describeTraceUrl(urlLike) {
+  try {
+    const url = new URL(String(urlLike));
+    return `${url.protocol}//${url.host}${url.pathname}`;
+  } catch {
+    return String(urlLike || "").split("?")[0];
+  }
 }
 
 function normalizeProxyProtocol(candidate) {
@@ -434,6 +459,7 @@ async function downloadOneTile({
   const backoffMs = Math.max(1, Number(config.performance?.retryBackoffMs || 150));
   const timeoutMs = Math.max(1000, Number(config.platformProfile?.requestTimeoutMs || 25_000));
   const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
+  let lastUnavailableTile = null;
 
   let networkAttempt = 0;
   let requestAttempt = 0;
@@ -489,6 +515,19 @@ async function downloadOneTile({
       if (provider.isUnavailable) {
         const buffer = await readResponseBuffer(resp);
         if (provider.isUnavailable(buffer)) {
+          lastUnavailableTile = {
+            url,
+            proxy,
+            bytes: buffer.length,
+            sha256: crypto.createHash("sha256").update(buffer).digest("hex"),
+          };
+          traceEvent(env, "tile-unavailable-placeholder", {
+            provider: provider.name,
+            proxy: proxy || "direct",
+            bytes: lastUnavailableTile.bytes,
+            sha256: lastUnavailableTile.sha256,
+            url: describeTraceUrl(url),
+          });
           if (retryUnavailableTile) {
             networkAttempt++;
             if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -512,6 +551,17 @@ async function downloadOneTile({
       networkAttempt++;
       if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
     }
+  }
+
+  if (lastUnavailableTile) {
+    traceEvent(env, "tile-unavailable-exhausted", {
+      provider: provider.name,
+      proxy: lastUnavailableTile.proxy || "direct",
+      bytes: lastUnavailableTile.bytes,
+      sha256: lastUnavailableTile.sha256,
+      url: describeTraceUrl(lastUnavailableTile.url),
+    });
+    return "missing";
   }
 
   return "failed";
