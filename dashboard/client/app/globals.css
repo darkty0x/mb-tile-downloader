@@ -1,0 +1,247 @@
+@import url("https://fonts.googleapis.com/css2?family=Roboto+Flex:opsz,wght@8..144,400..800&display=swap");
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  --ptg-background: #f8faf9;
+  --ptg-surface: #ffffff;
+  --ptg-surface-container: #eef4f3;
+  --ptg-surface-container-high: #e4eeee;
+  --ptg-on-surface: #151d24;
+  --ptg-on-surface-variant: #62727a;
+  --ptg-outline: #d5e0dd;
+  --ptg-outline-strong: #bdcbc8;
+  --ptg-primary: #0ca8e0;
+  --ptg-primary-dark: #006d92;
+  --ptg-secondary: #006d62;
+  --ptg-error: #c52333;
+  --ptg-warning: #8f5f00;
+  --ptg-success: #246b4d;
+  --ptg-rail: #071218;
+  --ptg-rail-container: #102027;
+  --ptg-rail-active: #14313a;
+  --ptg-rail-outline: #253b43;
+  --ptg-rail-text: #eef7f8;
+  --ptg-rail-muted: #a2b1b5;
+  --ptg-shadow-1: 0 1px 2px rgba(20, 31, 37, 0.08);
+  --ptg-shadow-2: 0 2px 6px rgba(20, 31, 37, 0.10), 0 12px 32px rgba(20, 31, 37, 0.08);
+  --ptg-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ptg-standard: cubic-bezier(0.2, 0, 0, 1);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  overflow-x: hidden;
+  background: var(--ptg-background);
+  color: var(--ptg-on-surface);
+  font-family: "Roboto Flex", Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-size: 13px;
+  letter-spacing: 0;
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+button,
+input,
+select,
+textarea {
+  outline: none;
+}
+
+.ptg-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(98, 114, 122, 0.45) transparent;
+}
+
+.ptg-scrollbar::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+.ptg-scrollbar::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(98, 114, 122, 0.35);
+}
+
+.material-surface {
+  border: 1px solid var(--ptg-outline);
+  background: var(--ptg-surface);
+  box-shadow: var(--ptg-shadow-1);
+  transition:
+    border-color 180ms var(--ptg-standard),
+    box-shadow 240ms var(--ptg-standard),
+    transform 180ms var(--ptg-standard),
+    background-color 180ms var(--ptg-standard);
+}
+
+.material-surface:hover {
+  border-color: var(--ptg-outline-strong);
+  box-shadow: var(--ptg-shadow-2);
+}
+
+.state-layer {
+  position: relative;
+  overflow: hidden;
+  transition:
+    color 150ms var(--ptg-standard),
+    background-color 150ms var(--ptg-standard),
+    border-color 150ms var(--ptg-standard),
+    box-shadow 150ms var(--ptg-standard),
+    transform 150ms var(--ptg-standard);
+}
+
+.state-layer::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: currentColor;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--ptg-standard);
+}
+
+.state-layer:hover::after {
+  opacity: 0.06;
+}
+
+.state-layer:active {
+  transform: scale(0.985);
+}
+
+.state-layer:active::after {
+  opacity: 0.1;
+}
+
+md-filled-button,
+md-outlined-button,
+md-text-button {
+  width: auto;
+  min-width: 56px;
+  flex-shrink: 0;
+  white-space: nowrap;
+  --md-sys-color-primary: var(--ptg-primary);
+  --md-sys-color-on-primary: #ffffff;
+  --md-sys-color-outline: var(--ptg-outline);
+  --md-sys-color-on-surface: var(--ptg-on-surface);
+  --md-sys-color-surface-container-highest: var(--ptg-surface-container-high);
+  --md-filled-button-container-shape: 8px;
+  --md-outlined-button-container-shape: 8px;
+  --md-text-button-container-shape: 8px;
+  --md-filled-button-label-text-font: "Roboto Flex";
+  --md-outlined-button-label-text-font: "Roboto Flex";
+  --md-text-button-label-text-font: "Roboto Flex";
+  --md-filled-button-label-text-size: 12px;
+  --md-outlined-button-label-text-size: 12px;
+  --md-text-button-label-text-size: 12px;
+  --md-filled-button-label-text-weight: 700;
+  --md-outlined-button-label-text-weight: 700;
+  --md-text-button-label-text-weight: 700;
+  --md-filled-button-container-height: 34px;
+  --md-outlined-button-container-height: 34px;
+  --md-text-button-container-height: 34px;
+}
+
+md-filled-button.material-button,
+md-outlined-button.material-button,
+md-text-button.material-button {
+  display: inline-flex;
+}
+
+md-filled-button.danger-button,
+md-outlined-button.danger-button,
+md-text-button.danger-button {
+  --md-sys-color-primary: var(--ptg-error);
+  --md-sys-color-outline: rgba(197, 35, 51, 0.35);
+  --md-outlined-button-label-text-color: var(--ptg-error);
+  --md-outlined-button-outline-color: rgba(197, 35, 51, 0.35);
+}
+
+.screen-enter {
+  animation: material-enter 360ms var(--ptg-emphasized) both;
+}
+
+.panel-enter {
+  animation: panel-enter 520ms var(--ptg-emphasized) both;
+}
+
+.pulse-step {
+  animation: pulse-step 1.8s var(--ptg-standard) infinite;
+}
+
+.brand-orbit-blue {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbit-drift 7s var(--ptg-emphasized) infinite alternate;
+}
+
+.brand-orbit-red {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: orbit-drift 8s var(--ptg-emphasized) infinite alternate-reverse;
+}
+
+@keyframes material-enter {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.995);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes panel-enter {
+  from {
+    opacity: 0;
+    transform: translateX(18px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-step {
+  0%,
+  100% {
+    box-shadow: 0 0 0 rgba(12, 168, 224, 0);
+  }
+  50% {
+    box-shadow: 0 0 0 4px rgba(12, 168, 224, 0.08);
+  }
+}
+
+@keyframes orbit-drift {
+  from {
+    transform: rotate(-2deg) scale(0.995);
+  }
+  to {
+    transform: rotate(3deg) scale(1.01);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 1ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 1ms !important;
+  }
+}

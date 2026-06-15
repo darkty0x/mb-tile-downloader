@@ -40,6 +40,8 @@ npm run dashboard
 
 Open `http://127.0.0.1:3001` and enter the admin token.
 
+The browser dashboard is a Next.js static export styled with Tailwind CSS and Material Web components. `npm --prefix dashboard run build` exports the client into `dashboard/src/client/dist`, which the Node dashboard API serves.
+
 ## Local Agent
 
 Each downloader machine needs a unique `MACHINE_ID`:
