@@ -8,7 +8,12 @@ import { fileURLToPath } from "node:url";
 import { loadConfig } from "./src/config/config-loader.js";
 import { splitConfigByRows } from "./src/config/config-splitter.js";
 import { runDownloadJob } from "./src/engine/downloader-engine.js";
-import { proxyHealthcheckUrlForConfig } from "./src/runtime/proxy-healthcheck-target.js";
+import { createProvider } from "./src/providers/index.js";
+import {
+  localEsriTileStatus,
+  proxyHealthcheckUrlForConfig,
+  tilePathForConfig,
+} from "./src/runtime/proxy-healthcheck-target.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -114,6 +119,7 @@ Usage:
   [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--esri-fast] [--no-proxy]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
+  node downloader.js delete-unavailable <configPath...>
   node downloader.js clear-token-state [--state-db path-or-dir]
 
 Examples:
@@ -122,6 +128,7 @@ Examples:
   node downloader.js configs/mapbox-pbf.config.json --validate --force-verify
   node downloader.js split configs/mapbox-pbf.config.json --parts 6 --out configs/mapbox-pbf-machines
   node downloader.js split configs/esri-satellite.config.json --names cig,cmi,kuh --out configs/esri-machines
+  node downloader.js delete-unavailable configs/esri-satellite.config.json
 `);
   process.exit(exitCode);
 }
@@ -182,11 +189,33 @@ function parseClearTokenStateArgs(args) {
   return opts;
 }
 
+function parseDeleteUnavailableArgs(args) {
+  const opts = {
+    command: "delete-unavailable",
+    configPaths: [],
+    usedDefaultConfig: false,
+  };
+
+  for (let i = 1; i < args.length; i++) {
+    const arg = args[i];
+    if (arg.startsWith("-")) {
+      throw new Error(`Unknown delete-unavailable option: ${arg}`);
+    }
+    opts.configPaths.push(arg);
+  }
+
+  if (opts.configPaths.length === 0) {
+    throw new Error("delete-unavailable requires at least one config path");
+  }
+  return opts;
+}
+
 function parseArgs(argv) {
   const args = argv.slice(2);
   if (args.includes("--help") || args.includes("-h")) printUsage(0);
   if (args[0] === "split") return parseSplitArgs(args);
   if (args[0] === "clear-token-state") return parseClearTokenStateArgs(args);
+  if (args[0] === "delete-unavailable") return parseDeleteUnavailableArgs(args);
 
   const opts = {
     command: "run",
@@ -461,6 +490,64 @@ async function runSplit(opts) {
   }
 }
 
+function assertPathInsideOutput(config, filePath) {
+  const outputRoot = path.resolve(config.output.dir);
+  const absPath = path.resolve(filePath);
+  if (absPath !== outputRoot && !absPath.startsWith(`${outputRoot}${path.sep}`)) {
+    throw new Error(`Refusing to delete outside configured output dir: ${absPath}`);
+  }
+}
+
+async function deleteUnavailableForConfig(configPath) {
+  const config = await loadConfig(configPath, { env: process.env });
+  const provider = createProvider(config);
+  if (typeof provider.isUnavailable !== "function") {
+    throw new Error(`Provider ${config.provider} does not support unavailable tile detection`);
+  }
+
+  let tilesScanned = 0;
+  let missingFilesIgnored = 0;
+  let unavailableDeleted = 0;
+
+  console.log("");
+  console.log(`Config: ${config.configPath}`);
+  console.log(`Provider: ${config.provider}`);
+  console.log(`Output: ${config.output.dir}`);
+
+  for (const range of config.ranges) {
+    for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
+      for (let x = range.xStart; x <= range.xEnd; x++) {
+        for (let y = range.yStart; y <= range.yEnd; y++) {
+          tilesScanned++;
+          const filePath = tilePathForConfig(config, provider, z, x, y);
+          assertPathInsideOutput(config, filePath);
+          const status = await localEsriTileStatus(config, provider, z, x, y);
+          if (status === "missing") {
+            missingFilesIgnored++;
+            continue;
+          }
+          if (status === "unavailable") {
+            await fsp.unlink(filePath);
+            unavailableDeleted++;
+          }
+        }
+      }
+    }
+  }
+
+  console.log(`Tiles scanned: ${tilesScanned}`);
+  console.log(`Missing files ignored: ${missingFilesIgnored}`);
+  console.log(`Unavailable tiles deleted: ${unavailableDeleted}`);
+}
+
+async function runDeleteUnavailable(opts) {
+  opts.resolvedConfigPaths = resolveMachineConfigPaths(opts, process.env);
+  for (let i = 0; i < opts.resolvedConfigPaths.length; i++) {
+    console.log(`\n=== Config ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
+    await deleteUnavailableForConfig(opts.resolvedConfigPaths[i]);
+  }
+}
+
 async function clearTokenState(opts) {
   const root = path.resolve(opts.stateDbPath || ".tile-state");
   const files = fs.existsSync(root) && fs.statSync(root).isDirectory()
@@ -484,6 +571,10 @@ async function main() {
   const opts = parseArgs(process.argv);
   if (opts.command === "split") {
     await runSplit(opts);
+    return;
+  }
+  if (opts.command === "delete-unavailable") {
+    await runDeleteUnavailable(opts);
     return;
   }
   if (opts.command === "clear-token-state") {

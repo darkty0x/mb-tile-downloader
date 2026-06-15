@@ -12,7 +12,7 @@ function renderPathTemplate(template, values) {
   });
 }
 
-function tilePathForConfig(config, provider, z, x, y) {
+export function tilePathForConfig(config, provider, z, x, y) {
   const template = config.output?.pathTemplate || "{layer}/{z}/{x}/{y}.{extension}";
   const rel = renderPathTemplate(template, {
     provider: config.provider,
@@ -26,7 +26,7 @@ function tilePathForConfig(config, provider, z, x, y) {
   return path.join(config.output.dir, path.normalize(rel));
 }
 
-async function localEsriTileStatus(config, provider, z, x, y) {
+export async function localEsriTileStatus(config, provider, z, x, y) {
   const filePath = tilePathForConfig(config, provider, z, x, y);
   let buffer;
   try {

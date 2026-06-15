@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import os from "node:os";
 import path from "node:path";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import { promisify } from "node:util";
 import { execFile } from "node:child_process";
 
@@ -197,4 +197,38 @@ test("proxy healthcheck target prefers an existing Esri unavailable tile over an
     url,
     "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/2/1/1"
   );
+});
+
+test("delete-unavailable removes Esri unavailable placeholder files and keeps valid imagery", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-delete-unavailable-"));
+  const outputDir = path.join(dir, "download");
+  const placeholder = Buffer.from("unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const unavailablePath = path.join(outputDir, "esri-satellite", "2", "1", "0.jpg");
+  const validPath = path.join(outputDir, "esri-satellite", "2", "1", "1.jpg");
+  const configPath = path.join(dir, "esri.config.json");
+  await mkdir(path.dirname(unavailablePath), { recursive: true });
+  await writeFile(unavailablePath, placeholder);
+  await writeFile(validPath, "real imagery");
+  await writeFile(configPath, JSON.stringify({
+    provider: "esri",
+    ranges: [{ zoomStart: 2, zoomEnd: 2, xStart: 1, xEnd: 1, yStart: 0, yEnd: 1 }],
+    output: { dir: outputDir },
+    tile: { unavailableTileSha256: placeholderHash },
+  }));
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["downloader.js", "delete-unavailable", configPath],
+    {
+      cwd: process.cwd(),
+      timeout: 5_000,
+      env: process.env,
+    }
+  );
+
+  await assert.rejects(() => access(unavailablePath));
+  await access(validPath);
+  assert.ok(stdout.includes("Unavailable tiles deleted: 1"), stdout);
+  assert.ok(stdout.includes("Tiles scanned: 2"), stdout);
 });
