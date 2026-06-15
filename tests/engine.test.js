@@ -510,6 +510,7 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
   const replacement = Buffer.from("real imagery tile");
   const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
   const marked = [];
+  const runtimeEnv = {};
   let fetches = 0;
   const proxyRotation = {
     markProxyBlocked(protocolOrProxy, ms, proxy = null) {
@@ -541,6 +542,7 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
       stateDb: db,
       progress: false,
       skipVerifyAfterDownload: true,
+      env: runtimeEnv,
       proxyRotation,
       fetchImpl: async () => {
         fetches++;
@@ -565,6 +567,7 @@ test("Esri unavailable placeholder responses block the proxy and retry a real ti
   assert.equal(fetches, 2);
   assert.equal(marked.length, 1);
   assert.equal(marked[0].proxy, "https://placeholder.proxy.example:8080");
+  assert.equal(runtimeEnv.TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL, "https://example.test/14/5824/9603");
   const saved = await stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg"));
   assert.equal(saved.size, replacement.length);
 

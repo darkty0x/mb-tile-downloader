@@ -139,6 +139,11 @@ function describeTraceUrl(urlLike) {
   }
 }
 
+function promoteProxyHealthcheckUrl(env, providerName, url) {
+  if (providerName !== "esri" || !env || typeof env !== "object" || !url) return;
+  env.TILE_DOWNLOADER_PROXY_HEALTHCHECK_URL = String(url);
+}
+
 function normalizeProxyProtocol(candidate) {
   if (typeof candidate !== "string") return "";
   const normalized = candidate.trim();
@@ -521,6 +526,7 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
+        promoteProxyHealthcheckUrl(env, provider.name, url);
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
         if (blocked) return "blocked";
         networkAttempt++;
@@ -545,6 +551,7 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
+          promoteProxyHealthcheckUrl(env, provider.name, url);
           if (providerRuntime.noteUnavailable) {
             providerRuntime.noteUnavailable(proxy, protocol);
           }
