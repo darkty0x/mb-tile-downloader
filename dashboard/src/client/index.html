@@ -4,6 +4,12 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>PTG Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,400..700,0..1,0&family=Roboto+Flex:opsz,wght@8..144,400..800&display=swap"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="/src/styles.css" />
   </head>
   <body>
@@ -11,7 +17,11 @@
       <aside class="fleet-rail">
         <section class="brand">
           <div class="brand-mark" aria-hidden="true">
-            <span>P</span><span>T</span><span>G</span>
+            <svg viewBox="0 0 180 92">
+              <ellipse class="orbit orbit-blue" cx="90" cy="46" rx="78" ry="22" transform="rotate(-22 90 46)" />
+              <ellipse class="orbit orbit-red" cx="88" cy="47" rx="73" ry="20" transform="rotate(20 88 47)" />
+              <text x="32" y="62">PTG</text>
+            </svg>
           </div>
           <div>
             <h1>PTG Dashboard</h1>
@@ -34,18 +44,10 @@
         <header class="topbar">
           <div>
             <div class="machine-title-row">
-              <h2 id="machine-title">No machine selected</h2>
+              <h2 id="machine-title">PTG Management Dashboard</h2>
               <span id="machine-status" class="status-pill neutral">Waiting</span>
             </div>
             <div id="machine-meta" class="machine-meta"></div>
-          </div>
-          <div class="command-bar">
-            <button class="command secondary" data-command="run_preflight"></button>
-            <button class="command primary" data-command="start_pipeline"></button>
-            <button class="command secondary" data-command="pause_after_range"></button>
-            <button class="command danger" data-command="stop_pipeline"></button>
-            <button class="command secondary" data-command="sync_config"></button>
-            <button class="command secondary" data-command="sync_env"></button>
           </div>
         </header>
 
@@ -53,6 +55,7 @@
         <section id="view" class="view"></section>
       </section>
 
+      <aside id="server-panel" class="server-panel"></aside>
       <aside id="inspector" class="inspector" hidden></aside>
     </main>
 

@@ -10,7 +10,11 @@ const COMMANDS = [
 const TABS = [
   ["overview", "Overview", "grid"],
   ["servers", "Servers", "server"],
-  ["configs", "Configs", "file"],
+];
+
+const SERVER_TABS = [
+  ["control", "Control", "activity"],
+  ["configs", "Config", "file"],
   ["env", "Env", "sliders"],
   ["secrets", "Secrets", "lock"],
   ["console", "Console", "terminal"],
@@ -38,6 +42,7 @@ const state = {
   events: [],
   selectedMachineId: null,
   selectedTab: "overview",
+  selectedServerTab: "control",
   editor: { type: "summary" },
   loading: false,
 };
@@ -52,25 +57,31 @@ const escapeHtml = (value) =>
     .replaceAll('"', "&quot;");
 
 function icon(name) {
-  const paths = {
-    play: '<path d="M8 5v14l11-7Z"/>',
-    pause: '<path d="M7 5h4v14H7zM15 5h4v14h-4z"/>',
-    stop: '<rect x="7" y="7" width="10" height="10" rx="1.5"/>',
-    sync: '<path d="M20 7h-5.5A6 6 0 0 0 4 11"/><path d="M4 5v6h6"/><path d="M4 17h5.5A6 6 0 0 0 20 13"/><path d="M20 19v-6h-6"/>',
-    grid: '<path d="M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z"/>',
-    server: '<rect x="4" y="4" width="16" height="6" rx="2"/><rect x="4" y="14" width="16" height="6" rx="2"/><path d="M8 7h.01M8 17h.01M12 7h4M12 17h4"/>',
-    file: '<path d="M6 3h8l4 4v14H6z"/><path d="M14 3v5h5"/><path d="M9 13h6M9 17h6"/>',
-    sliders: '<path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2"/><circle cx="15" cy="12" r="2"/><circle cx="11" cy="18" r="2"/>',
-    lock: '<rect x="5" y="10" width="14" height="10" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',
-    terminal: '<path d="m5 7 5 5-5 5"/><path d="M12 17h7"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    edit: '<path d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16z"/><path d="m13 6 5 5"/>',
-    trash: '<path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 14h10l1-14"/><path d="M9 7V4h6v3"/>',
-    copy: '<path d="M8 8h11v11H8z"/><path d="M5 16H4V5h11v1"/>',
-    check: '<path d="m5 12 4 4L19 6"/>',
-    search: '<circle cx="11" cy="11" r="6"/><path d="m16 16 4 4"/>',
+  const symbols = {
+    play: "play_arrow",
+    pause: "pause",
+    stop: "stop",
+    sync: "sync",
+    grid: "dashboard",
+    server: "dns",
+    activity: "monitoring",
+    gauge: "speed",
+    alert: "warning",
+    layers: "layers",
+    key: "vpn_key",
+    file: "description",
+    sliders: "tune",
+    lock: "lock",
+    terminal: "terminal",
+    plus: "add",
+    edit: "edit",
+    trash: "delete",
+    copy: "content_copy",
+    check: "check",
+    search: "search",
+    disk: "hard_drive",
   };
-  return `<svg viewBox="0 0 24 24" aria-hidden="true">${paths[name] || paths.grid}</svg>`;
+  return `<span class="material-symbols-rounded icon" aria-hidden="true">${symbols[name] || symbols.grid}</span>`;
 }
 
 function headers() {
@@ -221,10 +232,6 @@ function renderCommands() {
 function renderTabs() {
   const counts = {
     servers: state.machines.length,
-    configs: state.configs.length,
-    env: state.envProfiles.length,
-    secrets: state.secrets.length,
-    console: state.events.length,
   };
   $("#tabs").innerHTML = TABS.map(
     ([tab, label, glyph]) => `
@@ -241,16 +248,17 @@ function renderFleet() {
 
 function renderHeader() {
   const machine = selectedMachine();
-  $("#machine-title").textContent = machine ? machine.displayName || machine.machineId : "Select a server";
+  const online = state.machines.filter((item) => item.status === "online").length;
+  $("#machine-title").textContent = "PTG Management Dashboard";
   const status = $("#machine-status");
-  status.textContent = machine ? machine.status : "Waiting";
-  status.className = `status-pill ${statusClass(machine?.status)}`;
-  $("#machine-meta").innerHTML = machine
+  status.textContent = state.machines.length ? `${online}/${state.machines.length} online` : "Waiting";
+  status.className = `status-pill ${online ? "success" : "neutral"}`;
+  $("#machine-meta").innerHTML = state.machines.length
     ? `
-      <span>Last seen ${shortDate(machine.lastSeenAt)}</span>
-      <span>${escapeHtml(machine.platform || "unknown platform")}</span>
-      <span>${escapeHtml(activeConfig()?.name || "no active config")}</span>`
-    : `<span>${state.machines.length} servers connected</span>`;
+      <span>${state.machines.length} servers connected</span>
+      <span>${machine ? `Selected ${escapeHtml(machine.displayName || machine.machineId)}` : "No server selected"}</span>
+      <span>${machine ? `Last seen ${shortDate(machine.lastSeenAt)}` : "Waiting for agent"}</span>`
+    : `<span>No servers connected</span>`;
   renderCommands();
 }
 
@@ -261,10 +269,10 @@ function renderStats() {
   const latest = state.events.at(-1);
   return `
     <section class="stat-strip">
-      <div><span>Servers Online</span><strong>${online}/${state.machines.length}</strong></div>
-      <div><span>Selected Server</span><strong>${escapeHtml(selected?.displayName || selected?.machineId || "None")}</strong></div>
-      <div><span>Active Config</span><strong>${escapeHtml(activeConfig()?.name || "None")}</strong></div>
-      <div><span>Latest Event</span><strong>${escapeHtml(latest?.severity || (failures ? `${failures} errors` : "Idle"))}</strong></div>
+      <div><span class="metric-icon">${icon("server")}</span><span>Servers Online</span><strong>${online}/${state.machines.length}</strong></div>
+      <div><span class="metric-icon">${icon("gauge")}</span><span>Selected Server</span><strong>${escapeHtml(selected?.displayName || selected?.machineId || "None")}</strong></div>
+      <div><span class="metric-icon">${icon("layers")}</span><span>Active Config</span><strong>${escapeHtml(activeConfig()?.name || "None")}</strong></div>
+      <div><span class="metric-icon">${icon(failures ? "alert" : "activity")}</span><span>Latest Event</span><strong>${escapeHtml(latest?.severity || (failures ? `${failures} errors` : "Idle"))}</strong></div>
     </section>`;
 }
 
@@ -330,17 +338,17 @@ function renderSummaryPanels() {
       <div class="panel compact">
         <div class="panel-title"><h3>Active Config</h3><button data-action="new-config">${icon("plus")}<span>Add</span></button></div>
         ${config ? `<dl><dt>Name</dt><dd>${escapeHtml(config.name)}</dd><dt>Provider</dt><dd>${escapeHtml(config.config.provider)}</dd><dt>Ranges</dt><dd>${config.config.ranges?.length || 0}</dd></dl>
-        <button class="wide-button" data-tab="configs">View Configs</button>` : `<div class="empty-cell">No config assigned</div>`}
+        <button class="wide-button" data-server-tab="configs">View Config</button>` : `<div class="empty-cell">No config assigned</div>`}
       </div>
       <div class="panel compact">
         <div class="panel-title"><h3>Active Env</h3><button data-action="new-env">${icon("plus")}<span>Add</span></button></div>
         ${env ? `<dl><dt>Name</dt><dd>${escapeHtml(env.name)}</dd><dt>Variables</dt><dd>${Object.keys(env.env || {}).length}</dd><dt>Version</dt><dd>${env.version}</dd></dl>
-        <button class="wide-button" data-tab="env">View Env</button>` : `<div class="empty-cell">No env profile assigned</div>`}
+        <button class="wide-button" data-server-tab="env">View Env</button>` : `<div class="empty-cell">No env profile assigned</div>`}
       </div>
       <div class="panel compact">
         <div class="panel-title"><h3>Secrets / Keys</h3><button data-action="new-secret">${icon("plus")}<span>Add</span></button></div>
         <dl><dt>Active Secrets</dt><dd>${activeSecrets.length}</dd><dt>Proxy List</dt><dd>${proxy ? escapeHtml(proxy.status) : "missing"}</dd><dt>Mapbox</dt><dd>${state.secrets.filter((secret) => secret.secretType === "mapbox_token").length}</dd></dl>
-        <button class="wide-button" data-tab="secrets">Manage Secrets</button>
+        <button class="wide-button" data-server-tab="secrets">Manage Secrets</button>
       </div>
     </section>`;
 }
@@ -349,7 +357,7 @@ function renderEventsTable(limit = 6) {
   const events = state.events.slice(-limit).reverse();
   return `
     <section class="panel events-panel">
-      <div class="panel-title"><h3>Recent Events</h3><button data-tab="console">View All Logs</button></div>
+      <div class="panel-title"><h3>Recent Events</h3><button data-server-tab="console">View All Logs</button></div>
       <div class="table-wrap">
         <table>
           <thead><tr><th>Time</th><th>Level</th><th>Event</th><th>Message</th></tr></thead>
@@ -368,31 +376,9 @@ function renderEventsTable(limit = 6) {
 }
 
 function renderOverview() {
-  const machine = selectedMachine();
-  const latest = state.events.at(-1);
-  const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
   return `
     ${renderStats()}
-    <section class="overview-grid lean">
-      ${renderPipeline()}
-      <section class="panel status-panel">
-        <div class="panel-title"><h3>Selected Server</h3><span>${escapeHtml(machine?.status || "waiting")}</span></div>
-        <dl>
-          <dt>Machine</dt><dd>${escapeHtml(machine?.machineId || "none")}</dd>
-          <dt>Last Seen</dt><dd>${shortDate(machine?.lastSeenAt)}</dd>
-          <dt>Config</dt><dd>${escapeHtml(activeConfig()?.name || "none")}</dd>
-          <dt>Proxy</dt><dd>${escapeHtml(proxy?.status || "missing")}</dd>
-        </dl>
-      </section>
-      <section class="panel">
-        <div class="panel-title"><h3>Latest Event</h3><button data-tab="console">Open Console</button></div>
-        <dl>
-          <dt>Type</dt><dd>${escapeHtml(latest?.type || "idle")}</dd>
-          <dt>Level</dt><dd>${escapeHtml(latest?.severity || "info")}</dd>
-          <dt>Message</dt><dd>${escapeHtml(latest?.message || "No events yet")}</dd>
-        </dl>
-      </section>
-    </section>
+    ${renderServers()}
   `;
 }
 
@@ -429,7 +415,7 @@ function renderServers() {
           <span>${online}/${state.machines.length} online</span>
         </div>
         <div class="server-search">
-          <span class="search-icon" aria-hidden="true"></span>
+          <span class="search-icon" aria-hidden="true">${icon("search")}</span>
           <input id="server-search" type="search" value="${escapeHtml(state.machineSearch)}" placeholder="Search servers" />
         </div>
       </div>
@@ -442,7 +428,6 @@ function renderServers() {
         </table>
       </div>
     </section>
-    ${selectedMachine() ? renderDisk() : ""}
   `;
 }
 
@@ -543,24 +528,206 @@ function renderConsole() {
     </section>`;
 }
 
+function renderServerTabs() {
+  const counts = {
+    configs: state.configs.length,
+    env: state.envProfiles.length,
+    secrets: state.secrets.length,
+    console: state.events.length,
+  };
+  return `
+    <nav class="server-tabs" aria-label="Selected server sections">
+      ${SERVER_TABS.map(([tab, label, glyph]) => `
+        <button class="${state.selectedServerTab === tab ? "active" : ""}" data-server-tab="${tab}">
+          ${icon(glyph)}<span>${label}</span>${counts[tab] === undefined ? "" : `<strong>${counts[tab]}</strong>`}
+        </button>
+      `).join("")}
+    </nav>`;
+}
+
+function renderServerCommands() {
+  return `
+    <div class="server-command-grid">
+      ${COMMANDS.map(([type, label, glyph]) => `
+        <button class="command ${type === "start_pipeline" ? "primary" : type === "stop_pipeline" ? "danger" : "secondary"}" data-command="${type}">
+          ${icon(glyph)}<span>${label}</span>
+        </button>
+      `).join("")}
+    </div>`;
+}
+
+function renderServerDisk() {
+  const disks = selectedMachine()?.disk || [];
+  return `
+    <section class="server-disk">
+      <div class="server-section-head">
+        <h3>Disk Space</h3>
+        <span>${disks.length} drives</span>
+      </div>
+      <div class="server-list">
+        ${disks.length ? disks.map((disk) => {
+          const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
+          return `
+            <article class="server-list-row disk-row">
+              <div>
+                <strong>${escapeHtml(disk.mount || disk.name)}</strong>
+                <small>${escapeHtml(disk.filesystem || "")} · ${formatBytes(disk.freeBytes)} free</small>
+              </div>
+              <div class="usage"><span style="width:${pct}%"></span></div>
+              <strong>${pct}%</strong>
+            </article>`;
+        }).join("") : `<div class="empty-cell">No disk snapshot yet</div>`}
+      </div>
+    </section>`;
+}
+
+function renderServerControl() {
+  const machine = selectedMachine();
+  const latest = state.events.at(-1);
+  const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
+  return `
+    <section class="server-section">
+      <div class="server-facts">
+        <div><span>${icon("layers")}Config</span><strong>${escapeHtml(activeConfig()?.name || "none")}</strong></div>
+        <div><span>${icon("sliders")}Env</span><strong>${escapeHtml(activeEnv()?.name || "none")}</strong></div>
+        <div><span>${icon("key")}Proxy</span><strong>${escapeHtml(proxy?.status || "missing")}</strong></div>
+        <div><span>${icon("activity")}Last Seen</span><strong>${shortDate(machine?.lastSeenAt)}</strong></div>
+      </div>
+      ${renderPipeline()}
+      ${renderServerDisk()}
+      <div class="server-note">
+        <span class="level ${escapeHtml(latest?.severity || "info")}">${escapeHtml(latest?.severity || "info")}</span>
+        <p>${escapeHtml(latest?.message || "No events yet")}</p>
+      </div>
+    </section>`;
+}
+
+function renderServerConfigs() {
+  return `
+    <section class="server-section">
+      <div class="server-section-head">
+        <h3>Config</h3>
+        <button class="primary-small" data-action="new-config">${icon("plus")}<span>Add</span></button>
+      </div>
+      <div class="server-list">
+        ${state.configs.length ? state.configs.map((config) => `
+          <article class="server-list-row">
+            <div>
+              <strong>${escapeHtml(config.name)}</strong>
+              <small>${escapeHtml(config.config.provider || "unknown")} · ${config.config.ranges?.length || 0} ranges · v${config.version}</small>
+            </div>
+            <span class="status-pill ${config.active ? "success" : "neutral"}">${config.active ? "active" : "inactive"}</span>
+            ${tableActions("config", config.configId, { duplicate: true })}
+          </article>
+        `).join("") : `<div class="empty-cell">No config assigned to this server</div>`}
+      </div>
+    </section>`;
+}
+
+function renderServerEnv() {
+  return `
+    <section class="server-section">
+      <div class="server-section-head">
+        <h3>Env</h3>
+        <button class="primary-small" data-action="new-env">${icon("plus")}<span>Add</span></button>
+      </div>
+      <div class="server-list">
+        ${state.envProfiles.length ? state.envProfiles.map((profile) => `
+          <article class="server-list-row">
+            <div>
+              <strong>${escapeHtml(profile.name)}</strong>
+              <small>${Object.keys(profile.env || {}).length} variables · v${profile.version}</small>
+            </div>
+            <span class="status-pill ${profile.active ? "success" : "neutral"}">${profile.active ? "active" : "inactive"}</span>
+            ${tableActions("env", profile.envProfileId, { duplicate: true })}
+          </article>
+        `).join("") : `<div class="empty-cell">No env profile assigned to this server</div>`}
+      </div>
+    </section>`;
+}
+
+function renderServerSecrets() {
+  return `
+    <section class="server-section">
+      <div class="server-section-head">
+        <h3>Secrets</h3>
+        <button class="primary-small" data-action="new-secret">${icon("plus")}<span>Add</span></button>
+      </div>
+      <div class="server-list">
+        ${state.secrets.length ? state.secrets.map((secret) => `
+          <article class="server-list-row">
+            <div>
+              <strong>${escapeHtml(secret.label)}</strong>
+              <small>${escapeHtml(SECRET_LABELS[secret.secretType] || secret.secretType)} · ${escapeHtml(secret.redactedValue || "")}</small>
+            </div>
+            <span class="status-pill ${secret.status === "active" ? "success" : secret.status === "error" ? "danger" : "neutral"}">${escapeHtml(secret.status)}</span>
+            ${tableActions("secret", secret.secretId)}
+          </article>
+        `).join("") : `<div class="empty-cell">No secrets assigned to this server</div>`}
+      </div>
+    </section>`;
+}
+
+function renderServerConsole() {
+  return `
+    <section class="server-section">
+      <div class="server-section-head">
+        <h3>Console</h3>
+        <button data-action="refresh">${icon("sync")}<span>Refresh</span></button>
+      </div>
+      <pre class="console compact-console">${state.events.length ? state.events.map((event) =>
+        `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`
+      ).join("\n") : "No events yet"}</pre>
+    </section>`;
+}
+
+function renderServerPanel() {
+  const panel = $("#server-panel");
+  if (!state.adminToken) {
+    panel.innerHTML = "";
+    return;
+  }
+  const machine = selectedMachine();
+  if (!machine) {
+    panel.innerHTML = `
+      <section class="server-panel-empty">
+        ${icon("server")}
+        <h3>Select a server</h3>
+        <p>Choose a server from the table to manage config, env, secrets, console, and commands.</p>
+      </section>`;
+    return;
+  }
+  const content = {
+    control: renderServerControl,
+    configs: renderServerConfigs,
+    env: renderServerEnv,
+    secrets: renderServerSecrets,
+    console: renderServerConsole,
+  }[state.selectedServerTab]();
+  panel.innerHTML = `
+    <header class="server-panel-head">
+      <div>
+        <h2>${escapeHtml(machine.displayName || machine.machineId)}</h2>
+        <p>${escapeHtml(machine.machineId)}</p>
+      </div>
+      <span class="status-pill ${statusClass(machine.status)}">${escapeHtml(machine.status)}</span>
+    </header>
+    ${renderServerCommands()}
+    ${renderServerTabs()}
+    ${content}`;
+  renderCommands();
+}
+
 function renderView() {
   if (!state.adminToken) {
     $("#view").innerHTML = `<section class="empty-state"><h3>Admin token required</h3><p>Enter the dashboard admin token to load fleet state.</p></section>`;
     return;
   }
-  if (!selectedMachine()) {
-    $("#view").innerHTML = renderServers();
-    return;
-  }
   const views = {
     overview: renderOverview,
     servers: renderServers,
-    configs: renderConfigs,
-    env: renderEnv,
-    secrets: renderSecrets,
-    console: renderConsole,
   };
-  $("#view").innerHTML = views[state.selectedTab]();
+  $("#view").innerHTML = (views[state.selectedTab] || views.overview)();
 }
 
 function formHeader(title, action) {
@@ -649,6 +816,7 @@ function render() {
   renderFleet();
   renderHeader();
   renderView();
+  renderServerPanel();
   renderInspector();
   document.body.classList.toggle("is-loading", state.loading);
 }
@@ -752,8 +920,15 @@ document.addEventListener("click", (event) => {
   const machineButton = event.target.closest("[data-machine]");
   if (machineButton) {
     state.selectedMachineId = machineButton.dataset.machine;
+    state.selectedServerTab = "control";
     state.editor = { type: "summary" };
     refreshMachineData().then(render).catch(showError);
+    return;
+  }
+  const serverTab = event.target.closest("[data-server-tab]");
+  if (serverTab) {
+    state.selectedServerTab = serverTab.dataset.serverTab;
+    render();
     return;
   }
   const command = event.target.closest("[data-command]");
@@ -771,17 +946,17 @@ document.addEventListener("click", (event) => {
     render();
   }
   if (action === "new-config") {
-    state.selectedTab = "configs";
+    state.selectedServerTab = "configs";
     state.editor = { type: "new-config" };
     render();
   }
   if (action === "new-env") {
-    state.selectedTab = "env";
+    state.selectedServerTab = "env";
     state.editor = { type: "new-env" };
     render();
   }
   if (action === "new-secret") {
-    state.selectedTab = "secrets";
+    state.selectedServerTab = "secrets";
     state.editor = { type: "new-secret" };
     render();
   }
