@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, writeFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { createDashboardApp } from "../dashboard/src/server/app.js";
 import { createDashboardStore } from "../dashboard/src/server/store.js";
@@ -18,6 +21,19 @@ async function request(server, { method = "GET", path = "/", headers = {}, body 
   return {
     status: response.status,
     body: text ? JSON.parse(text) : null,
+  };
+}
+
+async function requestText(server, { method = "GET", path = "/", headers = {} } = {}) {
+  const address = server.address();
+  const response = await fetch(`http://127.0.0.1:${address.port}${path}`, {
+    method,
+    headers,
+  });
+  return {
+    status: response.status,
+    body: await response.text(),
+    contentType: response.headers.get("content-type"),
   };
 }
 
@@ -42,6 +58,18 @@ test("health endpoint does not require authentication", async (t) => {
 
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, { ok: true });
+});
+
+test("dashboard serves static assets from configured built client directory", async (t) => {
+  const clientDir = await mkdtemp(path.join(os.tmpdir(), "mb-dashboard-client-"));
+  await writeFile(path.join(clientDir, "index.html"), "<!doctype html><title>built dashboard</title>");
+  const server = await withServer(t, { clientDir });
+
+  const response = await requestText(server, { path: "/" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.contentType, "text/html; charset=utf-8");
+  assert.match(response.body, /built dashboard/);
 });
 
 test("agent registration requires agent token", async (t) => {

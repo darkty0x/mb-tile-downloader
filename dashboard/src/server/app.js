@@ -12,7 +12,7 @@ import { createTelegramNotifier } from "./telegram.js";
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIR = path.resolve(SERVER_DIR, "../..");
-const CLIENT_DIR = path.join(DASHBOARD_DIR, "src/client");
+const DEFAULT_CLIENT_DIR = path.join(DASHBOARD_DIR, "src/client/dist");
 const MIME = new Map([
   [".html", "text/html; charset=utf-8"],
   [".js", "text/javascript; charset=utf-8"],
@@ -53,11 +53,11 @@ function handleError(res, err) {
   json(res, 400, { error: err.message });
 }
 
-async function serveClient(req, res) {
+async function serveClient(req, res, clientDir) {
   const url = new URL(req.url || "/", "http://127.0.0.1");
   const requested = url.pathname === "/" ? "/index.html" : url.pathname;
-  const filePath = path.resolve(CLIENT_DIR, `.${requested}`);
-  if (!filePath.startsWith(CLIENT_DIR)) {
+  const filePath = path.resolve(clientDir, `.${requested}`);
+  if (!filePath.startsWith(clientDir)) {
     json(res, 403, { error: "forbidden" });
     return true;
   }
@@ -81,6 +81,7 @@ export function createDashboardApp({
   telegramNotifier = null,
   agentToken = "",
   adminToken = "",
+  clientDir = DEFAULT_CLIENT_DIR,
 } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -258,7 +259,7 @@ export function createDashboardApp({
       }
 
       if (req.method === "GET" || req.method === "HEAD") {
-        if (await serveClient(req, res)) return;
+        if (await serveClient(req, res, clientDir)) return;
       }
 
       json(res, 404, { error: "not found" });
