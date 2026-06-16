@@ -100,7 +100,7 @@ test("Esri World Imagery configs use separate layer folder and xyz rows", async 
   }
 });
 
-test("loaded direct Esri configs are capped independently of requested config concurrency", async () => {
+test("loaded direct Esri configs keep requested config concurrency", async () => {
   const config = await loadConfig("configs/13-esri-satellite.config.json", {
     env: {},
     platform: "win32",
@@ -108,17 +108,17 @@ test("loaded direct Esri configs are capped independently of requested config co
   });
 
   assert.equal(config.performance.maxConcurrentRequests, 4096);
-  assert.equal(config.platformProfile.maxConcurrentRequests, 64);
-  assert.equal(config.platformProfile.perRowConcurrency, 64);
+  assert.equal(config.platformProfile.maxConcurrentRequests, 4096);
+  assert.equal(config.platformProfile.perRowConcurrency, 4096);
 });
 
-test("loaded Esri configs raise concurrency when proxy source is configured", async () => {
+test("loaded Esri configs keep requested concurrency when proxy source is configured", async () => {
   const config = await loadConfig("configs/13-esri-satellite.config.json", {
     env: { TILE_DOWNLOADER_PROXY_LIST: "http://proxy-a.example:8080" },
     platform: "win32",
   });
 
   assert.equal(config.performance.maxConcurrentRequests, 4096);
-  assert.equal(config.platformProfile.maxConcurrentRequests, 1024);
-  assert.equal(config.platformProfile.perRowConcurrency, 1024);
+  assert.equal(config.platformProfile.maxConcurrentRequests, 4096);
+  assert.equal(config.platformProfile.perRowConcurrency, 4096);
 });
