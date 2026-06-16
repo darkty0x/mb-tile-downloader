@@ -8,6 +8,7 @@ import { materializeConfig } from "./config-sync.js";
 import { collectDiskInfo } from "./disk.js";
 import { materializeEnvProfile } from "./env-materializer.js";
 import { loadAgentIdentity } from "./identity.js";
+import { collectLocalSnapshot } from "./local-snapshot.js";
 import { createProcessRunner, resolveManagedCommand } from "./process-runner.js";
 import { createProgressEventForwarder } from "./progress-events.js";
 import { materializeSecrets } from "./secret-materializer.js";
@@ -181,6 +182,7 @@ export async function runAgent({
   createClient = createControlClient,
   createRunner = createProcessRunner,
   collectDiskInfoImpl = collectDiskInfo,
+  collectLocalSnapshotImpl = collectLocalSnapshot,
   projectDir = process.cwd(),
   log = () => {},
 } = {}) {
@@ -219,15 +221,6 @@ export async function runAgent({
   log(`dashboard agent registered machineId=${identity.machineId} dashboard=${env.DASHBOARD_URL}`);
 
   async function tick() {
-    const disk = await safeDiskSnapshot(collectDiskInfoImpl, { projectDir, platform: process.platform });
-    await client.heartbeat({
-      ...identity,
-      status: "online",
-      platform: process.platform,
-      hostname: os.hostname(),
-      disk,
-      agentProtocolVersion: AGENT_PROTOCOL_VERSION,
-    });
     const synced = await syncManagedState({
       client,
       machineId: identity.machineId,
@@ -236,6 +229,19 @@ export async function runAgent({
     });
     for (const key of Object.keys(managedEnv)) delete managedEnv[key];
     Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {}, agentControlEnv);
+    const [disk, agentSnapshot] = await Promise.all([
+      safeDiskSnapshot(collectDiskInfoImpl, { projectDir, platform: process.platform }),
+      collectLocalSnapshotImpl({ projectDir, stateDir, synced }),
+    ]);
+    await client.heartbeat({
+      ...identity,
+      status: "online",
+      platform: process.platform,
+      hostname: os.hostname(),
+      disk,
+      agentSnapshot,
+      agentProtocolVersion: AGENT_PROTOCOL_VERSION,
+    });
     const { commands = [] } = await client.pollCommands(identity.machineId);
     for (const command of commands) {
       await runCommand(command, { client, runner, machineId: identity.machineId, control });

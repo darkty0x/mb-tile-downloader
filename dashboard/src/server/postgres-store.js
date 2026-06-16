@@ -82,6 +82,7 @@ function machineFromRow(row, { now = null } = {}) {
     platform: row.platform,
     version: row.version,
     disk: jsonValue(row.disk_json, []),
+    agentSnapshot: jsonValue(row.agent_snapshot_json, {}),
     currentJobId: row.current_job_id,
     lastSeenAt: iso(row.last_seen_at),
     leaseExpiresAt: iso(row.lease_expires_at),
@@ -217,9 +218,9 @@ export function createPostgresDashboardStore({
         db,
         `INSERT INTO machines (
           machine_id, agent_instance_id, display_name, status, platform, version,
-          last_seen_at, lease_expires_at, disk_json, current_job_id, created_at, updated_at
+          last_seen_at, lease_expires_at, disk_json, agent_snapshot_json, current_job_id, created_at, updated_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (machine_id) DO UPDATE SET
           agent_instance_id=excluded.agent_instance_id,
           display_name=excluded.display_name,
@@ -229,6 +230,7 @@ export function createPostgresDashboardStore({
           last_seen_at=excluded.last_seen_at,
           lease_expires_at=excluded.lease_expires_at,
           disk_json=excluded.disk_json,
+          agent_snapshot_json=excluded.agent_snapshot_json,
           current_job_id=excluded.current_job_id,
           updated_at=excluded.updated_at
         RETURNING *`,
@@ -242,6 +244,9 @@ export function createPostgresDashboardStore({
           at.toISOString(),
           addMs(at, leaseMs).toISOString(),
           toJsonbParam(Array.isArray(input.disk) ? input.disk : jsonValue(existing?.disk_json, []), []),
+          toJsonbParam(input.agentSnapshot && typeof input.agentSnapshot === "object"
+            ? input.agentSnapshot
+            : jsonValue(existing?.agent_snapshot_json, {}), {}),
           input.currentJobId ?? existing?.current_job_id ?? null,
           createdAt,
           at.toISOString(),
@@ -269,14 +274,15 @@ export function createPostgresDashboardStore({
         db,
         `INSERT INTO machines (
           machine_id, agent_instance_id, display_name, status, platform, version,
-          last_seen_at, lease_expires_at, disk_json, current_job_id, created_at, updated_at
+          last_seen_at, lease_expires_at, disk_json, agent_snapshot_json, current_job_id, created_at, updated_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (machine_id) DO UPDATE SET
           status=excluded.status,
           last_seen_at=excluded.last_seen_at,
           lease_expires_at=excluded.lease_expires_at,
           disk_json=excluded.disk_json,
+          agent_snapshot_json=excluded.agent_snapshot_json,
           current_job_id=excluded.current_job_id,
           updated_at=excluded.updated_at
         RETURNING *`,
@@ -290,6 +296,9 @@ export function createPostgresDashboardStore({
           at.toISOString(),
           addMs(at, leaseMs).toISOString(),
           toJsonbParam(Array.isArray(input.disk) ? input.disk : jsonValue(existing.disk_json, []), []),
+          toJsonbParam(input.agentSnapshot && typeof input.agentSnapshot === "object"
+            ? input.agentSnapshot
+            : jsonValue(existing.agent_snapshot_json, {}), {}),
           input.currentJobId ?? existing.current_job_id,
           iso(existing.created_at),
           at.toISOString(),

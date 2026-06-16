@@ -108,6 +108,7 @@ test("agent register and heartbeat include protocol version", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-protocol-"));
   const calls = [];
   let runnerEnv = null;
+  let snapshotSynced = null;
   const client = {
     async register(payload) {
       calls.push(["register", payload]);
@@ -175,6 +176,10 @@ test("agent register and heartbeat include protocol version", async () => {
         percentUsed: 50,
       },
     ],
+    collectLocalSnapshotImpl: async ({ synced }) => {
+      snapshotSynced = synced;
+      return { managed: { envPath: synced.envPath } };
+    },
     projectDir: dir,
   });
 
@@ -182,6 +187,7 @@ test("agent register and heartbeat include protocol version", async () => {
   assert.equal(calls[1][0], "heartbeat");
   assert.equal(calls[0][1].agentProtocolVersion, 1);
   assert.equal(calls[1][1].agentProtocolVersion, 1);
+  assert.equal(calls[1][1].agentSnapshot.managed.envPath, snapshotSynced.envPath);
   assert.match(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, /\.tile-state\/dashboard\/control\/pause-after-range$/);
   assert.notEqual(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, "dashboard-override");
 });

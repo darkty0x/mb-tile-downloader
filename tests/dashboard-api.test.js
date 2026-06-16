@@ -134,6 +134,7 @@ test("agent can register and send heartbeat with disk snapshot", async (t) => {
       machineId: "worker-a",
       agentInstanceId: "agent-1",
       disk: [{ name: "C:", freeBytes: 100 }],
+      agentSnapshot: { managed: { configPath: ".tile-state/dashboard/configs/cfg-a.json" } },
     },
   });
 
@@ -141,6 +142,7 @@ test("agent can register and send heartbeat with disk snapshot", async (t) => {
   assert.equal(registered.body.status, "registered");
   assert.equal(heartbeat.status, 200);
   assert.equal(heartbeat.body.machine.disk[0].name, "C:");
+  assert.equal(heartbeat.body.machine.agentSnapshot.managed.configPath, ".tile-state/dashboard/configs/cfg-a.json");
 });
 
 test("agent registration conflict returns HTTP 409", async (t) => {

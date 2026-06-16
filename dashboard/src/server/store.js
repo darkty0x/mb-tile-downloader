@@ -43,6 +43,7 @@ function normalizeMachine(record, { now = null } = {}) {
     platform: record.platform,
     version: record.version,
     disk: record.disk,
+    agentSnapshot: structuredClone(record.agentSnapshot || {}),
     currentJobId: record.currentJobId,
     lastSeenAt: record.lastSeenAt,
     leaseExpiresAt: record.leaseExpiresAt,
@@ -202,6 +203,9 @@ export function createDashboardStore({
           version: input.version || existing.version || null,
           status: "online",
           disk: Array.isArray(input.disk) ? input.disk : existing.disk,
+          agentSnapshot: input.agentSnapshot && typeof input.agentSnapshot === "object"
+            ? structuredClone(input.agentSnapshot)
+            : existing.agentSnapshot || {},
           lastSeenAt: iso(at),
           leaseExpiresAt,
           updatedAt: iso(at),
@@ -218,6 +222,9 @@ export function createDashboardStore({
         platform: input.platform || null,
         version: input.version || null,
         disk: Array.isArray(input.disk) ? input.disk : [],
+        agentSnapshot: input.agentSnapshot && typeof input.agentSnapshot === "object"
+          ? structuredClone(input.agentSnapshot)
+          : {},
         currentJobId: null,
         lastSeenAt: iso(at),
         leaseExpiresAt,
@@ -242,6 +249,9 @@ export function createDashboardStore({
         ...existing,
         status: input.status || "online",
         disk: Array.isArray(input.disk) ? input.disk : existing.disk,
+        agentSnapshot: input.agentSnapshot && typeof input.agentSnapshot === "object"
+          ? structuredClone(input.agentSnapshot)
+          : existing.agentSnapshot || {},
         currentJobId: input.currentJobId ?? existing.currentJobId,
         lastSeenAt: iso(at),
         leaseExpiresAt: iso(addMs(at, leaseMs)),

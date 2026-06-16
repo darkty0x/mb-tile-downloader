@@ -8,6 +8,7 @@ CREATE TABLE IF NOT EXISTS machines (
   last_seen_at timestamptz NOT NULL,
   lease_expires_at timestamptz NOT NULL,
   disk_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+  agent_snapshot_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   current_job_id text,
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
@@ -112,3 +113,6 @@ CREATE INDEX IF NOT EXISTS secrets_machine_id_secret_type_status_idx
 
 CREATE INDEX IF NOT EXISTS secrets_secret_type_machine_id_status_created_at_idx
   ON secrets (secret_type, machine_id, status, created_at ASC);
+
+ALTER TABLE machines
+  ADD COLUMN IF NOT EXISTS agent_snapshot_json jsonb NOT NULL DEFAULT '{}'::jsonb;

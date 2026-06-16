@@ -437,13 +437,14 @@ export function ServerManagementPage({ state, actions }) {
   }
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
   const machine = targetMachineId ? state.machines.find((item) => item.machineId === targetMachineId) : null;
+  const snapshot = machine?.agentSnapshot || {};
   const validation = state.serverValidationResults[connection.secretId];
   const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
   const counts = {
-    configs: state.configs.length,
-    env: state.envProfiles.length,
-    secrets: state.secrets.length,
-    console: state.events.length,
+    configs: state.configs.length || snapshot.configs?.length || 0,
+    env: state.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
+    secrets: state.secrets.length || (snapshot.secrets ? Number(Boolean(snapshot.secrets.proxy?.exists)) + Number(snapshot.secrets.mapboxTokenCount || 0) : 0),
+    console: state.events.length || snapshot.console?.recentLines?.length || 0,
   };
   return (
     <section className="screen-enter mt-4 grid gap-4">
@@ -518,12 +519,14 @@ export function ServerManagementPage({ state, actions }) {
 }
 
 function ServerPageControl({ state, machine }) {
+  const snapshot = machine?.agentSnapshot || {};
+  const proxySummary = snapshot.secrets?.proxy;
   const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
   const latest = state.events.at(-1);
   const facts = [
-    ["layers", "Config", state.activeConfig?.name || "No Config Assigned"],
-    ["env", "Env", state.activeEnv?.name || "No Env Assigned"],
-    ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : "Missing"],
+    ["layers", "Config", state.activeConfig?.name || snapshot.managed?.activeConfigName || "No Config Assigned"],
+    ["env", "Env", state.activeEnv?.name || `${(snapshot.envFiles || []).filter((file) => file.exists).length} local files`],
+    ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `${proxySummary.availableCount} local proxies` : "Missing"],
     ["control", "Last Seen", machine ? shortDate(machine.lastSeenAt) : "Waiting"],
   ];
   return (
@@ -536,7 +539,7 @@ function ServerPageControl({ state, machine }) {
           </div>
         ))}
       </div>
-      <ServerPageDisk machine={machine} />
+      <ServerPageStorage machine={machine} />
       <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
         <StatusPill status={latest?.severity || "neutral"}>{displayStatus(latest?.severity || "Info")}</StatusPill>
         <p className="text-[12px] leading-snug text-[var(--ptg-on-surface)]">{latest?.message || "No Events Yet"}</p>
@@ -545,32 +548,57 @@ function ServerPageControl({ state, machine }) {
   );
 }
 
-function ServerPageDisk({ machine }) {
+function ServerPageStorage({ machine }) {
   const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
+  const storage = machine?.agentSnapshot?.storage || [];
   return (
-    <section className="grid gap-2">
-      <SectionTitle title="Disk Space" meta={`${disks.length} Drives`} />
-      {disks.length ? disks.map((disk) => {
-        const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
-        return (
-          <div key={`${disk.name}-${disk.mount}`} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-1">
-            <div className="min-w-0">
-              <span className="flex min-w-0 items-center gap-2">
-                <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
-                {disk.containsProject ? <StatusPill status="success">downloader</StatusPill> : null}
-              </span>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || ""} | {formatBytes(disk.freeBytes)} Free</small>
+    <section className="grid gap-3">
+      <SectionTitle title="Storage Browser" meta={`${disks.length} drives | ${storage.length} local folders`} />
+      <div className="grid grid-cols-2 gap-3 max-xl:grid-cols-1">
+        {disks.length ? disks.map((disk) => {
+          const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
+          return (
+            <div key={`${disk.name}-${disk.mount}`} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3 shadow-sm">
+              <div className="flex items-start justify-between gap-3">
+                <span className="min-w-0">
+                  <span className="flex min-w-0 items-center gap-2">
+                    <Icon name="disk" className="h-4 w-4 text-[var(--ptg-primary)]" />
+                    <strong className="block truncate text-[13px]">{disk.mount || disk.name}</strong>
+                    {disk.containsProject ? <StatusPill status="success">downloader</StatusPill> : null}
+                  </span>
+                  <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || "Local drive"} | {formatBytes(disk.totalBytes)} total | {formatBytes(disk.freeBytes)} free</small>
+                </span>
+                <strong className="text-[13px]">{pct}%</strong>
+              </div>
+              <UsageBar percent={pct} className="mt-3 w-full" />
             </div>
-            <UsageBar percent={pct} className="w-24 max-sm:w-full" />
-            <strong className="text-right text-[12px] max-sm:text-left">{pct}%</strong>
-          </div>
-        );
-      }) : <EmptyLine>No disk snapshot yet</EmptyLine>}
+          );
+        }) : <EmptyLine>No disk snapshot yet</EmptyLine>}
+      </div>
+      {storage.length ? (
+        <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2 shadow-sm">
+          {storage.map((item) => (
+            <div key={`${item.type}-${item.path}`} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2.5 hover:bg-[var(--ptg-surface-container)]">
+              <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]">
+                <Icon name={item.type === "zip" ? "upload" : item.type === "configs" ? "config" : item.type === "state" ? "settings" : "layers"} className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[12.5px]">{item.label}</strong>
+                <small className="block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                  {item.path} | {item.exists ? `${item.fileCount} files, ${item.dirCount} folders` : "not found"}{item.truncated ? " | partial scan" : ""}
+                </small>
+              </span>
+              <strong className="text-right text-[12px]">{formatBytes(item.sizeBytes)}</strong>
+            </div>
+          ))}
+        </div>
+      ) : null}
     </section>
   );
 }
 
 function ServerPageConfigs({ state, actions }) {
+  const localConfigs = state.selectedMachine?.agentSnapshot?.configs || [];
   return (
     <section className="grid gap-2">
       <SectionTitle title="Config" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Add</AppButton>} />
@@ -585,12 +613,23 @@ function ServerPageConfigs({ state, actions }) {
           <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "Active" : "Inactive"}</StatusPill>
           <TableActions type="config" id={config.configId} duplicate actions={actions} />
         </div>
+      )) : localConfigs.length ? localConfigs.map((config) => (
+        <div key={config.path} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+          <div className="min-w-0">
+            <strong className="block truncate text-[12.5px]">{config.name}</strong>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+              {displayStatus(config.provider || config.type)} | {config.ranges} ranges | {formatBytes(config.sizeBytes)}
+            </small>
+          </div>
+          <StatusPill status="neutral">Local</StatusPill>
+        </div>
       )) : <EmptyLine>No config assigned to this server</EmptyLine>}
     </section>
   );
 }
 
 function ServerPageEnv({ state, actions }) {
+  const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
   return (
     <section className="grid gap-2">
       <SectionTitle title="Env" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-env" })}>Add</AppButton>} />
@@ -603,12 +642,30 @@ function ServerPageEnv({ state, actions }) {
           <StatusPill status={profile.active ? "active" : "neutral"}>{profile.active ? "Active" : "Inactive"}</StatusPill>
           <TableActions type="env" id={profile.envProfileId} duplicate actions={actions} />
         </div>
+      )) : envFiles.length ? envFiles.map((file) => (
+        <div key={file.path} className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+          <div className="flex items-center justify-between gap-2">
+            <span className="min-w-0">
+              <strong className="block truncate text-[12.5px]">{file.path}</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{file.exists ? `${file.variableCount} variables | ${formatBytes(file.sizeBytes)}` : "not found"}</small>
+            </span>
+            <StatusPill status={file.exists ? "active" : "neutral"}>{file.exists ? "Local" : "Missing"}</StatusPill>
+          </div>
+          {file.variables?.length ? (
+            <div className="mt-2 grid grid-cols-2 gap-1.5 max-lg:grid-cols-1">
+              {file.variables.slice(0, 8).map((item) => (
+                <code key={`${file.path}-${item.name}`} className="truncate rounded-md bg-[var(--ptg-surface-container)] px-2 py-1 text-[11px] text-[var(--ptg-on-surface-variant)]">{item.name}={item.value}</code>
+              ))}
+            </div>
+          ) : null}
+        </div>
       )) : <EmptyLine>No env profile assigned to this server</EmptyLine>}
     </section>
   );
 }
 
 function ServerPageSecrets({ state, actions }) {
+  const snapshotSecrets = state.selectedMachine?.agentSnapshot?.secrets || {};
   return (
     <section className="grid gap-2">
       <SectionTitle title="Secrets" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>Add</AppButton>} />
@@ -621,14 +678,34 @@ function ServerPageSecrets({ state, actions }) {
           <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
           <TableActions type="secret" id={secret.secretId} actions={actions} />
         </div>
-      )) : <EmptyLine>No secrets assigned to this server</EmptyLine>}
+      )) : snapshotSecrets.proxy || snapshotSecrets.mapboxTokenCount ? (
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+            <span className="min-w-0">
+              <strong className="block truncate text-[12.5px]">Proxy Pool</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.proxy?.path || "proxy.txt"} | {snapshotSecrets.proxy?.availableCount || 0} local items</small>
+            </span>
+            <StatusPill status={snapshotSecrets.proxy?.exists ? "active" : "neutral"}>{snapshotSecrets.proxy?.exists ? "Loaded" : "Missing"}</StatusPill>
+          </div>
+          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+            <span className="min-w-0">
+              <strong className="block truncate text-[12.5px]">Mapbox Tokens</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.generatedEnvPath || "generated env"} | redacted</small>
+            </span>
+            <StatusPill status={snapshotSecrets.mapboxTokenCount ? "active" : "neutral"}>{snapshotSecrets.mapboxTokenCount || 0}</StatusPill>
+          </div>
+        </>
+      ) : <EmptyLine>No secrets assigned to this server</EmptyLine>}
     </section>
   );
 }
 
 function ServerPageConsole({ state, actions }) {
+  const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
   const text = state.events.length
     ? state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`).join("\n")
+    : localLines.length
+      ? localLines.join("\n")
     : "No Events Yet";
   return (
     <section className="grid gap-2">
