@@ -212,7 +212,7 @@ function ServerOnboardingForm({ state, actions }) {
 
 export function EditorDrawer({ state, actions }) {
   const { editor } = state;
-  if (editor.type === "summary" || editor.type === "server-detail") return null;
+  if (editor.type === "summary" || editor.type === "server-detail" || editor.type === "server-management") return null;
   if (editor.type === "connection-detail") {
     const connection = state.secretPool.find((item) => item.secretId === editor.id);
     if (!connection) return null;
@@ -306,9 +306,9 @@ function ConnectionDetail({ connection, state, actions }) {
         {machine ? (
           <AppButton
             icon="servers"
-            onClick={() => actions.selectMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           >
-            Open Server
+            Manage Server
           </AppButton>
         ) : null}
         <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>Edit Credentials</AppButton>
