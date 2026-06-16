@@ -273,8 +273,22 @@ export function createDashboardApp({
         if (req.method === "POST" && url.pathname === "/api/agents/events") {
           const body = await readJson(req);
           const event = await store.recordEvent(body);
+          let secret = null;
+          if (
+            secretVault?.updateAssignedSecretStatusByValueHash &&
+            body.type === "proxy.blocked" &&
+            body.machineId &&
+            body.data?.proxyHash
+          ) {
+            secret = await secretVault.updateAssignedSecretStatusByValueHash({
+              machineId: body.machineId,
+              secretType: "proxy_txt",
+              valueHash: body.data.proxyHash,
+              status: body.data.status === "disabled" ? "disabled" : "error",
+            });
+          }
           const telegram = telegramNotifier ? await telegramNotifier.notifyEvent(event) : null;
-          json(res, 200, { event, telegram });
+          json(res, 200, { event, telegram, ...(secret ? { secret } : {}) });
           return;
         }
 

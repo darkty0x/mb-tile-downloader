@@ -161,6 +161,10 @@ function describeTraceUrl(urlLike) {
   }
 }
 
+function proxyValueHash(proxy) {
+  return crypto.createHash("sha256").update(String(proxy || "").trim()).digest("hex");
+}
+
 function normalizeProxyProtocol(candidate) {
   if (typeof candidate !== "string") return "";
   const normalized = candidate.trim();
@@ -262,12 +266,28 @@ function createProgressReporter(enabled) {
         true
       );
     },
-    providerBlocked({ provider, status, count, threshold, cooldownMs, proxy, healthyProxies, totalProxies }) {
+    providerBlocked({ provider, status, count, threshold, cooldownMs, proxy, proxyHash, healthyProxies, totalProxies }) {
       if (proxy) {
         proxyBlockLogCount++;
         const remaining = Number.isInteger(healthyProxies) ? healthyProxies : null;
         const total = Number.isInteger(totalProxies) ? totalProxies : null;
         if (remaining !== 0 && proxyBlockLogCount > 5 && proxyBlockLogCount % 25 !== 0) return;
+        if (proxyHash) {
+          console.log(
+            `[event] ${JSON.stringify({
+              severity: "warn",
+              type: "proxy.blocked",
+              message: `${provider} proxy blocked by provider`,
+              data: {
+                provider,
+                providerStatus: status,
+                proxyHash,
+                status: "error",
+                cooldownMs,
+              },
+            })}`
+          );
+        }
         const pool = remaining !== null && total !== null ? ` remaining=${remaining}/${total}` : "";
         line(
           `  ⏸ ${provider} proxy blocked status=${status} hits=${count}/${threshold}${pool} cooldown=${Math.round(
@@ -422,6 +442,7 @@ function createProviderRuntime({
         count: failedAttempts,
         threshold: proxyThreshold,
         proxy,
+        proxyHash: proxyValueHash(proxy),
         healthyProxies: proxyRotation?.healthyCandidateCount?.(protocol || proxy),
         totalProxies: proxyRotation?.candidateCount?.(protocol || proxy),
         cooldownMs: globalBlock ? cooldownMs : proxyBlockMs,

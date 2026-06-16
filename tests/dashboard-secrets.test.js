@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
@@ -168,6 +169,32 @@ test("secret pool assigns mapbox keys and proxy items to only one machine", () =
   assert.equal(overlap.length, 0);
   assert.equal(proxiesA.some((secret) => /expired/.test(secret.value)), false);
   assert.equal(vault.listSecretsForBrowser().filter((secret) => secret.usage === "available" && secret.secretType === "mapbox_token").length, 1);
+});
+
+test("secret vault marks an assigned proxy unavailable by runtime-normalized value hash", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "proxy-a",
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  vault.createSecret({
+    machineId: "worker-a",
+    secretType: "proxy_txt",
+    label: "proxy-a",
+    value: "proxy-a.example:8080",
+  });
+
+  const proxyHash = createHash("sha256").update("http://proxy-a.example:8080").digest("hex");
+  const updated = vault.updateAssignedSecretStatusByValueHash({
+    machineId: "worker-a",
+    secretType: "proxy_txt",
+    valueHash: proxyHash,
+    status: "error",
+  });
+
+  assert.equal(updated.secretId, "proxy-a");
+  assert.equal(updated.status, "error");
+  assert.deepEqual(vault.listSecretsForAgent({ machineId: "worker-a" }), []);
 });
 
 test("secret vault supports update status and delete", () => {

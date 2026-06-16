@@ -120,6 +120,23 @@ function duplicateKeyForSecret(secretType, value) {
   return `${new URL(credential.protocolUrl).href}\n${credential.username}`.toLowerCase();
 }
 
+function normalizeProxyForRuntime(value) {
+  const raw = String(value || "").trim().replace(/\s+/g, "");
+  if (!raw) return "";
+  return /^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `http://${raw}`;
+}
+
+export function secretValueHash(value) {
+  return createHash("sha256").update(String(value || "").trim()).digest("hex");
+}
+
+function candidateSecretValueHashes(secretType, value) {
+  const normalized = normalizeSecretValue(secretType, value);
+  const hashes = new Set([secretValueHash(normalized)]);
+  if (secretType === "proxy_txt") hashes.add(secretValueHash(normalizeProxyForRuntime(normalized)));
+  return hashes;
+}
+
 function secretUsage(record) {
   if (record.status !== "active") return "disabled";
   return record.machineId ? "assigned" : "available";
@@ -287,6 +304,22 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
         .filter((record) => machineId === undefined || record.machineId === machineId)
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
     },
+
+    updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {
+      validateStatus(status);
+      if (!machineId) throw new Error("machineId is required");
+      if (!VALID_SECRET_TYPES.has(secretType)) throw new Error(`invalid secret type: ${secretType}`);
+      if (!valueHash) throw new Error("valueHash is required");
+      for (const record of records.values()) {
+        if (record.machineId !== machineId || record.secretType !== secretType) continue;
+        const value = decrypt(record.encryptedValue, appSecret);
+        if (!candidateSecretValueHashes(secretType, value).has(valueHash)) continue;
+        const next = { ...record, status, updatedAt: now().toISOString() };
+        records.set(record.secretId, next);
+        return normalizeSecret(next, { appSecret });
+      }
+      return null;
+    },
   };
 }
 
@@ -427,6 +460,27 @@ export function createPostgresSecretVault({
       return (await listRows({ machineId }))
         .filter((record) => record.status === "active")
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
+    },
+
+    async updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {
+      validateStatus(status);
+      if (!machineId) throw new Error("machineId is required");
+      if (!VALID_SECRET_TYPES.has(secretType)) throw new Error(`invalid secret type: ${secretType}`);
+      if (!valueHash) throw new Error("valueHash is required");
+      const rows = await listRows({ machineId });
+      for (const record of rows) {
+        if (record.secretType !== secretType) continue;
+        const value = decrypt(record.encryptedValue, appSecret);
+        if (!candidateSecretValueHashes(secretType, value).has(valueHash)) continue;
+        const result = await db.query(
+          "UPDATE secrets SET status=$1, updated_at=$2 WHERE secret_id=$3 AND machine_id=$4 RETURNING *",
+          [status, now().toISOString(), record.secretId, machineId]
+        );
+        return result.rows[0]
+          ? normalizeSecret(normalizeSecretRow(result.rows[0]), { appSecret })
+          : null;
+      }
+      return null;
     },
   };
 }
