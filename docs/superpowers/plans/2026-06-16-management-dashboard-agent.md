@@ -1,849 +1,1294 @@
-# Management Dashboard And Local Agent Implementation Plan
+# PTG Management Dashboard Completion Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Add a Railway-hosted management dashboard and control plane for multiple local `mb-tile-downloader` machines. Each machine runs a local agent that registers with a unique machine id, reports disk and job progress, executes controlled download/validate/zip/upload pipelines, streams events to the dashboard, sends Telegram notifications, and receives config/env/API-key/proxy updates from the dashboard.
+**Goal:** Finish the PTG Management Dashboard as a Railway-hosted control plane for many local `mb-tile-downloader` machines, with Postgres as the hosted source of truth and local agents handling all heavy file/download work.
 
-**Architecture:** A hosted Node control plane owns machine registration, command queue, event log, config versions, secret storage, Telegram notifications, and dashboard APIs. Each downloader machine runs an outbound-only local agent. The dashboard never directly reaches into local machines; the agent connects to Railway over WebSocket/HTTP, heartbeats status, pulls commands, runs whitelisted local workflows, and reports durable results from the local state DB and process events.
+**Architecture:** Railway runs the dashboard/API and persists fleet state in Postgres. Each Windows or Linux downloader machine runs the local agent, which registers with a unique `MACHINE_ID`, heartbeats disk/job status, syncs assigned configs/env/secrets, polls dashboard commands, executes local workflows, and reports durable results back to Railway. The dashboard must not directly run work over RDP; RDP/WinRM/SSH credentials are inventory and validation inputs, while real control goes through the outbound agent.
 
-**Tech Stack:** Existing Node ESM project, `node:test`, `better-sqlite3` for local state, Railway-hosted Node server, Railway Postgres for dashboard state, WebSocket or Server-Sent Events for live updates, React/Vite dashboard UI, Telegram Bot API, existing `downloader.js`, `zip-maker.js`, and `storj-uploader.js` scripts.
+**Tech Stack:** Node ESM, `node:test`, Railway Postgres via `pg`, Next.js static export, Tailwind CSS, Material Web components, custom PTG SVG icon system, local SQLite state DB, existing downloader/validator/zip/Storj scripts.
+
+---
+
+## Current Status
+
+- [x] Railway Backend is deployed from `feature/management-dashboard-agent`.
+- [x] Railway Postgres exists and Backend has `DATABASE_URL`.
+- [x] Production dashboard now fails startup when `NODE_ENV=production` and `DATABASE_URL` is missing.
+- [x] Dashboard schema exists for machines, events, commands, jobs, configs, env profiles, secrets, and settings.
+- [x] Dashboard can register machines, reject live `MACHINE_ID` conflicts, receive heartbeats, and remove machines.
+- [x] Local agent has persistent instance identity, heartbeat, disk collection, config/env/secrets sync, and command polling.
+- [x] Command execution is allowlisted; arbitrary shell commands are rejected.
+- [x] Basic range pipeline order is implemented: download, validate, zip, upload.
+- [x] Dashboard can store configs, env profiles, encrypted secrets, credentials, server connection profiles, and alert thresholds.
+- [x] Config creation supports selecting multiple config templates and splitting one config across selected machines.
+- [x] Mapbox and proxy secrets are treated as one-server-only pool resources.
+- [x] Proxy pool materializes to local root `proxy.txt`.
+- [x] Server connection validation exists, but it is not enough as an operational readiness check.
+- [x] PTG UI shell exists, but the dashboard is still too monolithic and does not fully match the requested reference quality.
+- [ ] Job progress is not yet a first-class durable API surface for the dashboard.
+- [ ] Agent pipeline does not yet persist every stage result to dashboard jobs.
+- [ ] Overview, Servers, Secrets, Credentials, Configs, Pipelines, Events, Alerts, and Settings pages need clearer separation and page-specific workflows.
+- [ ] The right-side "select server" style panel should be removed from the final layout.
+- [ ] Server add/remove/onboarding needs a complete operator flow with generated agent install/run commands.
+- [ ] Storj upload readiness still needs a machine-level preflight and dashboard-visible diagnostics.
+- [ ] Live dashboard sync needs an aggregated snapshot endpoint and predictable polling for 9 to 100+ servers.
+- [ ] Telegram and web console notifications need a consistent event policy and deduping.
 
 ---
 
 ## Source Of Truth
 
-The current durable source of truth for tile progress is the local SQLite state DB created by `src/state/state-db.js`. The dashboard must not infer completion from stdout only. The agent reports stdout events for visibility, but it confirms range/job completion from durable state, zip files, and Storj upload results.
+Hosted source of truth:
 
-The hosted source of truth for fleet state is Railway Postgres:
+- Railway Postgres stores dashboard state.
+- `machines` stores registration, lease, heartbeat, disk snapshot, and selected job.
+- `machine_commands` stores requested dashboard commands and agent acknowledgements.
+- `machine_events` stores operator-visible event history for the web console and Telegram.
+- `machine_jobs` stores durable pipeline stage status and progress.
+- `configs` stores dashboard-managed config versions.
+- `env_profiles` stores dashboard-managed non-secret env versions.
+- `secrets` stores encrypted Mapbox keys, proxy items, credentials, and service secrets.
+- `dashboard_settings` stores alert thresholds and UI/runtime settings.
 
-- `machines`: unique machine id, active lease, heartbeat, disk snapshot.
-- `commands`: requested dashboard actions and agent acknowledgements.
-- `events`: append-only event stream for dashboard console and Telegram.
-- `configs`: dashboard-managed config versions assigned to machines.
-- `env_profiles`: dashboard-managed non-secret runtime environment variables assigned to machines.
-- `secrets`: encrypted Mapbox keys, proxy text, and Storj/Telegram metadata.
-- `jobs`: high-level pipeline status and current stage.
+Local source of truth:
 
-Machine conflict rule:
+- `.tile-state/agent-id.json` stores the local agent instance id.
+- `.tile-state/dashboard/configs/` stores materialized dashboard configs.
+- `.tile-state/dashboard/env.generated` stores materialized dashboard env profiles.
+- `.tile-state/dashboard/secrets.env.generated` stores materialized secret env values.
+- root `proxy.txt` stores the paid proxy list used by the downloader.
+- `.tile-state/*.sqlite` remains the tile download progress source of truth.
+- Zip files and Storj upload receipts are the source of truth for packaging/upload completion.
 
-- `MACHINE_ID` is the operator-visible stable id set in `.env`.
-- Agent creates a persistent `agentInstanceId` in `.tile-state/agent-id.json`.
-- Same `MACHINE_ID` plus same `agentInstanceId` may reconnect.
-- Same `MACHINE_ID` plus different live `agentInstanceId` is rejected while the old lease is active.
-- Reuse is allowed only after `lease_expires_at`.
+Machine control rule:
+
+- Dashboard must control servers through the agent command queue.
+- RDP credentials can be stored, validated, and shown as an operator connection profile.
+- RDP alone cannot prove the downloader is configured or controllable.
+- A server is operational only when the dashboard sees a matching online agent plus successful preflight.
 
 ---
 
-## Target File Layout
+## Updated File Map
 
-Create:
+Already existing core files:
 
 ```text
-dashboard/
-  package.json
-  src/server/app.js
-  src/server/config.js
-  src/server/db.js
-  src/server/schema.sql
-  src/server/machines.js
-  src/server/commands.js
-  src/server/events.js
-  src/server/configs.js
-  src/server/env.js
-  src/server/secrets.js
-  src/server/telegram.js
-  src/server/ws.js
-  src/client/index.html
-  src/client/src/App.jsx
-  src/client/src/api.js
-  src/client/src/components/MachineList.jsx
-  src/client/src/components/MachineDetail.jsx
-  src/client/src/components/DiskPanel.jsx
-  src/client/src/components/JobPanel.jsx
-  src/client/src/components/EventConsole.jsx
-  src/client/src/components/ConfigEditor.jsx
-  src/client/src/components/EnvEditor.jsx
-  src/client/src/components/SecretsPanel.jsx
-
-src/agent/
-  agent.js
-  identity.js
-  control-client.js
-  disk.js
-  pipeline.js
-  process-runner.js
-  config-sync.js
-  env-materializer.js
-  secret-materializer.js
-  progress-events.js
-
-src/runtime/
-  event-reporter.js
-
-tests/
-  agent-identity.test.js
-  agent-disk.test.js
-  agent-pipeline.test.js
-  dashboard-machine-conflict.test.js
-  dashboard-events.test.js
-  dashboard-env.test.js
-  dashboard-secrets.test.js
-  dashboard-telegram.test.js
+dashboard/src/server/app.js
+dashboard/src/server/config.js
+dashboard/src/server/db.js
+dashboard/src/server/postgres-store.js
+dashboard/src/server/schema.sql
+dashboard/src/server/secrets.js
+dashboard/src/server/settings.js
+dashboard/src/server/store.js
+dashboard/src/server/telegram.js
+dashboard/client/app/page.jsx
+dashboard/client/components/dashboard-app.jsx
+dashboard/client/components/icons.jsx
+dashboard/client/components/ui.jsx
+dashboard/client/lib/overview-model.js
+src/agent/agent.js
+src/agent/config-sync.js
+src/agent/control-client.js
+src/agent/disk.js
+src/agent/env-materializer.js
+src/agent/identity.js
+src/agent/pipeline.js
+src/agent/process-runner.js
+src/agent/progress-events.js
+src/agent/secret-materializer.js
+src/config/config-splitter.js
+src/state/state-db.js
 ```
 
-Modify:
+Create or split during remaining work:
 
 ```text
-package.json
-downloader.js
+dashboard/client/components/layout.jsx
+dashboard/client/components/pages/overview-page.jsx
+dashboard/client/components/pages/servers-page.jsx
+dashboard/client/components/pages/secrets-page.jsx
+dashboard/client/components/pages/credentials-page.jsx
+dashboard/client/components/pages/configs-page.jsx
+dashboard/client/components/pages/pipelines-page.jsx
+dashboard/client/components/pages/events-page.jsx
+dashboard/client/components/pages/alerts-page.jsx
+dashboard/client/components/pages/settings-page.jsx
+dashboard/client/lib/config-builder-model.js
+dashboard/client/lib/job-model.js
+dashboard/client/lib/secret-pool-model.js
+src/agent/job-reporter.js
+src/agent/preflight.js
+tests/dashboard-jobs.test.js
+tests/dashboard-snapshot.test.js
+tests/dashboard-server-onboarding.test.js
+tests/dashboard-config-builder.test.js
+tests/dashboard-secret-pool.test.js
+tests/agent-job-reporter.test.js
+tests/agent-preflight.test.js
+```
+
+Modify during remaining work:
+
+```text
+dashboard/src/server/app.js
+dashboard/src/server/postgres-store.js
+dashboard/src/server/schema.sql
+dashboard/src/server/store.js
+dashboard/client/components/dashboard-app.jsx
+dashboard/client/components/icons.jsx
+dashboard/client/components/ui.jsx
+dashboard/client/lib/overview-model.js
+src/agent/agent.js
+src/agent/control-client.js
+src/agent/pipeline.js
+src/agent/process-runner.js
 zip-maker.js
 storj-uploader.js
-src/config/config-loader.js
+downloader.js
 ```
 
 ---
 
-## Phase 1: Control Plane Skeleton
+## Task 1: Durable Job API
 
-- [ ] Add a nested `dashboard/package.json` with server and client scripts:
+**Files:**
+- Modify: `dashboard/src/server/store.js`
+- Modify: `dashboard/src/server/postgres-store.js`
+- Modify: `dashboard/src/server/app.js`
+- Test: `tests/dashboard-jobs.test.js`
 
-```json
-{
-  "type": "module",
-  "scripts": {
-    "dev": "node src/server/app.js",
-    "test": "node --test ../../tests/dashboard-*.test.js",
-    "build": "vite build src/client",
-    "start": "node src/server/app.js"
-  },
-  "dependencies": {
-    "@vitejs/plugin-react": "latest",
-    "vite": "latest",
-    "react": "latest",
-    "react-dom": "latest",
-    "pg": "latest",
-    "ws": "latest"
-  },
-  "devDependencies": {}
-}
+- [ ] **Step 1: Write failing store tests**
+
+Add `tests/dashboard-jobs.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { createDashboardStore } from "../dashboard/src/server/store.js";
+
+test("dashboard store persists job lifecycle updates", async () => {
+  const store = createDashboardStore();
+
+  await store.upsertJob({
+    jobId: "job-1",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { rangeIndex: 0, tilesDone: 25, tilesTotal: 100 },
+  });
+
+  await store.upsertJob({
+    jobId: "job-1",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "validate",
+    progress: { rangeIndex: 0, tilesDone: 100, tilesTotal: 100 },
+  });
+
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  assert.equal(jobs.length, 1);
+  assert.equal(jobs[0].jobId, "job-1");
+  assert.equal(jobs[0].stage, "validate");
+  assert.equal(jobs[0].progress.tilesDone, 100);
+});
 ```
 
-- [ ] Add `dashboard/src/server/schema.sql` with concrete tables:
-
-```sql
-CREATE TABLE IF NOT EXISTS machines (
-  machine_id text PRIMARY KEY,
-  agent_instance_id text NOT NULL,
-  display_name text NOT NULL,
-  status text NOT NULL,
-  platform text,
-  version text,
-  last_seen_at timestamptz NOT NULL,
-  lease_expires_at timestamptz NOT NULL,
-  disk_json jsonb NOT NULL DEFAULT '[]'::jsonb,
-  current_job_id text,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS machine_events (
-  id bigserial PRIMARY KEY,
-  machine_id text NOT NULL,
-  job_id text,
-  severity text NOT NULL,
-  type text NOT NULL,
-  message text NOT NULL,
-  data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  created_at timestamptz NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS machine_commands (
-  id bigserial PRIMARY KEY,
-  machine_id text NOT NULL,
-  command_type text NOT NULL,
-  payload_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  status text NOT NULL DEFAULT 'queued',
-  requested_by text,
-  requested_at timestamptz NOT NULL DEFAULT now(),
-  claimed_at timestamptz,
-  completed_at timestamptz,
-  error text
-);
-
-CREATE TABLE IF NOT EXISTS machine_jobs (
-  job_id text PRIMARY KEY,
-  machine_id text NOT NULL,
-  config_id text NOT NULL,
-  range_id text,
-  status text NOT NULL,
-  stage text NOT NULL,
-  progress_json jsonb NOT NULL DEFAULT '{}'::jsonb,
-  started_at timestamptz,
-  finished_at timestamptz,
-  error text
-);
-
-CREATE TABLE IF NOT EXISTS configs (
-  config_id text PRIMARY KEY,
-  machine_id text,
-  name text NOT NULL,
-  version integer NOT NULL,
-  config_json jsonb NOT NULL,
-  active boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(machine_id, name, version)
-);
-
-CREATE TABLE IF NOT EXISTS env_profiles (
-  env_profile_id text PRIMARY KEY,
-  machine_id text,
-  name text NOT NULL,
-  version integer NOT NULL,
-  env_json jsonb NOT NULL,
-  active boolean NOT NULL DEFAULT false,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now(),
-  UNIQUE(machine_id, name, version)
-);
-
-CREATE TABLE IF NOT EXISTS secrets (
-  secret_id text PRIMARY KEY,
-  machine_id text,
-  secret_type text NOT NULL,
-  label text NOT NULL,
-  encrypted_value text NOT NULL,
-  status text NOT NULL DEFAULT 'active',
-  last_checked_at timestamptz,
-  created_at timestamptz NOT NULL DEFAULT now(),
-  updated_at timestamptz NOT NULL DEFAULT now()
-);
-```
-
-- [ ] Add `dashboard/src/server/db.js` that opens `DATABASE_URL`, runs schema on boot, and exports `query(sql, params)`.
-- [ ] Add `dashboard/src/server/app.js` with:
-  - `GET /health` returning `{ ok: true }`
-  - `GET /api/machines`
-  - `GET /api/machines/:machineId`
-  - `GET /api/events?machineId=...`
-  - `POST /api/machines/:machineId/commands`
-  - `GET /api/configs?machineId=...`
-  - `POST /api/configs`
-  - `PUT /api/configs/:configId`
-  - `DELETE /api/configs/:configId`
-  - `GET /api/env-profiles?machineId=...`
-  - `POST /api/env-profiles`
-  - `PUT /api/env-profiles/:envProfileId`
-  - `DELETE /api/env-profiles/:envProfileId`
-  - `GET /api/secrets?machineId=...`
-  - `POST /api/secrets`
-  - `PUT /api/secrets/:secretId`
-  - `DELETE /api/secrets/:secretId`
-
-- [ ] Add `tests/dashboard-machine-conflict.test.js` using a test DB adapter or in-memory fake query layer. Test:
-  - first registration succeeds
-  - same `machine_id` and same `agent_instance_id` renews lease
-  - same `machine_id` and different live `agent_instance_id` returns conflict
-  - expired lease allows takeover
-
-- [ ] Verify:
+- [ ] **Step 2: Run the failing test**
 
 ```bash
 cd /Users/dell/Downloads/Projects/mb-tile-downloader
-npm install --prefix dashboard
-npm test -- --runInBand
-node --test tests/dashboard-machine-conflict.test.js
+node --test tests/dashboard-jobs.test.js
 ```
 
-Expected result: dashboard conflict tests pass and `/health` responds when `DATABASE_URL` is set.
+Expected before implementation: FAIL because `upsertJob` and `listJobs` are missing or incomplete.
+
+- [ ] **Step 3: Implement in-memory and Postgres job methods**
+
+Add these methods to both dashboard stores:
+
+```js
+async upsertJob({ jobId, machineId, configId, rangeId = null, status, stage, progress = {}, error = null }) {
+  // In-memory store uses a Map keyed by jobId.
+  // Postgres store uses INSERT ... ON CONFLICT (job_id) DO UPDATE.
+}
+
+async listJobs({ machineId = null } = {}) {
+  // Return newest jobs first and normalize progressJson/progress_json to `progress`.
+}
+```
+
+Postgres query shape:
+
+```sql
+INSERT INTO machine_jobs (
+  job_id, machine_id, config_id, range_id, status, stage, progress_json,
+  started_at, finished_at, error
+) VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, COALESCE($8, now()), $9, $10)
+ON CONFLICT (job_id) DO UPDATE SET
+  status = EXCLUDED.status,
+  stage = EXCLUDED.stage,
+  progress_json = EXCLUDED.progress_json,
+  finished_at = EXCLUDED.finished_at,
+  error = EXCLUDED.error;
+```
+
+- [ ] **Step 4: Add job API routes**
+
+Add routes to `dashboard/src/server/app.js`:
+
+```text
+GET /api/jobs
+GET /api/jobs?machineId=server-01
+POST /api/agent/jobs
+PUT /api/agent/jobs/:jobId
+```
+
+`POST` and `PUT` must require the agent bearer token. Browser `GET` remains readable for the dashboard UI.
+
+- [ ] **Step 5: Verify**
+
+```bash
+node --test tests/dashboard-jobs.test.js tests/dashboard-api.test.js
+npm --prefix dashboard test
+```
+
+Expected result: all dashboard tests pass.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add dashboard/src/server/app.js dashboard/src/server/store.js dashboard/src/server/postgres-store.js tests/dashboard-jobs.test.js
+git commit -m "Add durable dashboard job API"
+```
 
 ---
 
-## Phase 2: Agent Identity And Registration
+## Task 2: Agent Job Reporter And Durable Pipeline Status
 
-- [ ] Add root script entries to `package.json`:
+**Files:**
+- Create: `src/agent/job-reporter.js`
+- Modify: `src/agent/pipeline.js`
+- Modify: `src/agent/agent.js`
+- Modify: `src/agent/control-client.js`
+- Test: `tests/agent-job-reporter.test.js`
+- Test: `tests/agent-pipeline.test.js`
+
+- [ ] **Step 1: Write failing reporter test**
+
+Create `tests/agent-job-reporter.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { createJobReporter } from "../src/agent/job-reporter.js";
+
+test("job reporter posts start stage and completion updates", async () => {
+  const calls = [];
+  const client = {
+    postJob: async (body) => calls.push(["post", body]),
+    updateJob: async (jobId, body) => calls.push(["put", jobId, body]),
+  };
+
+  const reporter = createJobReporter({
+    client,
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    jobId: "job-1",
+  });
+
+  await reporter.start({ stage: "download" });
+  await reporter.stage({ stage: "validate", progress: { tilesDone: 100, tilesTotal: 100 } });
+  await reporter.complete({ stage: "upload" });
+
+  assert.deepEqual(calls.map((call) => call[0]), ["post", "put", "put"]);
+  assert.equal(calls[0][1].status, "running");
+  assert.equal(calls[1][2].stage, "validate");
+  assert.equal(calls[2][2].status, "completed");
+});
+```
+
+- [ ] **Step 2: Implement reporter**
+
+Create `src/agent/job-reporter.js`:
+
+```js
+export function createJobReporter({ client, machineId, configId, rangeId, jobId }) {
+  async function start({ stage, progress = {} }) {
+    await client.postJob({ jobId, machineId, configId, rangeId, status: "running", stage, progress });
+  }
+
+  async function stage({ stage, progress = {} }) {
+    await client.updateJob(jobId, { status: "running", stage, progress });
+  }
+
+  async function complete({ stage, progress = {} }) {
+    await client.updateJob(jobId, { status: "completed", stage, progress });
+  }
+
+  async function fail({ stage, error, progress = {} }) {
+    await client.updateJob(jobId, { status: "failed", stage, error: error.message || String(error), progress });
+  }
+
+  return { start, stage, complete, fail };
+}
+```
+
+- [ ] **Step 3: Add control client methods**
+
+Add to `src/agent/control-client.js`:
+
+```js
+postJob(body) {
+  return request("/api/agent/jobs", { method: "POST", body });
+}
+
+updateJob(jobId, body) {
+  return request(`/api/agent/jobs/${encodeURIComponent(jobId)}`, { method: "PUT", body });
+}
+```
+
+- [ ] **Step 4: Wire reporter into pipeline**
+
+Update `src/agent/pipeline.js` so each range emits:
+
+```text
+pipeline.started
+range.download.started
+range.download.completed
+range.validate.started
+range.validate.completed
+range.zip.started
+range.zip.completed
+range.upload.started
+range.upload.completed
+pipeline.completed
+pipeline.failed
+```
+
+The pipeline must call `reporter.fail()` before throwing when a stage fails.
+
+- [ ] **Step 5: Verify**
+
+```bash
+node --test tests/agent-job-reporter.test.js tests/agent-pipeline.test.js
+npm --prefix dashboard test
+```
+
+Expected result: all tests pass and pipeline failures stop before zip/upload.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add src/agent/job-reporter.js src/agent/control-client.js src/agent/pipeline.js src/agent/agent.js tests/agent-job-reporter.test.js tests/agent-pipeline.test.js
+git commit -m "Report durable agent pipeline jobs"
+```
+
+---
+
+## Task 3: Fleet Snapshot API For 100+ Servers
+
+**Files:**
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/src/server/store.js`
+- Modify: `dashboard/src/server/postgres-store.js`
+- Create: `dashboard/client/lib/job-model.js`
+- Test: `tests/dashboard-snapshot.test.js`
+
+- [ ] **Step 1: Write failing snapshot test**
+
+Create `tests/dashboard-snapshot.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { createDashboardStore } from "../dashboard/src/server/store.js";
+
+test("snapshot returns fleet data in one read model", async () => {
+  const store = createDashboardStore();
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-1",
+    displayName: "Server 01",
+    platform: "win32",
+    version: "test",
+  });
+  await store.upsertJob({
+    jobId: "job-1",
+    machineId: "server-01",
+    configId: "cfg-1",
+    status: "running",
+    stage: "download",
+    progress: { percent: 35 },
+  });
+
+  const snapshot = await store.getSnapshot();
+  assert.equal(snapshot.machines.length, 1);
+  assert.equal(snapshot.jobs[0].stage, "download");
+  assert.ok(Array.isArray(snapshot.events));
+});
+```
+
+- [ ] **Step 2: Add `store.getSnapshot()`**
+
+The snapshot must return:
+
+```js
+{
+  machines,
+  jobs,
+  events,
+  configs,
+  settings,
+  secretPool
+}
+```
+
+Use one Postgres query per table for now. Do not call machine-specific endpoints in a loop.
+
+- [ ] **Step 3: Add browser route**
+
+Add:
+
+```text
+GET /api/snapshot
+```
+
+This endpoint powers overview and list pages.
+
+- [ ] **Step 4: Update client refresh**
+
+Change `dashboard/client/components/dashboard-app.jsx` to call `/api/snapshot` during normal refresh. Keep machine-specific calls only for selected server detail views.
+
+- [ ] **Step 5: Verify**
+
+```bash
+node --test tests/dashboard-snapshot.test.js tests/dashboard-ui-metrics.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: overview data loads from one aggregated endpoint.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add dashboard/src/server/app.js dashboard/src/server/store.js dashboard/src/server/postgres-store.js dashboard/client/components/dashboard-app.jsx dashboard/client/lib/job-model.js tests/dashboard-snapshot.test.js
+git commit -m "Add fleet snapshot read model"
+```
+
+---
+
+## Task 4: Server Onboarding, Add, Remove, Validate, Preflight
+
+**Files:**
+- Create: `src/agent/preflight.js`
+- Modify: `src/agent/process-runner.js`
+- Modify: `src/agent/agent.js`
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/client/components/pages/servers-page.jsx`
+- Test: `tests/agent-preflight.test.js`
+- Test: `tests/dashboard-server-onboarding.test.js`
+
+- [ ] **Step 1: Define operational readiness**
+
+A server is ready only when all checks pass:
+
+```js
+{
+  tcpReachable: true,
+  agentOnline: true,
+  machineIdMatchesCredential: true,
+  agentVersionPresent: true,
+  projectDirPresent: true,
+  nodePresent: true,
+  yarnOrNpmPresent: true,
+  storjReady: true,
+  writableStateDir: true,
+  writableOutputDir: true
+}
+```
+
+- [ ] **Step 2: Write preflight test**
+
+Create `tests/agent-preflight.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { runPreflight } from "../src/agent/preflight.js";
+
+test("agent preflight reports downloader runtime readiness", async () => {
+  const result = await runPreflight({
+    env: { MACHINE_ID: "server-01" },
+    projectDir: "/tmp/project",
+    checks: {
+      pathExists: async () => true,
+      commandWorks: async () => true,
+      canWrite: async () => true,
+    },
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.machineId, "server-01");
+  assert.equal(result.checks.nodePresent, true);
+});
+```
+
+- [ ] **Step 3: Implement preflight**
+
+Create `src/agent/preflight.js` with injected checks for tests and real checks for runtime:
+
+```js
+export async function runPreflight({ env = process.env, projectDir = process.cwd(), checks = realChecks() } = {}) {
+  const result = {
+    machineId: env.MACHINE_ID || "",
+    projectDir,
+    checks: {
+      projectDirPresent: await checks.pathExists(projectDir),
+      nodePresent: await checks.commandWorks(process.execPath, ["--version"]),
+      yarnOrNpmPresent: await checks.commandWorks(process.platform === "win32" ? "npm.cmd" : "npm", ["--version"]),
+      writableStateDir: await checks.canWrite(".tile-state"),
+      writableOutputDir: await checks.canWrite("tiles"),
+      storjReady: await checks.commandWorks(process.platform === "win32" ? "uplink.exe" : "uplink", ["version"]),
+    },
+  };
+  result.ok = Object.values(result.checks).every(Boolean);
+  return result;
+}
+```
+
+- [ ] **Step 4: Add dashboard validate/preflight flow**
+
+Update server routes:
+
+```text
+POST /api/server-connections
+POST /api/server-connections/:secretId/validate
+POST /api/server-connections/:secretId/preflight
+```
+
+`validate` checks TCP reachability and matching online agent. `preflight` queues a `run_preflight` command for the matching machine and returns the queued command id.
+
+- [ ] **Step 5: Add Servers page flow**
+
+The Servers page must show:
+
+```text
+Add Server button
+Server table: name, machine id, status, disk peak, platform, last seen, validation, actions
+Onboarding drawer: protocol, host, port, username, password, machine id, label
+Generated command: MACHINE_ID=... DASHBOARD_URL=... AGENT_TOKEN=... npm run agent
+Actions: Validate, Queue Preflight, Remove
+```
+
+Remove the separate right-side "select server" panel from the final layout.
+
+- [ ] **Step 6: Verify**
+
+```bash
+node --test tests/agent-preflight.test.js tests/dashboard-server-onboarding.test.js tests/dashboard-machine-conflict.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: adding a server stores encrypted credentials, validation is explicit, and removal releases scoped resources.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add src/agent/preflight.js src/agent/process-runner.js src/agent/agent.js dashboard/src/server/app.js dashboard/client/components/pages/servers-page.jsx tests/agent-preflight.test.js tests/dashboard-server-onboarding.test.js
+git commit -m "Add server onboarding preflight"
+```
+
+---
+
+## Task 5: Page-Based Dashboard UI Redesign
+
+**Files:**
+- Create: `dashboard/client/components/layout.jsx`
+- Create: `dashboard/client/components/pages/overview-page.jsx`
+- Create: `dashboard/client/components/pages/servers-page.jsx`
+- Create: `dashboard/client/components/pages/secrets-page.jsx`
+- Create: `dashboard/client/components/pages/credentials-page.jsx`
+- Create: `dashboard/client/components/pages/configs-page.jsx`
+- Create: `dashboard/client/components/pages/pipelines-page.jsx`
+- Create: `dashboard/client/components/pages/events-page.jsx`
+- Create: `dashboard/client/components/pages/alerts-page.jsx`
+- Create: `dashboard/client/components/pages/settings-page.jsx`
+- Modify: `dashboard/client/components/dashboard-app.jsx`
+- Modify: `dashboard/client/components/ui.jsx`
+- Modify: `dashboard/client/components/icons.jsx`
+- Modify: `dashboard/client/app/globals.css`
+- Test: `tests/dashboard-ui-metrics.test.js`
+
+- [ ] **Step 1: Split monolithic dashboard**
+
+`dashboard-app.jsx` should own state and route selected pages. Individual page files render page-specific content.
+
+Route map:
+
+```js
+const PAGES = {
+  overview: OverviewPage,
+  servers: ServersPage,
+  secrets: SecretsPage,
+  credentials: CredentialsPage,
+  configs: ConfigsPage,
+  pipelines: PipelinesPage,
+  events: EventsPage,
+  alerts: AlertsPage,
+  settings: SettingsPage,
+};
+```
+
+- [ ] **Step 2: Implement final layout**
+
+Final layout requirements:
+
+```text
+Dark PTG shell
+Icon-only left rail with PTG logo
+Top search bar
+Notification icon
+Refresh icon in top bar only
+Admin/profile control in top bar
+No bottom refresh button
+No right-side select-server empty panel
+Main content changes by sidebar page
+Compact font scale
+Dense but readable spacing
+Material 3 state layers and motion timing
+Custom PTG icon system retained
+```
+
+- [ ] **Step 3: Implement Overview page**
+
+Overview must show useful fleet state, not an empty table:
+
+```text
+Hero summary
+Servers online
+Active jobs
+Tile throughput
+Storage pressure
+Failed tiles/jobs
+Resource alerts
+Workflow timeline
+Fleet health
+Disk capacity
+Recent events
+```
+
+- [ ] **Step 4: Implement Servers page**
+
+Servers page owns server table and server onboarding drawer. It must not depend on a global selected-server side panel.
+
+- [ ] **Step 5: Implement Settings page**
+
+Settings page owns editable alert thresholds and sync settings:
+
+```js
+{
+  alertThresholds: {
+    mapboxTokensPerServer: 2,
+    proxiesPerServer: 50
+  },
+  sync: {
+    dashboardPollMs: 5000,
+    heartbeatMs: 30000
+  }
+}
+```
+
+- [ ] **Step 6: Browser verification**
+
+Run:
+
+```bash
+npm --prefix dashboard run build
+npm --prefix dashboard run start
+```
+
+Open:
+
+```text
+http://127.0.0.1:3001
+```
+
+Verify desktop widths:
+
+```text
+1440 x 900
+1280 x 720
+390 x 844
+```
+
+Check:
+
+```text
+No overlapping text
+No oversized table-only empty overview
+No stale select-server side panel
+Logo visible and compact
+Icons clear
+Refresh lives in top bar
+```
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add dashboard/client dashboard/src/client/dist tests/dashboard-ui-metrics.test.js
+git commit -m "Refine PTG dashboard page layout"
+```
+
+---
+
+## Task 6: Config Builder Completion
+
+**Files:**
+- Create: `dashboard/client/lib/config-builder-model.js`
+- Modify: `dashboard/src/server/config-templates.js`
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/client/components/pages/configs-page.jsx`
+- Test: `tests/dashboard-config-builder.test.js`
+- Test: `tests/dashboard-configs.test.js`
+
+- [ ] **Step 1: Write config builder model tests**
+
+Create `tests/dashboard-config-builder.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { buildConfigBuilderSummary } from "../dashboard/client/lib/config-builder-model.js";
+
+test("config builder summarizes selected types and split targets", () => {
+  const summary = buildConfigBuilderSummary({
+    templates: [
+      { templateId: "esri-satellite", name: "Esri Satellite" },
+      { templateId: "mapbox-satellite", name: "Mapbox Satellite" },
+      { templateId: "mapbox-pbf", name: "Mapbox PBF" },
+    ],
+    selectedTemplateIds: ["esri-satellite", "mapbox-pbf"],
+    selectedMachineIds: ["server-01", "server-02"],
+    splitAcrossMachines: true,
+  });
+
+  assert.equal(summary.configTypes, 2);
+  assert.equal(summary.targetServers, 2);
+  assert.equal(summary.splitAcrossMachines, true);
+});
+```
+
+- [ ] **Step 2: Ensure all config templates are exposed**
+
+The config builder must list every available root template:
+
+```text
+esri-satellite
+mapbox-satellite
+mapbox-pbf
+any other *.config.json template in configs/
+```
+
+Do not edit root configs while creating dashboard-managed configs.
+
+- [ ] **Step 3: Improve Configs page**
+
+Configs page must support:
+
+```text
+Multi-select config type
+Multi-select target servers
+Split one selected config across many servers
+Create one config per type per selected server when split is off
+Mark created configs active
+Edit config JSON with validation
+Delete config
+Show assigned server and active version
+```
+
+- [ ] **Step 4: Verify**
+
+```bash
+node --test tests/dashboard-config-builder.test.js tests/dashboard-configs.test.js tests/config-splitter.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: selected config types and target servers create predictable config records.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add dashboard/client/lib/config-builder-model.js dashboard/client/components/pages/configs-page.jsx dashboard/src/server/config-templates.js dashboard/src/server/app.js tests/dashboard-config-builder.test.js tests/dashboard-configs.test.js
+git commit -m "Complete dashboard config builder"
+```
+
+---
+
+## Task 7: Secrets And Credentials Resource Manager
+
+**Files:**
+- Create: `dashboard/client/lib/secret-pool-model.js`
+- Modify: `dashboard/src/server/secrets.js`
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/client/components/pages/secrets-page.jsx`
+- Modify: `dashboard/client/components/pages/credentials-page.jsx`
+- Test: `tests/dashboard-secret-pool.test.js`
+- Test: `tests/dashboard-secrets.test.js`
+
+- [ ] **Step 1: Write pool summary test**
+
+Create `tests/dashboard-secret-pool.test.js`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { summarizeSecretPool } from "../dashboard/client/lib/secret-pool-model.js";
+
+test("secret pool summary separates available assigned and disabled items", () => {
+  const summary = summarizeSecretPool([
+    { secretType: "mapbox_token", status: "active", machineId: null },
+    { secretType: "mapbox_token", status: "active", machineId: "server-01" },
+    { secretType: "proxy_txt", status: "disabled", machineId: null },
+  ]);
+
+  assert.equal(summary.mapbox_token.available, 1);
+  assert.equal(summary.mapbox_token.assigned, 1);
+  assert.equal(summary.proxy_txt.disabled, 1);
+});
+```
+
+- [ ] **Step 2: Secrets page**
+
+Secrets page owns:
+
+```text
+Mapbox API keys
+Proxy pool
+Bulk proxy import from comma-separated or newline-separated URLs
+Status: active, disabled, inactive, error
+Assigned machine id
+Disable expired/used/bad items
+Delete item
+Pool alert line from Settings
+```
+
+- [ ] **Step 3: Credentials page**
+
+Credentials page owns protocol accounts:
+
+```text
+Storj account/login/access metadata
+PowerVPS account/login metadata
+Proxyscrape account/login/API metadata
+RDP/SSH/WinRM server connection profiles
+Username and password encrypted only
+Protocol URL parsed and displayed without password
+No plaintext secret values in browser lists
+```
+
+- [ ] **Step 4: Keep assignment rules strict**
+
+For resource pool items:
+
+```text
+One active Mapbox key can be assigned to only one machine.
+One active proxy item can be assigned to only one machine.
+Disabled, inactive, and error items are never sent to agents.
+If available Mapbox keys <= mapboxTokensPerServer * serverCount, raise alert.
+If available proxies <= proxiesPerServer * serverCount, raise alert.
+```
+
+- [ ] **Step 5: Verify**
+
+```bash
+node --test tests/dashboard-secret-pool.test.js tests/dashboard-secrets.test.js tests/agent-sync.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: browser never receives plaintext passwords and agents receive only assigned active secrets.
+
+- [ ] **Step 6: Commit**
+
+```bash
+git add dashboard/client/lib/secret-pool-model.js dashboard/client/components/pages/secrets-page.jsx dashboard/client/components/pages/credentials-page.jsx dashboard/src/server/secrets.js dashboard/src/server/app.js tests/dashboard-secret-pool.test.js tests/dashboard-secrets.test.js
+git commit -m "Complete secrets and credentials manager"
+```
+
+---
+
+## Task 8: Storj Upload Diagnostics
+
+**Files:**
+- Modify: `storj-uploader.js`
+- Modify: `src/agent/preflight.js`
+- Modify: `src/agent/pipeline.js`
+- Modify: `dashboard/client/components/pages/pipelines-page.jsx`
+- Test: `tests/storj-uploader.test.js`
+- Test: `tests/agent-preflight.test.js`
+
+- [ ] **Step 1: Define upload readiness**
+
+Storj readiness checks:
+
+```text
+Required env/access grant exists
+Uploader command can start
+Target bucket/path can be resolved
+Zip input exists and is non-zero
+Upload result includes durable remote object path or receipt
+```
+
+- [ ] **Step 2: Add uploader result shape**
+
+`storj-uploader.js` must return or print a parseable result:
 
 ```json
 {
-  "scripts": {
-    "agent": "node src/agent/agent.js",
-    "dashboard": "npm --prefix dashboard run dev"
-  }
+  "ok": true,
+  "bucket": "bucket-name",
+  "remotePath": "path/file.zip",
+  "bytes": 12345
 }
 ```
 
-- [ ] Add `src/agent/identity.js`:
+Failures must return:
+
+```json
+{
+  "ok": false,
+  "stage": "upload",
+  "error": "exact error message"
+}
+```
+
+- [ ] **Step 3: Dashboard display**
+
+Pipelines page must show upload:
+
+```text
+pending
+running
+completed with remote path
+failed with exact error
+```
+
+- [ ] **Step 4: Verify**
+
+```bash
+node --test tests/storj-uploader.test.js tests/agent-preflight.test.js tests/agent-pipeline.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: upload failures are visible as failed upload stage, not a generic stopped process.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add storj-uploader.js src/agent/preflight.js src/agent/pipeline.js dashboard/client/components/pages/pipelines-page.jsx tests/storj-uploader.test.js tests/agent-preflight.test.js
+git commit -m "Add Storj upload diagnostics"
+```
+
+---
+
+## Task 9: Notification Policy For Telegram And Web Console
+
+**Files:**
+- Modify: `dashboard/src/server/telegram.js`
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/client/components/pages/events-page.jsx`
+- Modify: `dashboard/client/components/pages/alerts-page.jsx`
+- Test: `tests/dashboard-telegram.test.js`
+- Test: `tests/dashboard-events.test.js`
+
+- [ ] **Step 1: Define notification policy**
+
+Send Telegram for:
+
+```text
+machine conflict
+agent offline after lease expiry
+preflight failed
+pipeline failed
+range failed
+zip failed
+upload failed
+pipeline completed
+resource pool below threshold
+```
+
+Do not spam Telegram for:
+
+```text
+normal stdout
+normal heartbeat
+per-tile progress
+manual refresh
+```
+
+- [ ] **Step 2: Add dedupe**
+
+Deduplicate Telegram notifications by:
+
+```text
+machineId
+event type
+job id
+message
+5 minute window
+```
+
+- [ ] **Step 3: Events page**
+
+Events page must support:
+
+```text
+Global events
+Filter by machine
+Filter by severity
+Copy event details
+Show Telegram delivery error if notification failed
+```
+
+- [ ] **Step 4: Verify**
+
+```bash
+node --test tests/dashboard-telegram.test.js tests/dashboard-events.test.js
+npm --prefix dashboard run build
+```
+
+Expected result: important events notify once and all events remain visible in the web console.
+
+- [ ] **Step 5: Commit**
+
+```bash
+git add dashboard/src/server/telegram.js dashboard/src/server/app.js dashboard/client/components/pages/events-page.jsx dashboard/client/components/pages/alerts-page.jsx tests/dashboard-telegram.test.js tests/dashboard-events.test.js
+git commit -m "Apply dashboard notification policy"
+```
+
+---
+
+## Task 10: Settings Completion
+
+**Files:**
+- Modify: `dashboard/src/server/settings.js`
+- Modify: `dashboard/src/server/app.js`
+- Modify: `dashboard/client/components/pages/settings-page.jsx`
+- Test: `tests/dashboard-env.test.js`
+- Test: `tests/dashboard-api.test.js`
+
+- [ ] **Step 1: Expand settings schema**
+
+Settings must include:
 
 ```js
-import { mkdir, readFile, writeFile } from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
-import path from 'node:path';
-
-export async function loadAgentIdentity({ stateDir = '.tile-state', machineId = process.env.MACHINE_ID } = {}) {
-  if (!machineId || !machineId.trim()) {
-    throw new Error('MACHINE_ID is required for dashboard agent');
+{
+  alertThresholds: {
+    mapboxTokensPerServer: 2,
+    proxiesPerServer: 50
+  },
+  sync: {
+    dashboardPollMs: 5000,
+    heartbeatMs: 30000
+  },
+  workflow: {
+    pauseAfterRangeDefault: false,
+    autoValidateAfterDownload: true,
+    autoZipAfterValidate: true,
+    autoUploadAfterZip: true
+  },
+  telegram: {
+    enabled: true,
+    notifyOnCompletion: true,
+    notifyOnError: true
   }
-
-  await mkdir(stateDir, { recursive: true });
-  const identityPath = path.join(stateDir, 'agent-id.json');
-
-  try {
-    const parsed = JSON.parse(await readFile(identityPath, 'utf8'));
-    if (parsed.agentInstanceId) {
-      return { machineId: machineId.trim(), agentInstanceId: parsed.agentInstanceId, identityPath };
-    }
-  } catch (err) {
-    if (err.code !== 'ENOENT') throw err;
-  }
-
-  const agentInstanceId = randomUUID();
-  await writeFile(identityPath, JSON.stringify({ agentInstanceId }, null, 2));
-  return { machineId: machineId.trim(), agentInstanceId, identityPath };
 }
 ```
 
-- [ ] Add `tests/agent-identity.test.js`:
-  - missing `MACHINE_ID` throws
-  - identity is persisted
-  - second load returns same `agentInstanceId`
+- [ ] **Step 2: Settings page controls**
 
-- [ ] Add `src/agent/control-client.js` with registration and heartbeat:
-  - `POST /api/agents/register`
-  - `POST /api/agents/heartbeat`
-  - `GET /api/agents/:machineId/commands/poll`
-  - `POST /api/agents/commands/:id/ack`
-  - `POST /api/agents/events`
-
-- [ ] Add `src/agent/agent.js` that:
-  - loads `MACHINE_ID`
-  - loads `DASHBOARD_URL`
-  - loads `AGENT_TOKEN`
-  - registers
-  - exits non-zero on machine id conflict
-  - starts heartbeat loop after successful registration
-
-- [ ] Verify:
-
-```bash
-MACHINE_ID=test-a DASHBOARD_URL=http://127.0.0.1:3001 AGENT_TOKEN=dev node src/agent/agent.js
-node --test tests/agent-identity.test.js
-```
-
-Expected result: missing env fails clearly, valid env creates `.tile-state/agent-id.json`, conflict responses stop the agent.
-
----
-
-## Phase 3: Disk Space Reporting
-
-- [ ] Add `src/agent/disk.js` with platform-specific collectors:
-  - Windows: run PowerShell `Get-CimInstance Win32_LogicalDisk | ConvertTo-Json`
-  - macOS/Linux: run `df -kP`
-  - Normalize to `{ name, mount, filesystem, totalBytes, freeBytes, usedBytes, percentUsed }`
-
-- [ ] Add parser-only unit tests in `tests/agent-disk.test.js` using captured command output strings, not the live machine.
-
-- [ ] Agent heartbeat payload must include `disk`.
-
-- [ ] Server stores disk snapshot in `machines.disk_json`.
-
-- [ ] Dashboard `DiskPanel.jsx` displays each drive with:
-  - mount/name
-  - total
-  - free
-  - percent used
-  - warning style when free space is below configured threshold
-
-- [ ] Verify:
-
-```bash
-node --test tests/agent-disk.test.js
-MACHINE_ID=test-a DASHBOARD_URL=http://127.0.0.1:3001 AGENT_TOKEN=dev node src/agent/agent.js
-```
-
-Expected result: dashboard machine detail shows all detected drives and updates after each heartbeat.
-
----
-
-## Phase 4: Event Stream And Dashboard Console
-
-- [ ] Add `dashboard/src/server/events.js` with `recordEvent({ machineId, jobId, severity, type, message, data })`.
-
-- [ ] Add WebSocket support in `dashboard/src/server/ws.js`:
-  - agents authenticate with `AGENT_TOKEN`
-  - browser dashboard authenticates with dashboard session token
-  - server broadcasts new `machine_events` rows to subscribed dashboards
-
-- [ ] Add `src/runtime/event-reporter.js`:
-
-```js
-export function createEventReporter({ eventLogPath, stdout = process.stdout } = {}) {
-  return {
-    emit(event) {
-      const payload = {
-        ts: new Date().toISOString(),
-        severity: event.severity || 'info',
-        type: event.type,
-        message: event.message,
-        data: event.data || {},
-      };
-      const line = JSON.stringify(payload);
-      stdout.write(`[event] ${line}\n`);
-    },
-  };
-}
-```
-
-- [ ] Modify `downloader.js`, `zip-maker.js`, and `storj-uploader.js` to emit structured event lines at stage start, progress, success, retry, error, and stop. Keep existing human-readable logs.
-
-- [ ] Add `src/agent/progress-events.js` to parse `[event] {...}` lines and forward them to `POST /api/agents/events`.
-
-- [ ] Add `tests/dashboard-events.test.js`:
-  - event insert stores severity/type/message/data
-  - event broadcast is sent to active dashboard subscriber
-  - invalid event severity is rejected
-
-- [ ] Verify:
-
-```bash
-node --test tests/dashboard-events.test.js
-yarn download configs/1-ukraine-esri-satellite-cmi.config.json
-```
-
-Expected result: local console still reads normally and dashboard console receives structured event rows.
-
----
-
-## Phase 5: Command Queue And Safe Process Control
-
-- [ ] Add command types:
-  - `start_pipeline`
-  - `stop_pipeline`
-  - `pause_after_range`
-  - `resume_pipeline`
-  - `sync_config`
-  - `sync_env`
-  - `run_preflight`
-
-- [ ] Server rejects all other command types with HTTP 400.
-
-- [ ] Add `src/agent/process-runner.js`:
-  - spawns child Node processes
-  - forwards stdout/stderr lines to event parser
-  - supports cooperative stop with `AbortController`
-  - after timeout, sends `SIGTERM`; on Windows uses child process kill
-  - never runs arbitrary shell commands from dashboard payload
-
-- [ ] Add `tests/agent-pipeline.test.js` coverage:
-  - start command launches only whitelisted script path
-  - stop command terminates active child
-  - duplicate start while running is rejected
-  - command completion status is reported
-
-- [ ] Dashboard `JobPanel.jsx` adds buttons:
-  - Start
-  - Stop
-  - Pause after current range
-  - Resume
-  - Preflight
-
-- [ ] Verify:
-
-```bash
-node --test tests/agent-pipeline.test.js
-```
-
-Expected result: dashboard can start and stop a local controlled process without allowing arbitrary command execution.
-
----
-
-## Phase 6: Range Pipeline Orchestration
-
-- [ ] Add `src/agent/pipeline.js` with one durable loop:
+Use:
 
 ```text
-for each assigned config:
-  for each range:
-    sync config materialization
-    run download for this single range
-    verify local state DB range completion
-    run zip for this single range
-    verify zip exists and has non-zero size
-    run storj upload for this single range zip
-    verify storj upload command success
-    mark dashboard job range uploaded
-continue to next range
-send all-complete notification
+numeric inputs for thresholds and intervals
+toggles for workflow defaults
+toggles for Telegram policy
+save button
+reload button
 ```
 
-- [ ] Do not treat a process exit alone as success. For each stage:
-  - download success requires state DB range completion or no missing/failure rows
-  - validate success requires validation command success and no failed tiles
-  - zip success requires output file existence and expected byte size greater than zero
-  - upload success requires uploader result success and remote path acknowledgement
-
-- [ ] Add a `--range-index` option to `downloader.js`, `zip-maker.js`, and `storj-uploader.js` if missing:
-  - `--range-index=0` processes only that config range
-  - default behavior remains existing all-range behavior for current scripts
-
-- [ ] Add pipeline stage events:
-  - `pipeline.started`
-  - `range.download.started`
-  - `range.download.completed`
-  - `range.validate.completed`
-  - `range.zip.completed`
-  - `range.upload.completed`
-  - `range.failed`
-  - `pipeline.completed`
-
-- [ ] Add regression tests:
-  - successful two-range pipeline executes stages in exact order
-  - failed download stops before zip/upload
-  - `pause_after_range` stops after upload of current range
-  - resume continues from next incomplete range
-
-- [ ] Verify with a fixture config that targets a tiny range:
+- [ ] **Step 3: Verify**
 
 ```bash
-MACHINE_ID=test-a DASHBOARD_URL=http://127.0.0.1:3001 AGENT_TOKEN=dev node src/agent/agent.js
+node --test tests/dashboard-api.test.js tests/dashboard-env.test.js
+npm --prefix dashboard run build
 ```
 
-Expected result: one range downloads, validates, zips, uploads, reports completion, then the next range starts.
+Expected result: settings persist to Postgres and survive dashboard restart.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add dashboard/src/server/settings.js dashboard/src/server/app.js dashboard/client/components/pages/settings-page.jsx tests/dashboard-api.test.js tests/dashboard-env.test.js
+git commit -m "Complete dashboard settings"
+```
 
 ---
 
-## Phase 7: Config CRUD And Materialization
+## Task 11: Live Sync Behavior
 
-- [ ] Reuse `src/config/config-loader.js` validation rules in dashboard config APIs. Extract reusable validation if needed:
+**Files:**
+- Modify: `dashboard/client/components/dashboard-app.jsx`
+- Modify: `src/agent/agent.js`
+- Modify: `dashboard/client/lib/overview-model.js`
+- Test: `tests/agent-sync.test.js`
+- Test: `tests/dashboard-ui-metrics.test.js`
+
+- [ ] **Step 1: Dashboard polling**
+
+Client refresh behavior:
 
 ```text
-src/config/config-schema.js
+Initial load immediately
+Refresh snapshot every dashboardPollMs while tab is visible
+Pause refresh when document is hidden
+Manual refresh button in top bar
+Selected server detail refreshes after commands or edits
 ```
 
-- [ ] Dashboard config editor supports:
-  - add config JSON
-  - edit config JSON
-  - delete inactive config
-  - assign active config version to one machine or all machines
-  - validate before save
+- [ ] **Step 2: Agent heartbeat**
 
-- [ ] Server stores config versions immutably:
-  - editing creates `version + 1`
-  - active pointer changes by `active=true`
-  - previous versions remain available for audit
-
-- [ ] Agent `config-sync.js`:
-  - pulls assigned active config
-  - writes `.tile-state/dashboard/configs/<config_id>.json.tmp`
-  - renames atomically to `.tile-state/dashboard/configs/<config_id>.json`
-  - uses that local path for pipeline runs
-
-- [ ] Tests:
-  - invalid config rejected before saving
-  - editing creates new version
-  - agent materializes exact server config bytes
-  - deleted active config is rejected
-
-- [ ] Verify:
-
-```bash
-node --test tests/dashboard-configs.test.js
-```
-
-Expected result: dashboard-managed config can drive a local pipeline without editing root `configs/*.json`.
-
----
-
-## Phase 8: Environment Profile Management
-
-- [ ] Add `dashboard/src/server/env.js` for dashboard-managed non-secret environment variables.
-
-- [ ] Env profile rules:
-  - env names must match `^[A-Z_][A-Z0-9_]*$`
-  - secret-looking names containing `TOKEN`, `PASSWORD`, `SECRET`, `KEY`, `ACCESS`, or `CREDENTIAL` are rejected from `env_profiles`
-  - secret-looking values must be stored through `secrets`
-  - editing an env profile creates `version + 1`
-  - only one active env profile is allowed per machine
-  - values are strings, numbers, or booleans and are materialized as strings for child processes
-
-- [ ] Dashboard env editor supports:
-  - add variable
-  - edit variable
-  - delete variable
-  - enable/disable active version
-  - duplicate profile from another machine
-  - show effective env after combining local process env, dashboard env, and secrets
-
-- [ ] Agent `env-materializer.js`:
-  - pulls assigned active env profile
-  - writes `.tile-state/dashboard/env.generated.tmp`
-  - renames atomically to `.tile-state/dashboard/env.generated`
-  - never overwrites root `.env` by default
-  - returns an object that `process-runner.js` merges into the child process environment
-  - records the applied `env_profile_id` and `version` in agent heartbeat
-
-- [ ] Add an explicit optional setting for writing dashboard env into project `.env.dashboard`:
-  - default is disabled
-  - write is atomic through `.env.dashboard.tmp`
-  - root `.env` is not modified by the agent
-  - manual local `.env` remains the machine bootstrap file for `MACHINE_ID`, `DASHBOARD_URL`, and `AGENT_TOKEN`
-
-- [ ] Add tests in `tests/dashboard-env.test.js`:
-  - invalid env names are rejected
-  - secret-looking env names are rejected
-  - editing creates a new version
-  - browser API returns non-secret env values
-  - agent materializes exact effective env to `.tile-state/dashboard/env.generated`
-  - process runner passes generated env to downloader child process
-
-- [ ] Verify:
-
-```bash
-node --test tests/dashboard-env.test.js
-```
-
-Expected result: runtime env for downloader jobs can be updated from the dashboard without exposing secrets or overwriting hand-written local `.env` files.
-
----
-
-## Phase 9: API Keys And Proxy Management
-
-- [ ] Add `dashboard/src/server/secrets.js` using AES-256-GCM with `APP_SECRET`:
-  - encrypt on write
-  - decrypt only for authenticated agent sync
-  - never return secret plaintext to browser
-  - UI displays redacted values and status metadata
-
-- [ ] Secret types:
-  - `mapbox_token`
-  - `proxy_txt`
-  - `storj_access`
-
-- [ ] Dashboard API:
-  - `POST /api/secrets` stores encrypted secret
-  - `PUT /api/secrets/:secretId` replaces encrypted value
-  - `DELETE /api/secrets/:secretId` disables secret
-  - `POST /api/secrets/:secretId/check` queues agent-side check
-
-- [ ] Agent `secret-materializer.js`:
-  - writes secret-derived child env into `.tile-state/dashboard/secrets.env.generated`
-  - provides decrypted secret values only to authenticated local agent code
-  - lets `env-materializer.js` compose non-secret env plus secret-derived env for child processes
-  - writes proxies into root `proxy.txt` only when assigned by dashboard and only after successful full file write to `proxy.txt.tmp`
-  - preserves local `proxy.txt` backup as `proxy.txt.bak-dashboard`
-
-- [ ] Add tests:
-  - plaintext is not stored in DB
-  - browser secret list is redacted
-  - agent sync receives plaintext only when authenticated
-  - secret-derived env is available to downloader child process but not returned to browser
-  - proxy list comma-separated and newline-separated input both materialize as newline-separated `proxy.txt`
-
-- [ ] Verify:
-
-```bash
-node --test tests/dashboard-secrets.test.js
-```
-
-Expected result: Mapbox and proxy values are editable from dashboard without leaking into logs or browser responses.
-
----
-
-## Phase 10: Telegram Notifications
-
-- [ ] Add `dashboard/src/server/telegram.js`:
-  - reads `TELEGRAM_BOT_TOKEN`
-  - reads `TELEGRAM_CHAT_ID`
-  - sends notifications for severity `error`, `success`, and selected `warn`
-  - rate-limits repeated identical messages per machine/type
-
-- [ ] Notification rules:
-  - machine conflict
-  - agent offline
-  - disk below threshold
-  - pipeline started
-  - range failed
-  - retry storm detected
-  - zip completed
-  - upload completed
-  - all ranges completed
-  - stop requested
-  - stop completed
-
-- [ ] Store notification result in `machine_events.data_json.telegram`.
-
-- [ ] Add `tests/dashboard-telegram.test.js` with mocked `fetch`:
-  - sends error event
-  - sends all-complete event
-  - does not send low-value progress event
-  - records Telegram failure as warning event without crashing server
-
-- [ ] Verify:
-
-```bash
-TELEGRAM_BOT_TOKEN=test TELEGRAM_CHAT_ID=test node --test tests/dashboard-telegram.test.js
-```
-
-Expected result: Telegram routing is deterministic and failures do not break the dashboard event path.
-
----
-
-## Phase 11: Dashboard UI
-
-- [ ] Build a utilitarian dashboard first screen, not a landing page:
-  - left machine list with status badges
-  - main machine detail pane
-  - disk panel
-  - current job/stage/progress panel
-  - command buttons
-  - event console
-  - config editor tab
-  - env editor tab
-  - API/proxy secrets tab
-
-- [ ] UI state model:
-  - initial data from REST APIs
-  - live updates from WebSocket/SSE
-  - command button disabled while command queued/running
-  - conflict/offline states visible
-  - redacted secrets only
-
-- [ ] Add frontend smoke test with Playwright or a simple Vite preview check:
-  - machine list renders
-  - event console appends live event
-  - start/stop buttons call command API
-  - config editor rejects invalid JSON
-
-- [ ] Verify manually:
-
-```bash
-npm --prefix dashboard run dev
-```
-
-Expected result: dashboard is usable at local server URL and shows fixture machine state.
-
----
-
-## Phase 12: Railway Deployment
-
-- [ ] Add `dashboard/railway.toml` or documented Railway start command:
-
-```toml
-[build]
-builder = "NIXPACKS"
-
-[deploy]
-startCommand = "npm --prefix dashboard run start"
-```
-
-- [ ] Required Railway variables:
+Agent behavior:
 
 ```text
-DATABASE_URL
-APP_SECRET
-AGENT_TOKEN
-DASHBOARD_ADMIN_TOKEN
-TELEGRAM_BOT_TOKEN
-TELEGRAM_CHAT_ID
+Heartbeat every heartbeatMs
+Sync config/env/secrets after heartbeat
+Poll commands after sync
+Report offline only from dashboard lease expiry, not from client guessing
 ```
 
-- [ ] Add `dashboard/README.md`:
-  - Railway setup
-  - Postgres plugin setup
-  - env variables
-  - local agent env example
-  - conflict behavior
-  - stop/run behavior
+- [ ] **Step 3: Verify**
 
-- [ ] Local machine `.env` example:
-
-```text
-MACHINE_ID=server-01
-DASHBOARD_URL=https://your-app.up.railway.app
-AGENT_TOKEN=replace-with-dashboard-agent-token
+```bash
+node --test tests/agent-sync.test.js tests/dashboard-ui-metrics.test.js
+npm --prefix dashboard run build
 ```
 
-- [ ] Verify deployment:
-  - `GET /health` returns ok on Railway
-  - one local agent registers
-  - duplicate `MACHINE_ID` from another `agentInstanceId` is rejected
-  - dashboard shows disk and heartbeat
+Expected result: dashboard stays current without hammering APIs for 100 servers.
+
+- [ ] **Step 4: Commit**
+
+```bash
+git add dashboard/client/components/dashboard-app.jsx dashboard/client/lib/overview-model.js src/agent/agent.js tests/agent-sync.test.js tests/dashboard-ui-metrics.test.js
+git commit -m "Tune dashboard and agent sync loops"
+```
 
 ---
 
-## Phase 13: End-To-End Rollout Test
+## Task 12: Final Verification And Railway Deploy
 
-- [ ] Create a tiny test config with one or two tile rows and use dashboard config assignment instead of editing existing config files.
+**Files:**
+- Modify only files touched by previous tasks.
 
-- [ ] Run local end-to-end:
-
-```bash
-npm --prefix dashboard run dev
-MACHINE_ID=local-test DASHBOARD_URL=http://127.0.0.1:3001 AGENT_TOKEN=dev node src/agent/agent.js
-```
-
-- [ ] From dashboard:
-  - assign tiny config
-  - assign an env profile with safe runtime values
-  - add one Mapbox key
-  - add proxy text
-  - run preflight
-  - start pipeline
-  - verify download progress
-  - verify zip progress
-  - verify upload progress
-  - stop and resume once
-  - confirm all-complete Telegram notification
-
-- [ ] Confirm durable state:
-  - local SQLite shows range complete
-  - zip file exists and is non-empty
-  - Storj upload command returned success
-  - `machine_jobs.status = completed`
-  - `machine_events` contains full stage history
-
-- [ ] Run all tests:
+- [ ] **Step 1: Full test suite**
 
 ```bash
-node --test tests/*.test.js
+cd /Users/dell/Downloads/Projects/mb-tile-downloader
+npm test
 npm --prefix dashboard test
 npm --prefix dashboard run build
 ```
 
-Expected result: all automated tests pass, dashboard builds, and one real local machine can complete a one-range pipeline through the hosted control plane.
+Expected result: all tests pass and client export builds.
+
+- [ ] **Step 2: Local dashboard smoke**
+
+```bash
+npm --prefix dashboard run start
+curl -fsS http://127.0.0.1:3001/health
+```
+
+Expected result:
+
+```json
+{"ok":true}
+```
+
+- [ ] **Step 3: Railway deploy**
+
+```bash
+git push origin feature/management-dashboard-agent
+railway deployment list --service Backend --limit 3 --json
+curl -fsS https://backend-production-e5ef.up.railway.app/health
+```
+
+Expected result:
+
+```json
+{"ok":true}
+```
+
+- [ ] **Step 4: Postgres verification**
+
+```bash
+cd /Users/dell/Downloads/Projects/mb-tile-downloader/dashboard
+railway run --service Postgres -- node --input-type=module -e 'import { Pool } from "pg"; const pool = new Pool({ connectionString: process.env.DATABASE_PUBLIC_URL, ssl: { rejectUnauthorized: false } }); const result = await pool.query("select count(*)::int as machines from machines"); console.log(JSON.stringify(result.rows[0])); await pool.end();'
+```
+
+Expected result: command prints JSON with a numeric `machines` count and no secret values.
 
 ---
 
-## Security And Reliability Rules
+## Execution Order
 
-- [ ] Dashboard must not accept arbitrary shell commands.
-- [ ] Agent must not execute arbitrary command payloads.
-- [ ] Browser APIs must not return plaintext secrets.
-- [ ] Browser APIs must reject secret-looking variables from non-secret env profiles.
-- [ ] Agent auth must be required for registration, heartbeat, events, command polling, and secret sync.
-- [ ] Machine conflict must stop the losing agent before it starts any download.
-- [ ] Pipeline success must be confirmed from durable state and file/upload results.
-- [ ] Stop must preserve local state DB and allow resume.
-- [ ] Dashboard command status must show queued, claimed, completed, or failed.
-- [ ] Dashboard-managed env must be versioned, allowlisted, and applied only to managed child processes by default.
-- [ ] Agent must not overwrite root `.env` unless an explicit future setting enables `.env.dashboard` materialization.
-- [ ] Telegram failures must be logged as events but must not break pipeline execution.
-- [ ] Disk reporting must be heartbeat-based and must not block active downloads for long-running platform commands.
+Recommended batches:
+
+```text
+Batch 1: Tasks 1, 2, 3
+Batch 2: Tasks 4, 8
+Batch 3: Tasks 5, 6
+Batch 4: Tasks 7, 9, 10
+Batch 5: Tasks 11, 12
+```
+
+Rationale:
+
+- Jobs and snapshot API come first because the UI needs real progress data.
+- Server onboarding and Storj diagnostics come before polish because they decide what operators can actually trust.
+- UI split should happen after core data shape is stable.
+- Secrets, notifications, and settings are safer once page structure is split.
+- Final sync tuning and deployment happen last.
 
 ---
 
-## Implementation Order
+## Spec Coverage Check
 
-1. Control plane schema and machine registration.
-2. Local agent identity, heartbeat, and conflict exit.
-3. Disk reporting.
-4. Event ingestion and dashboard console.
-5. Command queue and safe process runner.
-6. Range pipeline orchestration.
-7. Config CRUD and agent materialization.
-8. Env profile CRUD and agent materialization.
-9. Secret CRUD for Mapbox/proxy/Storj.
-10. Telegram notifications.
-11. Dashboard UI.
-12. Railway deploy docs and end-to-end test.
-
-This order keeps the first deliverable small and useful: a dashboard that proves unique machine registration and disk monitoring before any remote run/stop control is added.
+- Multiple devices with unique machine id: covered by current machine registration and Task 4.
+- Conflict machine id should not run: covered by current conflict logic and machine tests.
+- Disk space by drive: covered by current disk heartbeat and Task 5 page polish.
+- Download one range, validate, zip, upload, then next range: current pipeline exists; Task 2 makes it dashboard-durable.
+- Telegram notification on completion/error: current notifier exists; Task 9 completes policy and dedupe.
+- Dashboard web console notifications: current events exist; Task 9 completes console filters and delivery state.
+- Current command status and progress: Task 1, Task 2, Task 3, and Task 5.
+- Start/stop/pause from dashboard: current command queue exists; Task 2 and Task 5 make it visible and durable.
+- Add/edit/delete config per machine: current backend exists; Task 6 completes UI and split workflow.
+- Multiple config types: Task 6.
+- Split one config across multiple devices: current backend exists; Task 6 completes operator flow.
+- API key and proxy manager: current backend exists; Task 7 completes UI and strict pool state.
+- Update env locally: current env materializer exists; Task 10 completes settings and UX.
+- Credentials manager: current credential secret support exists; Task 7 completes page and redaction.
+- Add server IP/user/pass and validate: current credential storage exists; Task 4 completes validation/preflight.
+- Railway Postgres instead of local storage: completed and production guarded.
