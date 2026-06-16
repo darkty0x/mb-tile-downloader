@@ -191,6 +191,7 @@ export async function loadConfig(configPath, options = {}) {
     requestTimeoutMs: performance.requestTimeoutMs,
     provider,
     env: options.env || process.env,
+    defaultProxyFilePath: options.defaultProxyFilePath,
   });
   const jobName = raw.jobName || `${provider}-${layer}-${format}`;
 
