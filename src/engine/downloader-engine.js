@@ -197,6 +197,7 @@ function createProgressReporter(enabled) {
   let lastRowsDone = 0;
   let lastTilesDone = 0;
   let lastRateAt = startedAt;
+  let proxyBlockLogCount = 0;
 
   function seconds(ms) {
     return Math.max(ms / 1000, 0.001);
@@ -260,7 +261,21 @@ function createProgressReporter(enabled) {
         true
       );
     },
-    providerBlocked({ provider, status, count, threshold, cooldownMs }) {
+    providerBlocked({ provider, status, count, threshold, cooldownMs, proxy, healthyProxies, totalProxies }) {
+      if (proxy) {
+        proxyBlockLogCount++;
+        const remaining = Number.isInteger(healthyProxies) ? healthyProxies : null;
+        const total = Number.isInteger(totalProxies) ? totalProxies : null;
+        if (remaining !== 0 && proxyBlockLogCount > 5 && proxyBlockLogCount % 25 !== 0) return;
+        const pool = remaining !== null && total !== null ? ` remaining=${remaining}/${total}` : "";
+        line(
+          `  ⏸ ${provider} proxy blocked status=${status} hits=${count}/${threshold}${pool} cooldown=${Math.round(
+            cooldownMs / 1000
+          )}s`,
+          true
+        );
+        return;
+      }
       line(
         `  ⏸ ${provider} temporary block detected status=${status} hits=${count}/${threshold} cooldown=${Math.round(
           cooldownMs / 1000
@@ -403,6 +418,9 @@ function createProviderRuntime({
         status,
         count: failedAttempts,
         threshold: proxyThreshold,
+        proxy,
+        healthyProxies: proxyRotation?.healthyCandidateCount?.(protocol || proxy),
+        totalProxies: proxyRotation?.candidateCount?.(protocol || proxy),
         cooldownMs: globalBlock ? cooldownMs : proxyBlockMs,
       });
       return globalBlock;

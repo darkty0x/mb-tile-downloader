@@ -44,10 +44,10 @@ function parseBoolean(value) {
 }
 
 function proxyModeLabel(env = process.env) {
-  const mode = String(env.TILE_DOWNLOADER_PROXY_MODE || env.PROXY_MODE || "always")
+  const mode = String(env.TILE_DOWNLOADER_PROXY_MODE || env.PROXY_MODE || "fallback")
     .trim()
     .toLowerCase();
-  return !["fallback", "auto", "direct-first", "direct_first"].includes(mode)
+  return ["always", "force", "proxy"].includes(mode)
     ? "always"
     : "fallback";
 }
