@@ -3,6 +3,8 @@ import { opendir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 
+import { resolveOutputStorage } from "../runtime/output-storage.js";
+
 const MAX_DIR_ENTRIES = 80;
 const MAX_SCAN_ENTRIES = 2_000;
 const MAX_CONSOLE_LINES = 80;
@@ -207,11 +209,19 @@ export async function collectLocalSnapshot({
   stateDir = ".tile-state",
   synced = {},
   agentLogPath = path.join(stateDir, "dashboard-agent.log"),
+  env = process.env,
+  platform = process.platform,
 } = {}) {
   const resolvedProject = path.resolve(projectDir);
   const resolvedState = path.resolve(resolvedProject, stateDir);
   const activeConfig = synced.configPath ? await readJsonFile(path.resolve(resolvedProject, synced.configPath)) : null;
-  const configuredOutput = activeConfig?.outputDir || activeConfig?.output?.dir || activeConfig?.output || "tiles";
+  const outputStorage = await resolveOutputStorage({
+    dir: activeConfig?.outputDir || activeConfig?.output?.dir || activeConfig?.output || "tiles",
+    configDir: resolvedProject,
+    env,
+    platform,
+    projectDir: resolvedProject,
+  });
   const proxyInfo = await countNonEmptyLines(path.join(resolvedProject, "proxy.txt"));
   const envFiles = await Promise.all([
     summarizeEnvFile(resolvedProject, path.join(resolvedProject, ".env")),
@@ -219,8 +229,15 @@ export async function collectLocalSnapshot({
     summarizeEnvFile(resolvedProject, path.join(resolvedState, "dashboard", "secrets.env.generated")),
   ]);
 
+  const tileStorage = await Promise.all(
+    (outputStorage.dirs || [outputStorage.dir]).map((root, index) =>
+      shallowDirSummary(resolvedProject, root, {
+        label: (outputStorage.dirs || []).length > 1 ? `Tile Content ${index + 1}` : "Tile Content",
+        type: "tiles",
+      })
+    )
+  );
   const storage = await Promise.all([
-    shallowDirSummary(resolvedProject, configuredOutput, { label: "Tile Content", type: "tiles" }),
     shallowDirSummary(resolvedProject, "zips", { label: "Zip Archives", type: "zip" }),
     shallowDirSummary(resolvedProject, ".tile-state", { label: "State DB / Temp", type: "state" }),
     shallowDirSummary(resolvedProject, "configs", { label: "Config Files", type: "configs" }),
@@ -250,7 +267,7 @@ export async function collectLocalSnapshot({
       mapboxTokenCount: Number(synced.secretEnv?.MAPBOX_ACCESS_TOKENS?.split(",").filter(Boolean).length || 0),
       generatedEnvPath: rel(resolvedProject, synced.secretsEnvPath),
     },
-    storage,
+    storage: [...tileStorage, ...storage],
     console: {
       agentLogPath: rel(resolvedProject, agentLogPath),
       recentLines: await readRecentLines(path.resolve(resolvedProject, agentLogPath)),

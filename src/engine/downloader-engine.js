@@ -8,6 +8,7 @@ import jpeg from "jpeg-js";
 
 import { MapboxTokenPool, loadMapboxTokensFromEnv } from "../auth/mapbox-token-pool.js";
 import { createProvider } from "../providers/index.js";
+import { selectOutputRoot } from "../runtime/output-storage.js";
 import { PROXY_INFO_SYMBOL } from "../runtime/platform-profile.js";
 
 function sleep(ms) {
@@ -489,7 +490,7 @@ function tilePath(config, provider, z, x, y) {
   ) {
     throw new Error(`output path template escapes output directory: ${rel}`);
   }
-  return path.join(config.output.dir, normalized);
+  return path.join(selectOutputRoot(config.output, { z, x, y }), normalized);
 }
 
 async function existsNonZero(filePath, provider = null) {

@@ -15,6 +15,16 @@ import { TileStateDb } from "./src/state/state-db.js";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_MAX_OLD_SPACE_MB = 8192;
+const OUTPUT_ENV_KEYS = [
+  "TILE_DOWNLOADER_DYNAMIC_OUTPUT",
+  "TILE_DOWNLOADER_OUTPUT_MODE",
+  "TILE_DOWNLOADER_OUTPUT_ROOTS",
+  "TILE_DOWNLOADER_OUTPUT_DIRS",
+  "TILE_DOWNLOADER_OUTPUT_FOLDER",
+  "TILE_DOWNLOADER_OUTPUT_MIN_FREE_GB",
+  "TILE_DOWNLOADER_OUTPUT_MAX_USED_PERCENT",
+  "TILE_DOWNLOADER_OUTPUT_INCLUDE_PROJECT_DRIVE",
+];
 
 function parsePositiveInt(value, label) {
   const parsed = Number.parseInt(String(value), 10);
@@ -72,11 +82,12 @@ function ensureDownloaderHeapLimit() {
 ensureDownloaderHeapLimit();
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
+  const loadedKeys = new Set();
   let raw;
   try {
     raw = fs.readFileSync(envPath, "utf8");
   } catch {
-    return;
+    return loadedKeys;
   }
 
   for (const line of raw.split(/\r?\n/)) {
@@ -92,8 +103,12 @@ function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
     ) {
       value = value.slice(1, -1);
     }
-    if (key && process.env[key] === undefined) process.env[key] = value;
+    if (key && process.env[key] === undefined) {
+      process.env[key] = value;
+      loadedKeys.add(key);
+    }
   }
+  return loadedKeys;
 }
 
 function printUsage(exitCode = 0) {
@@ -371,9 +386,30 @@ function stateDbPathFor(config, opts) {
   return path.join(explicit, `${config.jobName}.sqlite`);
 }
 
+function outputRootsFor(config) {
+  return Array.isArray(config.output?.dirs) && config.output.dirs.length
+    ? config.output.dirs
+    : [config.output.dir];
+}
+
+function envForConfig(configPath, dotEnvKeys = new Set()) {
+  const sourceInsideProject = path.resolve(configPath).startsWith(`${__dirname}${path.sep}`);
+  if (sourceInsideProject) return process.env;
+  const outputEnvCameFromShell = OUTPUT_ENV_KEYS.some(
+    (key) => process.env[key] !== undefined && !dotEnvKeys.has(key)
+  );
+  if (outputEnvCameFromShell) return process.env;
+
+  const env = { ...process.env };
+  for (const key of OUTPUT_ENV_KEYS) {
+    if (dotEnvKeys.has(key)) delete env[key];
+  }
+  return env;
+}
+
 async function runOneConfig(configPath, opts) {
   const configEnv = {
-    ...process.env,
+    ...envForConfig(configPath, opts.dotEnvKeys),
     ...(opts.noProxy
       ? { TILE_DOWNLOADER_NO_PROXY: "1" }
       : null),
@@ -412,6 +448,10 @@ async function runOneConfig(configPath, opts) {
     console.log(`Provider: ${config.provider}`);
     console.log(`Platform: ${config.platformProfile.os}`);
     console.log(`Output: ${config.output.dir}`);
+    if (outputRootsFor(config).length > 1) {
+      console.log(`Output roots: ${outputRootsFor(config).join(", ")}`);
+      console.log(`Output mode: ${config.output.storageMode || "multi-root"}`);
+    }
     console.log(`State DB: ${stateDbPath}`);
     if (!opts.dryRun && proxyRotation) {
       const mode = proxyModeLabel(process.env);
@@ -506,9 +546,12 @@ async function runSplit(opts) {
 }
 
 function assertPathInsideOutput(config, filePath) {
-  const outputRoot = path.resolve(config.output.dir);
   const absPath = path.resolve(filePath);
-  if (absPath !== outputRoot && !absPath.startsWith(`${outputRoot}${path.sep}`)) {
+  const inside = outputRootsFor(config).some((root) => {
+    const outputRoot = path.resolve(root);
+    return absPath === outputRoot || absPath.startsWith(`${outputRoot}${path.sep}`);
+  });
+  if (!inside) {
     throw new Error(`Refusing to delete outside configured output dir: ${absPath}`);
   }
 }
@@ -549,8 +592,8 @@ async function isUnavailableTileFile(provider, filePath) {
   return Boolean(provider.isUnavailable?.(buffer));
 }
 
-async function deleteUnavailableForConfig(configPath) {
-  const config = await loadConfig(configPath, { env: process.env });
+async function deleteUnavailableForConfig(configPath, opts = {}) {
+  const config = await loadConfig(configPath, { env: envForConfig(configPath, opts.dotEnvKeys) });
   const provider = createProvider(config);
   if (typeof provider.isUnavailable !== "function") {
     throw new Error(`Provider ${config.provider} does not support unavailable tile detection`);
@@ -564,17 +607,22 @@ async function deleteUnavailableForConfig(configPath) {
   console.log(`Config: ${config.configPath}`);
   console.log(`Provider: ${config.provider}`);
   console.log(`Output: ${config.output.dir}`);
+  if (outputRootsFor(config).length > 1) {
+    console.log(`Output roots: ${outputRootsFor(config).join(", ")}`);
+  }
 
-  for await (const filePath of walkExistingFiles(config.output.dir)) {
-    assertPathInsideOutput(config, filePath);
-    if (extensionSuffix && !filePath.toLowerCase().endsWith(extensionSuffix)) continue;
-    tilesScanned++;
-    if (await isUnavailableTileFile(provider, filePath)) {
-      await fsp.unlink(filePath);
-      unavailableDeleted++;
-    }
-    if (tilesScanned > 0 && tilesScanned % 10_000 === 0) {
-      console.log(`  cleanup progress: scanned=${tilesScanned} deleted=${unavailableDeleted}`);
+  for (const outputRoot of outputRootsFor(config)) {
+    for await (const filePath of walkExistingFiles(outputRoot)) {
+      assertPathInsideOutput(config, filePath);
+      if (extensionSuffix && !filePath.toLowerCase().endsWith(extensionSuffix)) continue;
+      tilesScanned++;
+      if (await isUnavailableTileFile(provider, filePath)) {
+        await fsp.unlink(filePath);
+        unavailableDeleted++;
+      }
+      if (tilesScanned > 0 && tilesScanned % 10_000 === 0) {
+        console.log(`  cleanup progress: scanned=${tilesScanned} deleted=${unavailableDeleted}`);
+      }
     }
   }
 
@@ -586,7 +634,7 @@ async function runDeleteUnavailable(opts) {
   opts.resolvedConfigPaths = resolveMachineConfigPaths(opts, process.env);
   for (let i = 0; i < opts.resolvedConfigPaths.length; i++) {
     console.log(`\n=== Config ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
-    await deleteUnavailableForConfig(opts.resolvedConfigPaths[i]);
+    await deleteUnavailableForConfig(opts.resolvedConfigPaths[i], opts);
   }
 }
 
@@ -609,8 +657,9 @@ async function clearTokenState(opts) {
 }
 
 async function main() {
-  loadDotEnvIfPresent();
+  const dotEnvKeys = loadDotEnvIfPresent();
   const opts = parseArgs(process.argv);
+  opts.dotEnvKeys = dotEnvKeys;
   if (opts.command === "split") {
     await runSplit(opts);
     return;

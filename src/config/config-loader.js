@@ -3,6 +3,7 @@ import { promises as fsp } from "node:fs";
 import path from "node:path";
 
 import { loadMapboxTokensFromEnv } from "../auth/mapbox-token-pool.js";
+import { resolveOutputStorage } from "../runtime/output-storage.js";
 import { buildPlatformProfile } from "../runtime/platform-profile.js";
 
 const PROVIDERS = new Set(["mapbox", "esri"]);
@@ -181,7 +182,8 @@ export async function loadConfig(configPath, options = {}) {
     throw new Error("config.provider must be one of: mapbox, esri");
   }
 
-  if (provider === "mapbox" && loadMapboxTokensFromEnv(options.env).length === 0) {
+  const validateCredentials = options.validateCredentials !== false;
+  if (validateCredentials && provider === "mapbox" && loadMapboxTokensFromEnv(options.env).length === 0) {
     throw new Error(
       "MAPBOX_ACCESS_TOKENS is required for Mapbox downloads; provide one or more tokens"
     );
@@ -204,7 +206,7 @@ export async function loadConfig(configPath, options = {}) {
         : {}),
     };
   }
-  const output = {
+  const output = await resolveOutputStorage({
     dir: resolvePlatformPath(
       {
         outputDir: raw.output?.dir || raw.outputDir,
@@ -216,9 +218,14 @@ export async function loadConfig(configPath, options = {}) {
       configDir,
       "tiles"
     ),
-    pathTemplate:
-      raw.output?.pathTemplate || "{layer}/{z}/{x}/{y}.{extension}",
-  };
+    configDir,
+    env: options.env || process.env,
+    platform: options.platform || process.platform,
+    projectDir: options.projectDir || process.cwd(),
+    collectDiskInfoImpl: options.collectDiskInfoImpl,
+  });
+  output.pathTemplate =
+    raw.output?.pathTemplate || "{layer}/{z}/{x}/{y}.{extension}";
   const performance = {
     maxConcurrentRequests:
       raw.performance?.maxConcurrentRequests || raw.concurrency,

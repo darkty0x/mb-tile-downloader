@@ -35,6 +35,40 @@ test("normalizes compact ranges and produces a stable config hash", async () => 
   assert.equal(loaded.verifyAfterDownload, true);
 });
 
+test("dynamic output mode discovers non-project drive roots without editing config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-config-"));
+  const configPath = path.join(dir, "esri.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "esri-dynamic",
+      provider: "esri",
+      output: { dir: "./tiles" },
+      ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+    })
+  );
+
+  const config = await loadConfig(configPath, {
+    env: {
+      TILE_DOWNLOADER_OUTPUT_MODE: "dynamic",
+      TILE_DOWNLOADER_OUTPUT_FOLDER: "mb-tile-downloader/tiles",
+      TILE_DOWNLOADER_OUTPUT_MIN_FREE_GB: "1",
+    },
+    platform: "win32",
+    projectDir: "C:\\mb-tile-downloader",
+    collectDiskInfoImpl: async () => [
+      { name: "C:", mount: "C:", freeBytes: 100 * 1024 ** 3, percentUsed: 80, containsProject: true },
+      { name: "D:", mount: "D:", freeBytes: 800 * 1024 ** 3, percentUsed: 10 },
+      { name: "E:", mount: "E:", freeBytes: 500 * 1024 ** 3, percentUsed: 20 },
+    ],
+  });
+
+  assert.equal(config.output.storageMode, "dynamic");
+  assert.equal(config.output.dirs.length, 2);
+  assert.match(config.output.dirs[0], /D:[\\/]+mb-tile-downloader[\\/]+tiles$/);
+  assert.match(config.output.dirs[1], /E:[\\/]+mb-tile-downloader[\\/]+tiles$/);
+});
+
 test("rejects Mapbox configs without token environment", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-config-"));
   const configPath = path.join(dir, "mapbox-pbf.config.json");

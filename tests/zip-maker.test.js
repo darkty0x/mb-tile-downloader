@@ -60,6 +60,47 @@ test("zip-maker uses downloader config output.dir, layer, and tile extension", a
   assert.doesNotMatch(stdout, /WAIT incomplete/);
 });
 
+test("zip-maker reads tiles from sharded output roots", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const rootA = path.join(dir, "drive-a");
+  const rootB = path.join(dir, "drive-b");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(rootB, "esri-satellite", "1", "0"), { recursive: true });
+  await mkdir(path.join(rootA, "esri-satellite", "1", "1"), { recursive: true });
+  await writeFile(path.join(rootB, "esri-satellite", "1", "0", "0.jpg"), "tile-a");
+  await writeFile(path.join(rootA, "esri-satellite", "1", "1", "0.jpg"), "tile-b");
+
+  const configPath = path.join(dir, "esri-sharded.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "esri-sharded",
+      provider: "esri",
+      layer: "esri-satellite",
+      format: "jpg",
+      output: { dir: "./drive-a" },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      ranges: [{ zoom: 1, xStart: 0, xEnd: 1, yStart: 0, yEnd: 0 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    {
+      cwd: path.resolve("."),
+      env: {
+        ...process.env,
+        TILE_DOWNLOADER_OUTPUT_ROOTS: `${rootA},${rootB}`,
+      },
+    }
+  );
+
+  assert.match(stdout, /Tile directories:/);
+  assert.match(stdout, /DRY RUN: would zip 2 files/);
+  assert.doesNotMatch(stdout, /WAIT incomplete/);
+});
+
 test("zip-maker uses esri-satellite layer in archive names", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");

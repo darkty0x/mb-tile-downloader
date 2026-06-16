@@ -81,6 +81,40 @@ test("dry run counts rows and does not create tile files", async () => {
   db.close();
 });
 
+test("download writes row tiles to deterministic output roots", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const rootA = path.join(dir, "drive-a");
+  const rootB = path.join(dir, "drive-b");
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const result = await runDownloadJob({
+    config: {
+      jobName: "multi-root",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: {
+        dir: rootA,
+        dirs: [rootA, rootB],
+        pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
+      },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [{ zoomStart: 1, zoomEnd: 1, xStart: 0, xEnd: 1, yStart: 0, yEnd: 0, label: "r" }],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1 },
+    },
+    stateDb: db,
+    progress: false,
+    fetchImpl: async () => new Response("tile"),
+  });
+
+  assert.equal(result.tilesDownloaded, 2);
+  assert.equal(await readFile(path.join(rootB, "satellite", "1", "0", "0.jpg"), "utf8"), "tile");
+  assert.equal(await readFile(path.join(rootA, "satellite", "1", "1", "0.jpg"), "utf8"), "tile");
+  db.close();
+});
+
 test("progress output reports created tiles and ETA", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 
 import { loadConfig } from "./src/config/config-loader.js";
+import { resolveOutputStorage, selectOutputRoot } from "./src/runtime/output-storage.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -23,13 +24,24 @@ const ZIP_FLAG_UTF8 = 0x0800;
 const DEFAULT_ZIP_WRITE_BUFFER_BYTES = 256 * 1024 * 1024;
 const DEFAULT_MAX_ARCHIVE_SIZE_BYTES = 20 * 1024 * 1024 * 1024;
 const ZIP_ARCHIVE_FOOTER_BYTES = 1024 * 128;
+const OUTPUT_ENV_KEYS = [
+  "TILE_DOWNLOADER_DYNAMIC_OUTPUT",
+  "TILE_DOWNLOADER_OUTPUT_MODE",
+  "TILE_DOWNLOADER_OUTPUT_ROOTS",
+  "TILE_DOWNLOADER_OUTPUT_DIRS",
+  "TILE_DOWNLOADER_OUTPUT_FOLDER",
+  "TILE_DOWNLOADER_OUTPUT_MIN_FREE_GB",
+  "TILE_DOWNLOADER_OUTPUT_MAX_USED_PERCENT",
+  "TILE_DOWNLOADER_OUTPUT_INCLUDE_PROJECT_DRIVE",
+];
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
+  const loadedKeys = new Set();
   let raw;
   try {
     raw = fs.readFileSync(envPath, "utf8");
   } catch {
-    return;
+    return loadedKeys;
   }
 
   for (const line of raw.split(/\r?\n/)) {
@@ -45,8 +57,12 @@ function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
     ) {
       value = value.slice(1, -1);
     }
-    if (key && process.env[key] === undefined) process.env[key] = value;
+    if (key && process.env[key] === undefined) {
+      process.env[key] = value;
+      loadedKeys.add(key);
+    }
   }
+  return loadedKeys;
 }
 
 function printUsage(exitCode = 0) {
@@ -241,6 +257,21 @@ function resolvePath(value, baseDir, fallback) {
   return path.resolve(baseDir, raw);
 }
 
+function envForSourceConfig(sourceConfigPath, dotEnvKeys = new Set()) {
+  const sourceInsideProject = path.resolve(sourceConfigPath).startsWith(`${__dirname}${path.sep}`);
+  if (sourceInsideProject) return process.env;
+  const outputEnvCameFromShell = OUTPUT_ENV_KEYS.some(
+    (key) => process.env[key] !== undefined && !dotEnvKeys.has(key)
+  );
+  if (outputEnvCameFromShell) return process.env;
+
+  const env = { ...process.env };
+  for (const key of OUTPUT_ENV_KEYS) {
+    if (dotEnvKeys.has(key)) delete env[key];
+  }
+  return env;
+}
+
 function selectPlatformPath(config, baseKey) {
   if (process.platform === "win32" && config[`${baseKey}Windows`]) {
     return config[`${baseKey}Windows`];
@@ -373,6 +404,7 @@ function archiveFileName(template, { layer, z, xStart, xEnd, yStart, yEnd, xPadW
 function taskSignature(task) {
   return [
     task.outputDir,
+    ...(task.outputDirs || []),
     task.layer,
     task.z,
     task.xStart,
@@ -381,6 +413,23 @@ function taskSignature(task) {
     task.yEnd,
     task.extension,
   ].join("|");
+}
+
+function outputForTask(task) {
+  return {
+    dir: task.outputDir,
+    dirs: task.outputDirs?.length ? task.outputDirs : [task.outputDir],
+  };
+}
+
+function tileFilePath(task, x, y) {
+  const root = selectOutputRoot(outputForTask(task), { z: task.z, x, y });
+  return path.join(root, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+}
+
+function tileRowDir(task, x) {
+  const root = selectOutputRoot(outputForTask(task), { z: task.z, x, y: task.yStart });
+  return path.join(root, task.layer, String(task.z), String(x));
 }
 
 async function pathExists(filePath) {
@@ -422,9 +471,10 @@ function assertUsableArchive(info, archivePath) {
 }
 
 async function isRangeComplete(
-  { outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension },
+  task,
   { progressLabel = null, progressEveryRows = 100, progressEveryMs = 3000 } = {}
 ) {
+  const { xStart, xEnd, yStart, yEnd, extension } = task;
   let files = 0;
   let missing = 0;
   let firstMissing = null;
@@ -452,14 +502,14 @@ async function isRangeComplete(
   };
 
   for (let x = xStart; x <= xEnd; x++) {
-    const rowDir = path.join(outputDir, layer, String(z), String(x));
+    const rowDir = tileRowDir(task, x);
     let names;
     try {
       names = await fsp.readdir(rowDir);
     } catch (err) {
       if (err.code !== "ENOENT") throw err;
       missing += expectedPerRow;
-      if (!firstMissing) firstMissing = path.join(rowDir, `${yStart}.${extension}`);
+      if (!firstMissing) firstMissing = tileFilePath(task, x, yStart);
       checkedRows++;
       emitProgress();
       continue;
@@ -479,7 +529,7 @@ async function isRangeComplete(
       for (let y = yStart; y <= yEnd; y++) {
         if (present.has(y)) continue;
         missing++;
-        if (!firstMissing) firstMissing = path.join(rowDir, `${y}.${extension}`);
+        if (!firstMissing) firstMissing = tileFilePath(task, x, y);
       }
     }
     checkedRows++;
@@ -531,7 +581,7 @@ async function splitTaskByArchiveSize(
   };
 
   const estimateEntry = async (x, y) => {
-    const filePath = path.join(task.outputDir, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+    const filePath = tileFilePath(task, x, y);
     let size;
     try {
       const st = await fsp.stat(filePath);
@@ -572,6 +622,7 @@ async function splitTaskByArchiveSize(
       if (!rowSegment) {
         rowSegment = {
           outputDir: task.outputDir,
+          outputDirs: task.outputDirs,
           layer: task.layer,
           z: task.z,
           xStart: entry.x,
@@ -621,6 +672,7 @@ async function splitTaskByArchiveSize(
     if (!current) {
       current = {
         outputDir: task.outputDir,
+        outputDirs: task.outputDirs,
         layer: task.layer,
         z: task.z,
         xStart: x,
@@ -655,14 +707,13 @@ function makeArchiveName(baseName, partIndex, totalParts) {
   return `${baseName}.part-${String(partIndex).padStart(3, "0")}`;
 }
 
-async function listRangeFiles({ outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
+async function listRangeFiles({ outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
+  const task = { outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension };
   const files = [];
   for (let x = xStart; x <= xEnd; x++) {
-    const rowDir = path.join(outputDir, layer, String(z), String(x));
     for (let y = yStart; y <= yEnd; y++) {
-      const filePath = path.join(rowDir, `${y}.${extension}`);
       files.push({
-        filePath,
+        filePath: tileFilePath(task, x, y),
         zipName: `${layer}/${z}/${x}/${y}.${extension}`,
       });
     }
@@ -670,12 +721,12 @@ async function listRangeFiles({ outputDir, layer, z, xStart, xEnd, yStart, yEnd,
   return files;
 }
 
-async function* iterateRangeFiles({ outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
+async function* iterateRangeFiles({ outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
+  const task = { outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension };
   for (let x = xStart; x <= xEnd; x++) {
-    const rowDir = path.join(outputDir, layer, String(z), String(x));
     for (let y = yStart; y <= yEnd; y++) {
       yield {
-        filePath: path.join(rowDir, `${y}.${extension}`),
+        filePath: tileFilePath(task, x, y),
         zipName: `${layer}/${z}/${x}/${y}.${extension}`,
       };
     }
@@ -929,17 +980,15 @@ async function removeEmptyDir(dir) {
   }
 }
 
-async function removeRangeFiles(
-  { outputDir, layer, z, xStart, xEnd, yStart, yEnd, extension },
-  deleteConcurrency = 16
-) {
+async function removeRangeFiles(task, deleteConcurrency = 16) {
+  const { xStart, xEnd, yStart, yEnd } = task;
   const total = expectedFileCount({ xStart, xEnd, yStart, yEnd });
   let nextX = xStart;
   let nextY = yStart;
 
   const nextFile = () => {
     if (nextX > xEnd) return null;
-    const file = path.join(outputDir, layer, String(z), String(nextX), `${nextY}.${extension}`);
+    const file = tileFilePath(task, nextX, nextY);
     nextY++;
     if (nextY > yEnd) {
       nextY = yStart;
@@ -964,12 +1013,14 @@ async function removeRangeFiles(
 
   let removedDirs = 0;
   for (let x = xStart; x <= xEnd; x++) {
-    const xDir = path.join(outputDir, layer, String(z), String(x));
+    const xDir = tileRowDir(task, x);
     if (await removeEmptyDir(xDir)) removedDirs++;
   }
-  const zDir = path.join(outputDir, layer, String(z));
-  await removeEmptyDir(zDir);
-  await removeEmptyDir(path.join(outputDir, layer));
+  for (const root of outputForTask(task).dirs) {
+    const zDir = path.join(root, task.layer, String(task.z));
+    await removeEmptyDir(zDir);
+    await removeEmptyDir(path.join(root, task.layer));
+  }
   if (removedDirs > 0) {
     console.log(`  removed empty source dirs ${removedDirs}/${xEnd - xStart + 1}`);
   }
@@ -1013,9 +1064,12 @@ function downloaderStateDbPath(config) {
   );
 }
 
-async function openDownloaderState(sourceConfigPath) {
+async function openDownloaderState(sourceConfigPath, dotEnvKeys = new Set()) {
   try {
-    const config = await loadConfig(sourceConfigPath, { env: process.env });
+    const config = await loadConfig(sourceConfigPath, {
+      env: envForSourceConfig(sourceConfigPath, dotEnvKeys),
+      validateCredentials: false,
+    });
     const dbPath = downloaderStateDbPath(config);
     return {
       config,
@@ -1233,7 +1287,7 @@ async function archiveRange({
 }
 
 async function main() {
-  loadDotEnvIfPresent();
+  const dotEnvKeys = loadDotEnvIfPresent();
   const opts = parseArgs(process.argv);
   const configDir = path.dirname(opts.configPath);
   const archiveConfig = (await loadJsonIfExists(opts.configPath, {})) || {};
@@ -1259,7 +1313,7 @@ async function main() {
     throw new Error("No ranges found. Add ranges to archive-config.json or source config.");
   }
 
-  const outputDir = opts.tilesDir
+  let outputDir = opts.tilesDir
     ? resolvePath(opts.tilesDir, process.cwd(), path.join(__dirname, "tiles"))
     : archiveConfig.outputDir !== undefined && !directDownloaderConfig
       ? resolvePath(archiveConfig.outputDir, configDir, path.join(__dirname, "tiles"))
@@ -1268,6 +1322,18 @@ async function main() {
           path.dirname(sourceConfigPath),
           path.join(__dirname, "tiles")
         );
+  let outputDirs = [outputDir];
+  if (!opts.tilesDir && !(archiveConfig.outputDir !== undefined && !directDownloaderConfig) && isDownloaderConfig(sourceConfig)) {
+    const sourceEnv = envForSourceConfig(sourceConfigPath, dotEnvKeys);
+    const outputStorage = await resolveOutputStorage({
+      dir: outputDir,
+      configDir: path.dirname(sourceConfigPath),
+      env: sourceEnv,
+      projectDir: process.cwd(),
+    });
+    outputDir = outputStorage.dir;
+    outputDirs = outputStorage.dirs || [outputDir];
+  }
   const rawArchiveDir = opts.archiveDir || selectPlatformPath(archiveConfig, "archiveDir");
   const archiveDir = resolvePath(rawArchiveDir, configDir, path.join(__dirname, "archives"));
   const stateFile = resolvePath(archiveConfig.stateFile, configDir, DEFAULT_STATE_FILE);
@@ -1305,7 +1371,7 @@ async function main() {
         ? [sourceConfig.layer]
         : ["satellite"];
   const state = (await loadJsonIfExists(stateFile, { completed: [] })) || { completed: [] };
-  const downloaderState = opts.dryRun ? null : await openDownloaderState(sourceConfigPath);
+  const downloaderState = opts.dryRun ? null : await openDownloaderState(sourceConfigPath, dotEnvKeys);
 
   try {
     await fsp.mkdir(archiveDir, { recursive: true });
@@ -1321,6 +1387,9 @@ async function main() {
   console.log(`Loaded archive config: ${opts.configPath}`);
   console.log(`Loaded source config: ${sourceConfigPath}`);
   console.log(`Tiles directory: ${outputDir}`);
+  if (outputDirs.length > 1) {
+    console.log(`Tile directories: ${outputDirs.join(", ")}`);
+  }
   console.log(`Archive directory raw: ${rawArchiveDir || path.join(__dirname, "archives")}`);
   console.log(`Archive directory: ${archiveDir}`);
   console.log(`Delete after archive: ${deleteAfterArchive}`);
@@ -1457,6 +1526,7 @@ async function main() {
       for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
         const task = {
           outputDir,
+          outputDirs,
           layer: defaults.root,
           z,
           xStart: range.xStart,
