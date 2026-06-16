@@ -1,5 +1,6 @@
 export function loadServerConfig(env = process.env) {
   return {
+    nodeEnv: env.NODE_ENV || "",
     port: Number.parseInt(env.PORT || "3001", 10),
     databaseUrl: env.DATABASE_URL || "",
     appSecret: env.APP_SECRET || "",

@@ -587,6 +587,10 @@ export async function createDashboardRuntime({
   createStoreFromDb = ({ db }) => createPostgresDashboardStore({ db }),
   createSecretVaultFromDb = ({ db, appSecret }) => createPostgresSecretVault({ db, appSecret }),
 } = {}) {
+  if (!config.databaseUrl && config.nodeEnv === "production") {
+    throw new Error("DATABASE_URL is required when NODE_ENV=production");
+  }
+
   const db = config.databaseUrl ? await createDb({ databaseUrl: config.databaseUrl }) : null;
   const store = db ? createStoreFromDb({ db }) : createDashboardStore();
   const secretVault = config.appSecret

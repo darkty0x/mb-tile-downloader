@@ -15,6 +15,7 @@ TELEGRAM_CHAT_ID=<optional>
 ```
 
 `DATABASE_URL` enables the Postgres-backed dashboard store. Without it, the server uses an in-memory store for local development only.
+When `NODE_ENV=production`, `DATABASE_URL` is required so Railway cannot silently fall back to local in-memory state.
 
 `APP_SECRET` is required for storing Mapbox/proxy/Storj secrets. Secrets are AES-GCM encrypted before they are written to the `secrets` table.
 

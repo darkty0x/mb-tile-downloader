@@ -11,6 +11,7 @@ test("dashboard runtime uses postgres store when DATABASE_URL is configured", as
 
   const runtime = await createDashboardRuntime({
     config: {
+      nodeEnv: "production",
       port: 0,
       databaseUrl: "postgres://example/db",
       agentToken: "agent",
@@ -41,6 +42,7 @@ test("dashboard runtime uses postgres store when DATABASE_URL is configured", as
 test("dashboard runtime defaults to in-memory store without DATABASE_URL", async () => {
   const runtime = await createDashboardRuntime({
     config: {
+      nodeEnv: "",
       port: 0,
       databaseUrl: "",
       agentToken: "agent",
@@ -50,4 +52,19 @@ test("dashboard runtime defaults to in-memory store without DATABASE_URL", async
 
   assert.deepEqual(await runtime.store.listMachines(), []);
   await runtime.close();
+});
+
+test("dashboard runtime rejects missing DATABASE_URL in production", async () => {
+  await assert.rejects(
+    () => createDashboardRuntime({
+      config: {
+        nodeEnv: "production",
+        port: 0,
+        databaseUrl: "",
+        agentToken: "agent",
+        appSecret: "secret",
+      },
+    }),
+    /DATABASE_URL is required when NODE_ENV=production/,
+  );
 });
