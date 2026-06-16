@@ -225,13 +225,15 @@ export function createDashboardApp({
   agentToken = "",
   clientDir = DEFAULT_CLIENT_DIR,
   configTemplatesDir = DEFAULT_CONFIG_TEMPLATES_DIR,
+  healthCheck = null,
 } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
 
     try {
       if (req.method === "GET" && url.pathname === "/health") {
-        json(res, 200, { ok: true });
+        const health = healthCheck ? await healthCheck() : { ok: true };
+        json(res, health.ok === false ? 503 : 200, health);
         return;
       }
 
@@ -644,11 +646,18 @@ export async function createDashboardRuntime({
   createStoreFromDb = ({ db }) => createPostgresDashboardStore({ db }),
   createSecretVaultFromDb = ({ db, appSecret }) => createPostgresSecretVault({ db, appSecret }),
 } = {}) {
-  if (!config.databaseUrl && config.nodeEnv === "production") {
-    throw new Error("DATABASE_URL is required when NODE_ENV=production");
+  const dashboardStore = config.dashboardStore || "postgres";
+  if (!["postgres", "memory"].includes(dashboardStore)) {
+    throw new Error("DASHBOARD_STORE must be one of: postgres, memory");
   }
 
-  const db = config.databaseUrl ? await createDb({ databaseUrl: config.databaseUrl }) : null;
+  if (dashboardStore === "postgres" && !config.databaseUrl) {
+    throw new Error("DATABASE_URL is required unless DASHBOARD_STORE=memory");
+  }
+
+  const db = dashboardStore === "postgres"
+    ? await createDb({ databaseUrl: config.databaseUrl })
+    : null;
   const store = db ? createStoreFromDb({ db }) : createDashboardStore();
   const secretVault = config.appSecret
     ? db
@@ -660,6 +669,12 @@ export async function createDashboardRuntime({
     agentToken: config.agentToken,
     secretVault,
     telegramNotifier: createTelegramNotifier(),
+    healthCheck: db
+      ? async () => {
+          await db.query("SELECT 1");
+          return { ok: true, store: "postgres", database: "ok" };
+        }
+      : () => ({ ok: true, store: "memory", database: "disabled" }),
   });
 
   return {

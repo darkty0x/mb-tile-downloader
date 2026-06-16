@@ -91,3 +91,24 @@ CREATE TABLE IF NOT EXISTS dashboard_settings (
   value_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE INDEX IF NOT EXISTS machine_events_machine_id_created_at_idx
+  ON machine_events (machine_id, created_at DESC);
+
+CREATE INDEX IF NOT EXISTS machine_commands_machine_id_status_requested_at_idx
+  ON machine_commands (machine_id, status, requested_at ASC);
+
+CREATE INDEX IF NOT EXISTS machine_jobs_machine_id_started_at_idx
+  ON machine_jobs (machine_id, started_at DESC);
+
+CREATE INDEX IF NOT EXISTS configs_machine_id_version_name_idx
+  ON configs (machine_id, version, name);
+
+CREATE INDEX IF NOT EXISTS env_profiles_machine_id_version_name_idx
+  ON env_profiles (machine_id, version, name);
+
+CREATE INDEX IF NOT EXISTS secrets_machine_id_secret_type_status_idx
+  ON secrets (machine_id, secret_type, status);
+
+CREATE INDEX IF NOT EXISTS secrets_secret_type_machine_id_status_created_at_idx
+  ON secrets (secret_type, machine_id, status, created_at ASC);

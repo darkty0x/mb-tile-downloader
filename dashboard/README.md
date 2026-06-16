@@ -8,14 +8,16 @@ Set these in Railway:
 
 ```text
 DATABASE_URL=postgres://...
+DASHBOARD_STORE=postgres
 APP_SECRET=<32+ random chars>
 AGENT_TOKEN=<shared agent bearer token>
 TELEGRAM_BOT_TOKEN=<optional>
 TELEGRAM_CHAT_ID=<optional>
 ```
 
-`DATABASE_URL` enables the Postgres-backed dashboard store. Without it, the server uses an in-memory store for local development only.
-When `NODE_ENV=production`, `DATABASE_URL` is required so Railway cannot silently fall back to local in-memory state.
+`DATABASE_URL` is required for the normal dashboard runtime. The dashboard uses the Postgres-backed store by default and will not silently fall back to local memory.
+
+`DASHBOARD_STORE=memory` is available only for disposable local tests where persistence is intentionally not needed.
 
 `APP_SECRET` is required for storing Mapbox/proxy/Storj secrets. Secrets are AES-GCM encrypted before they are written to the `secrets` table.
 
@@ -36,6 +38,7 @@ Add local values to the ignored root `.env` file:
 ```text
 PORT=3001
 DASHBOARD_URL=http://127.0.0.1:3001
+DATABASE_URL=postgres://...
 AGENT_TOKEN=<shared local agent token>
 APP_SECRET=<local development secret>
 MACHINE_ID=<local machine id>
