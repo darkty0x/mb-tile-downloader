@@ -12,7 +12,7 @@ function shellQuote(value) {
 }
 
 export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}) {
-  const normalizedMachineId = String(machineId || "server-01").trim() || "server-01";
+  const normalizedMachineId = String(machineId || "SERVER-01").trim() || "SERVER-01";
   const normalizedDashboardUrl = String(dashboardUrl || "https://your-railway-app.up.railway.app").trim() || "https://your-railway-app.up.railway.app";
   return {
     machineId: normalizedMachineId,
@@ -23,6 +23,42 @@ export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}
       "AGENT_TOKEN=your-agent-token",
       "npm run agent",
     ].join(" \\\n"),
+  };
+}
+
+function serverNumberFromText(value) {
+  const match = /\bserver[\s_-]*(\d+)\b/i.exec(String(value || ""));
+  return match ? Number.parseInt(match[1], 10) : null;
+}
+
+function collectServerNumbers({ machines = [], secretPool = [] } = {}) {
+  const numbers = [];
+  const add = (value) => {
+    const number = serverNumberFromText(value);
+    if (Number.isInteger(number) && number > 0) numbers.push(number);
+  };
+  for (const machine of machines) {
+    add(machine.machineId);
+    add(machine.displayName);
+  }
+  for (const secret of secretPool) {
+    if (secret.secretType !== "credential") continue;
+    add(secret.label);
+    add(secret.machineId);
+    add(secret.targetMachineId);
+    add(secret.credential?.machineId);
+  }
+  return numbers;
+}
+
+export function nextServerDefaults(source = {}) {
+  const highest = Math.max(0, ...collectServerNumbers(source));
+  const number = highest + 1;
+  const suffix = String(number).padStart(2, "0");
+  return {
+    number,
+    label: `Server ${suffix}`,
+    machineId: `SERVER-${suffix}`,
   };
 }
 

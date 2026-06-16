@@ -2,15 +2,14 @@
 
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
-import { Notice, Rail, Header, ServerPanel } from "./dashboard-shell";
+import { Notice, Rail, Header, ServerDetailModal } from "./dashboard-shell";
 import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
-  const hasServerPanel = Boolean(state.selectedMachine);
 
   return (
-    <main className={`ptg-shell grid min-h-screen ${hasServerPanel ? "grid-cols-[244px_minmax(0,1fr)_410px] max-xl:grid-cols-[244px_minmax(0,1fr)]" : "grid-cols-[244px_minmax(0,1fr)]"} max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`ptg-shell grid min-h-screen grid-cols-[244px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
       <section className="min-w-0 overflow-hidden">
         <Header state={state} actions={actions} />
@@ -37,7 +36,7 @@ export default function DashboardApp() {
           )}
         </div>
       </section>
-      {hasServerPanel ? <ServerPanel state={state} actions={actions} /> : null}
+      {state.editor.type === "server-detail" ? <ServerDetailModal state={state} actions={actions} /> : null}
       <EditorDrawer state={state} actions={actions} />
     </main>
   );

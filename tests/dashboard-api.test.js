@@ -707,3 +707,35 @@ test("dashboard secret route stores credentials with redacted browser metadata",
   assert.equal(JSON.stringify(listed.body).includes("very-secret-password"), false);
   assert.equal(listed.body.secrets[0].redactedValue, "operator@example.com @ ap1.storj.io");
 });
+
+test("dashboard secret edit route returns one decrypted credential without unredacting lists", async (t) => {
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "credential-a",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+
+  await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "credential",
+      label: "Server 01",
+      value: JSON.stringify({
+        protocolUrl: "rdp://95.216.38.91:7777",
+        machineId: "SERVER-01",
+        username: "root",
+        password: "server-password",
+      }),
+    },
+  });
+  const single = await request(server, { path: "/api/secrets/credential-a" });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(single.status, 200);
+  assert.equal(single.body.secret.secretType, "credential");
+  assert.equal(JSON.parse(single.body.secret.value).password, "server-password");
+  assert.equal(JSON.stringify(listed.body).includes("server-password"), false);
+});

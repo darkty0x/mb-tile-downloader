@@ -28,6 +28,25 @@ export function Surface({ className = "", children }) {
   return <section className={`material-surface rounded-[14px] p-4 ${className}`}>{children}</section>;
 }
 
+export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-32px))]", children, onClose }) {
+  return (
+    <div className="fixed inset-0 z-30 grid place-items-center bg-[#061225]/48 p-4 backdrop-blur-sm">
+      <section className={`${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white shadow-[0_28px_80px_rgba(5,13,30,0.28)]`}>
+        <header className="flex min-h-[64px] items-start justify-between gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-4 py-3">
+          <div className="min-w-0">
+            <h3 className="truncate text-[17px] font-[850] text-[var(--ptg-on-surface)]">{title}</h3>
+            {subtitle ? <p className="mt-0.5 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{subtitle}</p> : null}
+          </div>
+          <IconButton icon="close" label="Close" onClick={onClose} />
+        </header>
+        <div className="ptg-scrollbar max-h-[calc(100vh-98px)] overflow-auto p-4">
+          {children}
+        </div>
+      </section>
+    </div>
+  );
+}
+
 export function SectionTitle({ title, meta, action }) {
   return (
     <div className="mb-3 flex min-h-8 items-center justify-between gap-3">

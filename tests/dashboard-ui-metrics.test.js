@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOverviewModel, buildServerOnboarding } from "../dashboard/client/lib/overview-model.js";
+import { buildOverviewModel, buildServerOnboarding, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -71,4 +71,32 @@ test("server onboarding explains agent registration instead of manual dashboard 
   assert.match(onboarding.command, /MACHINE_ID=server-10/);
   assert.match(onboarding.command, /DASHBOARD_URL=https:\/\/ptg-dashboard.example.com/);
   assert.match(onboarding.command, /npm run agent/);
+});
+
+test("server onboarding defaults increment from saved connection profiles and machines", () => {
+  const defaults = nextServerDefaults({
+    machines: [
+      { machineId: "server-01", displayName: "Server 01" },
+      { machineId: "SERVER-03", displayName: "Server 03" },
+    ],
+    secretPool: [
+      {
+        secretType: "credential",
+        label: "Server 02",
+        targetMachineId: "server-02",
+        credential: { protocol: "rdp", machineId: "server-02" },
+      },
+      {
+        secretType: "credential",
+        label: "Backup Login",
+        credential: { protocol: "ssh", machineId: "SERVER-07" },
+      },
+    ],
+  });
+
+  assert.deepEqual(defaults, {
+    number: 8,
+    label: "Server 08",
+    machineId: "SERVER-08",
+  });
 });

@@ -1,21 +1,24 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
-import { buildServerOnboarding } from "../lib/overview-model";
+import { buildServerOnboarding, nextServerDefaults } from "../lib/overview-model";
 import { Icon } from "./icons";
-import { AppButton, IconButton, SelectInput, TextArea, TextInput } from "./ui";
-import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES } from "./dashboard-core";
+import { AppButton, ModalShell, SelectInput, TextArea, TextInput } from "./ui";
+import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus } from "./dashboard-core";
 
 function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
 }
 
 function ServerOnboardingForm({ state, actions }) {
-  const defaultServerNumber = String(state.machines.length + 1).padStart(2, "0");
-  const [machineId, setMachineId] = useState(`server-${defaultServerNumber}`);
+  const defaults = useMemo(() => nextServerDefaults(state), [state.machines, state.secretPool]);
+  const formRef = useRef(null);
+  const [machineId, setMachineId] = useState(defaults.machineId);
+  const [label, setLabel] = useState(defaults.label);
   const [protocol, setProtocol] = useState("rdp");
   const [dashboardUrl, setDashboardUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const [editedDefaults, setEditedDefaults] = useState({ machineId: false, label: false });
   const onboarding = buildServerOnboarding({ machineId, dashboardUrl });
   const powershellCommand = [
     `$env:MACHINE_ID="${onboarding.machineId.replaceAll('"', '`"')}"`,
@@ -24,6 +27,11 @@ function ServerOnboardingForm({ state, actions }) {
     "npm run agent",
   ].join("\n");
   const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+
+  useEffect(() => {
+    if (!editedDefaults.machineId) setMachineId(defaults.machineId);
+    if (!editedDefaults.label) setLabel(defaults.label);
+  }, [defaults.machineId, defaults.label, editedDefaults.machineId, editedDefaults.label]);
 
   return (
     <section className="grid gap-4">
@@ -50,18 +58,50 @@ function ServerOnboardingForm({ state, actions }) {
       </div>
 
       <form
+        ref={formRef}
         className="grid gap-3 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3"
-        onSubmit={(event) => {
+        onSubmit={async (event) => {
           event.preventDefault();
-          actions.saveServerConnection(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+          try {
+            const connection = await actions.saveServerConnection(new FormData(event.currentTarget));
+            const nextDefaults = nextServerDefaults({
+              ...state,
+              secretPool: [...state.secretPool, connection],
+            });
+            formRef.current?.reset();
+            setProtocol("rdp");
+            setEditedDefaults({ machineId: false, label: false });
+            setMachineId(nextDefaults.machineId);
+            setLabel(nextDefaults.label);
+          } catch (err) {
+            actions.setNotice({ message: err.message, kind: "error" });
+          }
         }}
       >
         <div>
           <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Connection Profile</h4>
           <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored encrypted in the dashboard secret vault.</p>
         </div>
-        <TextInput label="Machine ID" name="machineId" value={machineId} onChange={(event) => setMachineId(event.target.value)} required />
-        <TextInput label="Label" name="label" defaultValue={`Server ${defaultServerNumber}`} required />
+        <TextInput
+          label="Machine ID"
+          name="machineId"
+          value={machineId}
+          onChange={(event) => {
+            setEditedDefaults((current) => ({ ...current, machineId: true }));
+            setMachineId(event.target.value);
+          }}
+          required
+        />
+        <TextInput
+          label="Label"
+          name="label"
+          value={label}
+          onChange={(event) => {
+            setEditedDefaults((current) => ({ ...current, label: true }));
+            setLabel(event.target.value);
+          }}
+          required
+        />
         <div className="grid grid-cols-[1fr_96px] gap-2">
           <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
             <option value="rdp">RDP</option>
@@ -104,19 +144,31 @@ function ServerOnboardingForm({ state, actions }) {
 
 export function EditorDrawer({ state, actions }) {
   const { editor } = state;
-  if (editor.type === "summary") return null;
+  if (editor.type === "summary" || editor.type === "server-detail") return null;
+  if (editor.type === "connection-detail") {
+    const connection = state.secretPool.find((item) => item.secretId === editor.id);
+    if (!connection) return null;
+    return (
+      <ModalShell
+        title={connection.label || "Server Detail"}
+      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "Connection Profile"}
+        width="w-[min(680px,calc(100vw-32px))]"
+        onClose={() => actions.setEditor({ type: "summary" })}
+      >
+        <ConnectionDetail connection={connection} state={state} actions={actions} />
+      </ModalShell>
+    );
+  }
   if (editor.type === "server-onboarding") {
     return (
-      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
-        <div className="mb-4 flex items-start justify-between gap-3">
-          <div>
-            <h3 className="text-[17px] font-[760]">Add Server</h3>
-            <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">Register a real local downloader agent</p>
-          </div>
-          <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
-        </div>
+      <ModalShell
+        title="Add Server"
+        subtitle="Register a downloader agent connection"
+        width="w-[min(760px,calc(100vw-32px))]"
+        onClose={() => actions.setEditor({ type: "summary" })}
+      >
         <ServerOnboardingForm state={state} actions={actions} />
-      </aside>
+      </ModalShell>
     );
   }
   const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
@@ -124,18 +176,16 @@ export function EditorDrawer({ state, actions }) {
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
-    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
-      <div className="mb-4 flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record, editor)}</h3>
-          <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">{editor.type.includes("secret") ? "Global resource pool" : state.selectedMachine?.machineId || "No machine"}</p>
-        </div>
-        <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
-      </div>
+    <ModalShell
+      title={editorTitle(editor.type, record, editor)}
+      subtitle={editor.type.includes("secret") ? "Global Resource Pool" : displayMachineId(state.selectedMachine?.machineId)}
+      width="w-[min(620px,calc(100vw-32px))]"
+      onClose={() => actions.setEditor({ type: "summary" })}
+    >
       {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
       {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
-    </aside>
+    </ModalShell>
   );
 }
 
@@ -150,6 +200,68 @@ function editorTitle(type, record, editor = {}) {
   if (type === "secret" && record?.secretType === "credential") return "Edit Credential";
   if (type === "secret") return "Edit Secret";
   return "Editor";
+}
+
+function ConnectionDetail({ connection, state, actions }) {
+  const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+  const machine = targetMachineId ? state.machines.find((item) => item.machineId === targetMachineId) : null;
+  const validation = state.serverValidationResults[connection.secretId];
+  const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const copy = (text) => navigator.clipboard?.writeText(String(text || "")).catch(() => {});
+  return (
+    <section className="grid gap-3">
+      <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
+        <DetailTile label="Protocol" value={displayProtocol(connection.credential?.protocol)} />
+        <DetailTile label="Endpoint" value={endpoint} />
+        <DetailTile label="Username" value={connection.credential?.username || "N/A"} />
+        <DetailTile label="Machine ID" value={displayMachineId(targetMachineId)} />
+        <DetailTile label="Agent" value={machine ? `${machine.displayName || displayMachineId(machine.machineId)} (${displayStatus(machine.status)})` : "Not Registered"} />
+        <DetailTile label="Credential" value={displayStatus(connection.status)} />
+      </div>
+
+      {validation ? (
+        <div className="rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+          Network {validation.network.ok ? "Reachable" : "Blocked"} | Agent {displayStatus(validation.agent.status)}
+        </div>
+      ) : null}
+
+      <div className="flex flex-wrap gap-2 border-t border-[var(--ptg-outline)] pt-3">
+        <AppButton
+          variant="filled"
+          icon="control"
+          onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+        >
+          Validate
+        </AppButton>
+        {machine ? (
+          <AppButton
+            icon="servers"
+            onClick={() => actions.selectMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+          >
+            Open Server
+          </AppButton>
+        ) : null}
+        <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>Edit Credentials</AppButton>
+        <AppButton icon="copy" onClick={() => copy(`${endpoint}\n${connection.credential?.username || ""}\n${displayMachineId(targetMachineId)}`)}>Copy Details</AppButton>
+        <AppButton
+          className="danger-button"
+          icon="trash"
+          onClick={() => actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+        >
+          Delete
+        </AppButton>
+      </div>
+    </section>
+  );
+}
+
+function DetailTile({ label, value }) {
+  return (
+    <span className="min-w-0 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+      <small className="block truncate text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</small>
+      <strong className="mt-1 block truncate text-[13px] font-[850] text-[var(--ptg-on-surface)]">{value}</strong>
+    </span>
+  );
 }
 
 function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
@@ -249,8 +361,8 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
                 <Icon name="servers" className="h-4 w-4" />
               </span>
               <span className="min-w-0">
-                <strong className="block truncate text-[12.5px] font-[780]">{machine.displayName || machine.machineId}</strong>
-                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{machine.machineId} | {machine.status}</small>
+                <strong className="block truncate text-[12.5px] font-[780]">{machine.displayName || displayMachineId(machine.machineId)}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{displayMachineId(machine.machineId)} | {displayStatus(machine.status)}</small>
               </span>
             </label>
           );
@@ -343,8 +455,37 @@ function SecretForm({ record, editor, actions }) {
   const id = record?.secretId || "";
   const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
   const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
+  const [credentialPassword, setCredentialPassword] = useState("");
+  const [showCredentialPassword, setShowCredentialPassword] = useState(false);
+  const [credentialPasswordLoaded, setCredentialPasswordLoaded] = useState(!id);
   const credential = record?.credential || {};
   const isCredential = selectedSecretType === "credential";
+
+  useEffect(() => {
+    if (!id || !isCredential) {
+      setCredentialPassword("");
+      setCredentialPasswordLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setCredentialPasswordLoaded(false);
+    actions.api(`/api/secrets/${encodeURIComponent(id)}`)
+      .then(({ secret }) => {
+        if (cancelled) return;
+        const value = JSON.parse(secret.value || "{}");
+        setCredentialPassword(String(value.password || ""));
+        setCredentialPasswordLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setCredentialPasswordLoaded(true);
+        actions.setNotice({ message: err.message, kind: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isCredential]);
+
   return (
     <form className="grid gap-3" onSubmit={(event) => {
       event.preventDefault();
@@ -363,7 +504,7 @@ function SecretForm({ record, editor, actions }) {
       </SelectInput>
       <TextInput label={isCredential ? "Protocol Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Storj" : "primary"} />
       <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
-        {SECRET_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+        {SECRET_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
       </SelectInput>
       {isCredential ? (
         <>
@@ -388,11 +529,29 @@ function SecretForm({ record, editor, actions }) {
           <TextInput
             label="Password"
             name="credentialPassword"
-            type="password"
+            type={showCredentialPassword ? "text" : "password"}
             autoComplete="new-password"
-            placeholder={id ? "Leave blank to keep current password" : "Password"}
+            value={credentialPassword}
+            onChange={(event) => setCredentialPassword(event.target.value)}
+            placeholder={credentialPasswordLoaded ? "Password" : "Loading Password"}
             required={!id}
           />
+          <div className="flex flex-wrap gap-2">
+            <AppButton
+              icon={showCredentialPassword ? "eyeOff" : "eye"}
+              type="button"
+              onClick={() => setShowCredentialPassword((current) => !current)}
+            >
+              {showCredentialPassword ? "Hide Password" : "Show Password"}
+            </AppButton>
+            <AppButton
+              icon="copy"
+              type="button"
+              onClick={() => navigator.clipboard?.writeText(credentialPassword).catch(() => {})}
+            >
+              Copy Password
+            </AppButton>
+          </div>
         </>
       ) : (
         <TextArea

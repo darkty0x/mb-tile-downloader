@@ -38,6 +38,8 @@ const paths = {
   edit: [<path key="a" d="M4 20h4l11-11a2.8 2.8 0 0 0-4-4L4 16z" />, <path key="b" d="m13 6 5 5" />],
   trash: [<path key="a" d="M4 7h16" />, <path key="b" d="M10 11v6M14 11v6" />, <path key="c" d="M6 7l1 14h10l1-14" />, <path key="d" d="M9 7V4h6v3" />],
   copy: [<path key="a" d="M8 8h11v11H8z" />, <path key="b" d="M5 16H4V5h11v1" />],
+  eye: [<path key="a" d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6Z" />, <circle key="b" cx="12" cy="12" r="2.6" />],
+  eyeOff: [<path key="a" d="M3 3l18 18" />, <path key="b" d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6 0 9.5 7 9.5 7a16.4 16.4 0 0 1-2.4 3.2" />, <path key="c" d="M6.6 6.7C3.9 8.5 2.5 12 2.5 12s3.5 7 9.5 7a9.8 9.8 0 0 0 4.4-1" />, <path key="d" d="M9.8 9.8a2.6 2.6 0 0 0 3.5 3.5" />],
   check: [<path key="a" d="m5 12 4 4L19 6" />],
   search: [<circle key="a" cx="11" cy="11" r="6" />, <path key="b" d="m16 16 4 4" />],
   close: [<path key="a" d="M7 7l10 10M17 7 7 17" />],

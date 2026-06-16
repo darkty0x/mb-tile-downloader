@@ -159,7 +159,7 @@ export function useDashboardState() {
       async selectMachine(machineId) {
         setSelectedMachineId(machineId);
         setSelectedServerTab("control");
-        setEditor({ type: "summary" });
+        setEditor({ type: "server-detail" });
         await refreshMachineData(machineId);
       },
       async sendCommand(commandType) {
@@ -174,7 +174,7 @@ export function useDashboardState() {
           method: "POST",
           body: JSON.stringify({ commandType, payload, requestedBy: "dashboard" }),
         });
-        setNotice({ message: `${commandType.replaceAll("_", " ")} queued`, kind: "success" });
+        setNotice({ message: `${commandType.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())} Queued`, kind: "success" });
         await refreshMachineData(machine.machineId);
       },
       async deleteMachine(machineId) {
@@ -184,7 +184,7 @@ export function useDashboardState() {
           setSelectedServerTab("control");
           setEditor({ type: "summary" });
         }
-        setNotice({ message: `${machineId} removed`, kind: "success" });
+        setNotice({ message: `${machineId.toUpperCase()} Removed`, kind: "success" });
         await refreshAll();
       },
       async saveServerConnection(formData) {
@@ -208,9 +208,8 @@ export function useDashboardState() {
           setSelectedServerTab("control");
           await refreshMachineData(targetMachineId);
         }
-        setEditor({ type: "summary" });
         setSelectedTab("servers");
-        setNotice({ message: `${connection.label} saved. Validate it after the matching agent is online.`, kind: "success" });
+        setNotice({ message: `${connection.label} Saved. Validate It After The Matching Agent Is Online.`, kind: "success" });
         return connection;
       },
       async validateServerConnection(secretId) {
@@ -310,7 +309,7 @@ export function useDashboardState() {
           body: JSON.stringify(body),
         });
         setSettings(mergeDashboardSettings(nextSettings));
-        setNotice({ message: "Settings saved", kind: "success" });
+        setNotice({ message: "Settings Saved", kind: "success" });
       },
       async deleteRecord(type, id) {
         const paths = {

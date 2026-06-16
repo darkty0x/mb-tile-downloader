@@ -91,7 +91,7 @@ export function formatBytes(value) {
 }
 
 export function shortDate(value) {
-  if (!value) return "never";
+  if (!value) return "Never";
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "2-digit",
@@ -107,6 +107,26 @@ export function statusKind(status) {
   return "neutral";
 }
 
+export function displayStatus(value, fallback = "None") {
+  const text = String(value || "").trim();
+  if (!text) return fallback;
+  return text
+    .split(/[\s_-]+/)
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1).toLowerCase())
+    .join(" ");
+}
+
+export function displayProtocol(value) {
+  const text = String(value || "").trim();
+  return text ? text.toUpperCase() : "N/A";
+}
+
+export function displayMachineId(value) {
+  const text = String(value || "").trim();
+  return text ? text.toUpperCase() : "No Agent ID";
+}
+
 export function fleetState(state) {
   return {
     ...state,
@@ -118,4 +138,3 @@ export function fleetState(state) {
 export function diskPeakForMachine(machine) {
   return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
 }
-

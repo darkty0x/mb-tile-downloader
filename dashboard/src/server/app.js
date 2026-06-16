@@ -571,6 +571,18 @@ export function createDashboardApp({
         if (secretMatch) {
           if (!secretVault) throw new Error("secret vault is not configured");
           const secretId = decodeURIComponent(secretMatch[1]);
+          if (req.method === "GET") {
+            if (!secretVault.getSecretForDashboard) throw new Error("secret vault cannot decrypt dashboard secrets");
+            const secret = await secretVault.getSecretForDashboard(secretId);
+            if (secret.secretType === "credential") {
+              json(res, 200, { secret });
+              return;
+            }
+            const browserSecret = (await secretVault.listSecretsForBrowser({ machineId: secret.machineId || undefined }))
+              .find((item) => item.secretId === secret.secretId);
+            json(res, 200, { secret: browserSecret });
+            return;
+          }
           if (req.method === "PUT") {
             const body = await readJson(req);
             const secret = await secretVault.updateSecret(secretId, body);

@@ -2,8 +2,8 @@
 
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
-import { AppButton, IconButton, SectionTitle, StatusPill, Surface, UsageBar } from "./ui";
-import { COMMANDS, PAGE_META, SERVER_TABS, TABS, SECRET_LABELS, diskPeakForMachine, fleetState, formatBytes, shortDate, statusKind } from "./dashboard-core";
+import { AppButton, IconButton, ModalShell, SectionTitle, StatusPill, Surface, UsageBar } from "./ui";
+import { COMMANDS, PAGE_META, SERVER_TABS, TABS, SECRET_LABELS, diskPeakForMachine, displayMachineId, displayStatus, fleetState, formatBytes, shortDate, statusKind } from "./dashboard-core";
 
 export function Notice({ notice }) {
   if (!notice) return null;
@@ -49,7 +49,7 @@ export function Rail({ state, actions }) {
             >
               <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[#7ec7ff]" : ""}`} />
               <span className="truncate">{label}</span>
-              {count === null ? null : <strong className="grid h-6 min-w-6 place-items-center rounded-full bg-[rgba(255,255,255,0.11)] px-1.5 text-[11px] text-[#eaf1ff]">{count}</strong>}
+            {count === null ? null : <strong className="grid h-6 min-w-6 place-items-center rounded-full bg-[rgba(255,255,255,0.11)] px-1.5 text-[11px] text-[#eaf1ff]">{count}</strong>}
             </button>
           );
         })}
@@ -89,7 +89,7 @@ export function Header({ state, actions }) {
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="truncate text-[24px] font-[900] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
-            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
+            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} Online` : "Waiting"}</StatusPill>
           </div>
           <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
         </div>
@@ -166,24 +166,9 @@ function Pipeline({ state }) {
   );
 }
 
-export function ServerPanel({ state, actions }) {
+export function ServerDetailModal({ state, actions }) {
   const machine = state.selectedMachine;
-  if (!machine) {
-    return (
-      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-xl:hidden">
-        <Surface className="grid min-h-[300px] place-items-center overflow-hidden bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-5 text-center text-[var(--ptg-on-surface-variant)]">
-          <div>
-            <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ptg-primary)] shadow-[0_14px_36px_rgba(6,109,234,0.14)]">
-              <Icon name="servers" className="h-7 w-7" />
-            </span>
-            <h3 className="mt-5 text-[16px] font-[850] text-[var(--ptg-on-surface)]">Select a server</h3>
-            <p className="mx-auto mt-2 max-w-[270px] text-[12.5px] font-[620] leading-5">Choose a row from Servers to control jobs, env, secrets, configs, and the live console.</p>
-            <AppButton className="mt-5" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Servers</AppButton>
-          </div>
-        </Surface>
-      </aside>
-    );
-  }
+  if (!machine) return null;
   const counts = {
     configs: state.configs.length,
     env: state.envProfiles.length,
@@ -191,7 +176,12 @@ export function ServerPanel({ state, actions }) {
     console: state.events.length,
   };
   return (
-    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-xl:hidden">
+    <ModalShell
+      title={machine.displayName || displayMachineId(machine.machineId)}
+      subtitle={displayMachineId(machine.machineId)}
+      width="w-[min(920px,calc(100vw-32px))]"
+      onClose={() => actions.setEditor({ type: "summary" })}
+    >
       <header className="overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-1)]">
         <div className="flex items-start justify-between gap-3">
           <span className="ptg-icon-well inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px]">
@@ -199,12 +189,12 @@ export function ServerPanel({ state, actions }) {
           </span>
           <div className="min-w-0 flex-1">
             <h2 className="truncate text-[20px] font-[900] leading-tight">{machine.displayName || machine.machineId}</h2>
-            <p className="mt-1 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
+            <p className="mt-1 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{displayMachineId(machine.machineId)}</p>
           </div>
-          <StatusPill status={statusKind(machine.status)}>{machine.status}</StatusPill>
+          <StatusPill status={statusKind(machine.status)}>{displayStatus(machine.status)}</StatusPill>
         </div>
         <div className="mt-4 grid grid-cols-2 gap-2">
-          <MiniMetric label="Platform" value={machine.platform || "unknown"} />
+          <MiniMetric label="Platform" value={machine.platform || "Unknown"} />
           <MiniMetric label="Disk Peak" value={`${diskPeakForMachine(machine)}%`} />
         </div>
       </header>
@@ -247,7 +237,7 @@ export function ServerPanel({ state, actions }) {
         {state.selectedServerTab === "secrets" ? <ServerSecrets state={state} actions={actions} /> : null}
         {state.selectedServerTab === "console" ? <ServerConsole state={state} actions={actions} /> : null}
       </div>
-    </aside>
+    </ModalShell>
   );
 }
 
@@ -255,9 +245,9 @@ function ServerControl({ state }) {
   const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
   const latest = state.events.at(-1);
   const facts = [
-    ["layers", "Config", state.activeConfig?.name || "none"],
-    ["env", "Env", state.activeEnv?.name || "none"],
-    ["key", "Proxy", proxy?.status || "missing"],
+    ["layers", "Config", state.activeConfig?.name || "None"],
+    ["env", "Env", state.activeEnv?.name || "None"],
+    ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : "Missing"],
     ["control", "Last Seen", shortDate(state.selectedMachine?.lastSeenAt)],
   ];
   return (
@@ -273,8 +263,8 @@ function ServerControl({ state }) {
       <Pipeline state={state} />
       <ServerDisk machine={state.selectedMachine} />
       <Surface className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 shadow-none hover:shadow-sm">
-        <StatusPill status={latest?.severity || "neutral"}>{latest?.severity || "info"}</StatusPill>
-        <p className="text-[12px] leading-snug text-[var(--ptg-on-surface)]">{latest?.message || "No events yet"}</p>
+        <StatusPill status={latest?.severity || "neutral"}>{displayStatus(latest?.severity || "Info")}</StatusPill>
+        <p className="text-[12px] leading-snug text-[var(--ptg-on-surface)]">{latest?.message || "No Events Yet"}</p>
       </Surface>
     </section>
   );
@@ -321,10 +311,10 @@ function ServerConfigs({ state, actions }) {
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{config.name}</strong>
             <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-              {config.config.provider || "unknown"} | {config.config.layer || "layer"} | {config.config.format || config.config.tile?.extension || "format"} | {config.config.ranges?.length || 0} ranges | v{config.version}
+              {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | {config.config.ranges?.length || 0} Ranges | v{config.version}
             </small>
           </div>
-          <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "active" : "inactive"}</StatusPill>
+          <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "Active" : "Inactive"}</StatusPill>
           <TableActions type="config" id={config.configId} duplicate actions={actions} />
         </Surface>
       )) : <EmptyLine>No config assigned to this server</EmptyLine>}
@@ -340,9 +330,9 @@ function ServerEnv({ state, actions }) {
         <Surface key={profile.envProfileId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 shadow-none hover:shadow-sm">
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{profile.name}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{Object.keys(profile.env || {}).length} variables | v{profile.version}</small>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{Object.keys(profile.env || {}).length} Variables | v{profile.version}</small>
           </div>
-          <StatusPill status={profile.active ? "active" : "neutral"}>{profile.active ? "active" : "inactive"}</StatusPill>
+          <StatusPill status={profile.active ? "active" : "neutral"}>{profile.active ? "Active" : "Inactive"}</StatusPill>
           <TableActions type="env" id={profile.envProfileId} duplicate actions={actions} />
         </Surface>
       )) : <EmptyLine>No env profile assigned to this server</EmptyLine>}
@@ -360,7 +350,7 @@ function ServerSecrets({ state, actions }) {
             <strong className="block truncate text-[12.5px]">{secret.label}</strong>
             <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
           </div>
-          <StatusPill status={secret.status}>{secret.status}</StatusPill>
+          <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
           <TableActions type="secret" id={secret.secretId} actions={actions} />
         </Surface>
       )) : <EmptyLine>No secrets assigned to this server</EmptyLine>}
@@ -371,7 +361,7 @@ function ServerSecrets({ state, actions }) {
 function ServerConsole({ state, actions }) {
   const text = state.events.length
     ? state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`).join("\n")
-    : "No events yet";
+    : "No Events Yet";
   return (
     <section className="grid gap-2">
       <SectionTitle title="Console" action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>} />
