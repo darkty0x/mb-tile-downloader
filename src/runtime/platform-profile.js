@@ -207,6 +207,22 @@ function hasExplicitProxySource(env = process.env) {
   return groups.some((keys) => Boolean(resolveAnyEnv(env, keys)));
 }
 
+function isProxyDisabled(env = process.env) {
+  const value = resolveAnyEnv(env, [
+    "TILE_DOWNLOADER_NO_PROXY",
+    "TILE_DOWNLOADER_DISABLE_PROXY",
+    "NO_TILE_PROXY",
+  ]).toLowerCase();
+  return ["1", "true", "yes", "on"].includes(value);
+}
+
+function hasProxySourceForUrl(url, env = process.env, options = {}) {
+  if (isProxyDisabled(env)) return false;
+  if (shouldBypassProxy(url, resolveAnyEnv(env, ["NO_PROXY", "no_proxy"]))) return false;
+  const proxyEnv = resolveProxyEnvironmentWithOptions(env, options);
+  return hasProxyEnvironment(proxyEnv);
+}
+
 function resolveProxyEnvironmentWithOptions(env = process.env, options = {}) {
   const auth = proxyAuthFromEnv(env);
   const defaultProxyFilePath =
@@ -395,12 +411,23 @@ export function getPlatformKey(platform = process.platform) {
   return "linux";
 }
 
-function providerConcurrencyCap(provider, env = process.env) {
+function providerConcurrencyCap(provider, env = process.env, options = {}) {
   const genericCap = parsePositiveInt(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS);
   if (provider !== "esri") return genericCap;
 
   const esriCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY);
-  return esriCap ?? genericCap ?? 64;
+  if (esriCap) return esriCap;
+  const esriProxyCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_PROXY_MAX_CONCURRENCY);
+  if (
+    hasProxySourceForUrl(
+      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
+      env,
+      options
+    )
+  ) {
+    return esriProxyCap ?? genericCap ?? 1024;
+  }
+  return genericCap ?? 64;
 }
 
 function providerRowsCap(provider, env = process.env) {
@@ -419,6 +446,7 @@ export function buildPlatformProfile({
   requestTimeoutMs,
   provider,
   env = process.env,
+  defaultProxyFilePath,
 } = {}) {
   const limits = PLATFORM_LIMITS[getPlatformKey(platform)];
   const cpus =
@@ -434,7 +462,7 @@ export function buildPlatformProfile({
   );
   const requested = parsePositiveInt(requestedConcurrency) ?? defaultConcurrency;
   const platformCappedConcurrency = clamp(requested, 1, limits.maxConcurrentRequests);
-  const providerCap = providerConcurrencyCap(provider, env);
+  const providerCap = providerConcurrencyCap(provider, env, { defaultProxyFilePath });
   const maxConcurrentRequests = providerCap
     ? Math.min(platformCappedConcurrency, providerCap)
     : platformCappedConcurrency;

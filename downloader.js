@@ -365,6 +365,9 @@ function stateDbPathFor(config, opts) {
 async function runOneConfig(configPath, opts) {
   const configEnv = {
     ...process.env,
+    ...(opts.noProxy
+      ? { TILE_DOWNLOADER_NO_PROXY: "1" }
+      : null),
     ...(opts.maxRowsInFlight
       ? { TILE_DOWNLOADER_MAX_ROWS_IN_FLIGHT: String(opts.maxRowsInFlight) }
       : null),

@@ -44,7 +44,7 @@ test("uses conservative Windows filesystem concurrency", () => {
   assert.equal(profile.pathFlavor, "windows");
 });
 
-test("caps Esri concurrency below public ArcGIS block thresholds", () => {
+test("caps direct Esri concurrency below public ArcGIS block thresholds", () => {
   const profile = buildPlatformProfile({
     platform: "win32",
     provider: "esri",
@@ -52,6 +52,55 @@ test("caps Esri concurrency below public ArcGIS block thresholds", () => {
     requestedConcurrency: 4096,
     requestedRows: 1,
     env: {},
+    defaultProxyFilePath: null,
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 64);
+  assert.equal(profile.perRowConcurrency, 64);
+  assert.equal(profile.wasConcurrencyCapped, true);
+});
+
+test("raises Esri concurrency when a paid proxy source is configured", () => {
+  const profile = buildPlatformProfile({
+    platform: "win32",
+    provider: "esri",
+    cpuCount: 12,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: { TILE_DOWNLOADER_PROXY_LIST: "http://proxy-a.example:8080" },
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 1024);
+  assert.equal(profile.perRowConcurrency, 1024);
+  assert.equal(profile.wasConcurrencyCapped, true);
+});
+
+test("allows explicit proxy-backed Esri concurrency override", () => {
+  const profile = buildPlatformProfile({
+    platform: "win32",
+    provider: "esri",
+    cpuCount: 12,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: {
+      TILE_DOWNLOADER_PROXY_LIST: "http://proxy-a.example:8080",
+      TILE_DOWNLOADER_ESRI_PROXY_MAX_CONCURRENCY: "2048",
+    },
+  });
+
+  assert.equal(profile.maxConcurrentRequests, 2048);
+  assert.equal(profile.perRowConcurrency, 2048);
+});
+
+test("keeps direct Esri cap when proxy is disabled even if proxy.txt exists", () => {
+  const profile = buildPlatformProfile({
+    platform: "win32",
+    provider: "esri",
+    cpuCount: 12,
+    requestedConcurrency: 4096,
+    requestedRows: 1,
+    env: { TILE_DOWNLOADER_NO_PROXY: "1" },
+    defaultProxyFilePath: null,
   });
 
   assert.equal(profile.maxConcurrentRequests, 64);
