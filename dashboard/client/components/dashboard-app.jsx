@@ -18,6 +18,7 @@ const TABS = [
   ["overview", "Overview", "overview"],
   ["servers", "Servers", "servers"],
   ["secrets", "Secrets", "secrets"],
+  ["credentials", "Credentials", "credentials"],
   ["settings", "Settings", "settings"],
 ];
 
@@ -32,6 +33,7 @@ const SECRET_LABELS = {
   mapbox_token: "Mapbox Token",
   proxy_txt: "Proxy",
   storj_access: "Storj Access",
+  credential: "Credential",
 };
 
 const DEFAULT_DASHBOARD_SETTINGS = {
@@ -305,13 +307,27 @@ function useDashboardState() {
         await refreshMachineData();
       },
       async saveSecret(formData, id, existingType) {
+        const secretType = formData.get("secretType") || existingType;
         const body = {
           machineId: formData.get("machineId") || null,
-          label: formData.get("label") || formData.get("secretType") || existingType,
+          label: formData.get("label") || secretType,
           status: formData.get("status"),
         };
-        if (!id) body.secretType = formData.get("secretType");
-        if (formData.get("value")) body.value = formData.get("value");
+        if (!id) body.secretType = secretType;
+        if (secretType === "credential") {
+          const protocolUrl = String(formData.get("credentialProtocolUrl") || "").trim();
+          const username = String(formData.get("credentialUsername") || "").trim();
+          const password = String(formData.get("credentialPassword") || "");
+          const existingProtocolUrl = String(formData.get("existingCredentialProtocolUrl") || "").trim();
+          const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
+          const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || username !== existingUsername;
+          if (!id || password || changedCredentialIdentity) {
+            if (!password) throw new Error("credential password is required when creating or changing URL/username");
+            body.value = JSON.stringify({ protocolUrl, username, password });
+          }
+        } else if (formData.get("value")) {
+          body.value = formData.get("value");
+        }
         if (!id && !body.value) throw new Error("secret value is required");
         await api(id ? `/api/secrets/${encodeURIComponent(id)}` : "/api/secrets", {
           method: id ? "PUT" : "POST",
@@ -363,7 +379,13 @@ function Rail({ state, actions }) {
 
       <nav className="grid gap-1.5" aria-label="Dashboard sections">
         {TABS.map(([tab, label, icon]) => {
-          const count = tab === "servers" ? state.machines.length : tab === "secrets" ? state.secretPool.length : null;
+          const count = tab === "servers"
+            ? state.machines.length
+            : tab === "secrets"
+              ? state.secretPool.filter((secret) => secret.secretType !== "credential").length
+              : tab === "credentials"
+                ? state.secretPool.filter((secret) => secret.secretType === "credential").length
+                : null;
           return (
             <button
               key={tab}
@@ -512,6 +534,66 @@ function SecretsDashboard({ state, actions }) {
           actions={actions}
         />
       </section>
+    </section>
+  );
+}
+
+function CredentialsDashboard({ state, actions }) {
+  const items = state.secretPool
+    .filter((secret) => secret.secretType === "credential")
+    .slice()
+    .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
+  const active = items.filter((secret) => secret.status === "active").length;
+  const disabled = items.filter((secret) => secret.status !== "active").length;
+
+  return (
+    <section className="screen-enter mt-3 grid gap-2.5">
+      <section className="grid grid-cols-3 gap-2.5 max-lg:grid-cols-1">
+        <MetricCard icon="credentials" label="Protocols" value={items.length} />
+        <MetricCard icon="check" label="Active" value={active} />
+        <MetricCard icon="stop" label="Inactive" value={disabled} />
+      </section>
+
+      <Surface className="max-w-full overflow-hidden">
+        <SectionTitle
+          title="Credentials Manager"
+          meta="Protocol login records stored in the encrypted secret vault"
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>Add Credential</AppButton>}
+        />
+        {items.length ? (
+          <div className="grid gap-2">
+            {items.map((secret) => (
+              <div
+                key={secret.secretId}
+                className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[32px_minmax(0,1fr)]"
+              >
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                  <Icon name="credentials" className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <strong className="min-w-0 truncate text-[12.5px] font-[780]">{secret.label}</strong>
+                    <StatusPill status={secret.status}>{secret.status}</StatusPill>
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-[11.5px] max-xl:grid-cols-1">
+                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
+                      <span className="font-[750] text-[var(--ptg-on-surface)]">URL</span> {secret.credential?.protocolUrl || "missing"}
+                    </span>
+                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
+                      <span className="font-[750] text-[var(--ptg-on-surface)]">User</span> {secret.credential?.username || "missing"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
+                  <TableActions type="secret" id={secret.secretId} actions={actions} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyLine>No credentials stored yet</EmptyLine>
+        )}
+      </Surface>
     </section>
   );
 }
@@ -1006,7 +1088,7 @@ function EditorDrawer({ state, actions }) {
     <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record)}</h3>
+          <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record, editor)}</h3>
           <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">{editor.type.includes("secret") ? "Global resource pool" : state.selectedMachine?.machineId || "No machine"}</p>
         </div>
         <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
@@ -1018,12 +1100,14 @@ function EditorDrawer({ state, actions }) {
   );
 }
 
-function editorTitle(type, record) {
+function editorTitle(type, record, editor = {}) {
   if (type === "new-config") return "Add Config";
   if (type === "new-env") return "Add Env";
+  if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "Add Credential";
   if (type === "new-secret") return "Add Secret";
   if (type === "config") return record?.configId ? "Edit Config" : "Duplicate Config";
   if (type === "env") return record?.envProfileId ? "Edit Env" : "Duplicate Env";
+  if (type === "secret" && record?.secretType === "credential") return "Edit Credential";
   if (type === "secret") return "Edit Secret";
   return "Editor";
 }
@@ -1217,28 +1301,69 @@ function EnvForm({ record, actions }) {
 
 function SecretForm({ record, editor, actions }) {
   const id = record?.secretId || "";
-  const secretType = record?.secretType || editor?.secretType || "mapbox_token";
+  const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
+  const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
+  const credential = record?.credential || {};
+  const isCredential = selectedSecretType === "credential";
   return (
     <form className="grid gap-3" onSubmit={(event) => {
       event.preventDefault();
       actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
     }}>
       <input type="hidden" name="machineId" value={record?.machineId || ""} />
-      <SelectInput label="Type" name="secretType" defaultValue={secretType} disabled={Boolean(id)}>
+      {id ? <input type="hidden" name="secretType" value={selectedSecretType} /> : null}
+      <SelectInput
+        label="Type"
+        name="secretType"
+        value={selectedSecretType}
+        disabled={Boolean(id)}
+        onChange={(event) => setSelectedSecretType(event.target.value)}
+      >
         {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
       </SelectInput>
-      <TextInput label="Label" name="label" defaultValue={record?.label || ""} placeholder="primary" />
+      <TextInput label={isCredential ? "Protocol Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Storj" : "primary"} />
       <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
         {SECRET_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
       </SelectInput>
-      <TextArea
-        label="Value"
-        name="value"
-        spellCheck="false"
-        placeholder={id ? "Leave blank to keep current value" : secretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
-      />
+      {isCredential ? (
+        <>
+          <input type="hidden" name="existingCredentialProtocolUrl" value={credential.protocolUrl || ""} />
+          <input type="hidden" name="existingCredentialUsername" value={credential.username || ""} />
+          <TextInput
+            label="Protocol URL"
+            name="credentialProtocolUrl"
+            type="url"
+            defaultValue={credential.protocolUrl || ""}
+            placeholder="https://dashboard.example.com"
+            required
+          />
+          <TextInput
+            label="Username"
+            name="credentialUsername"
+            defaultValue={credential.username || ""}
+            placeholder="name@example.com"
+            autoComplete="username"
+            required
+          />
+          <TextInput
+            label="Password"
+            name="credentialPassword"
+            type="password"
+            autoComplete="new-password"
+            placeholder={id ? "Leave blank to keep current password" : "Password"}
+            required={!id}
+          />
+        </>
+      ) : (
+        <TextArea
+          label="Value"
+          name="value"
+          spellCheck="false"
+          placeholder={id ? "Leave blank to keep current value" : selectedSecretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
+        />
+      )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit">Save Secret</AppButton>
+        <AppButton variant="filled" icon="check" type="submit">{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
       </div>
     </form>
@@ -1255,6 +1380,8 @@ export default function DashboardApp() {
         <Notice notice={state.notice} />
         {state.selectedTab === "settings" ? (
           <SettingsDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "credentials" ? (
+          <CredentialsDashboard state={state} actions={actions} />
         ) : state.selectedTab === "secrets" ? (
           <SecretsDashboard state={state} actions={actions} />
         ) : (

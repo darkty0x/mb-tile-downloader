@@ -38,6 +38,37 @@ test("agent sync receives decrypted secret values", () => {
   assert.equal(agentSecrets[0].value, "http://u:p@1.2.3.4:8080");
 });
 
+test("credential secrets expose browser metadata without the password", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "credential-a",
+  });
+  const value = JSON.stringify({
+    protocolUrl: "https://ap1.storj.io",
+    username: "operator@example.com",
+    password: "very-secret-password",
+  });
+
+  const stored = vault.createSecret({
+    secretType: "credential",
+    label: "Storj",
+    value,
+  });
+  const browserSecrets = vault.listSecretsForBrowser();
+  const agentSecrets = vault.listSecretsForAgent();
+
+  assert.notEqual(stored.encryptedValue, value);
+  assert.equal(browserSecrets[0].secretType, "credential");
+  assert.deepEqual(browserSecrets[0].credential, {
+    protocolUrl: "https://ap1.storj.io",
+    username: "operator@example.com",
+    hasPassword: true,
+  });
+  assert.equal(browserSecrets[0].redactedValue, "operator@example.com @ ap1.storj.io");
+  assert.equal(JSON.stringify(browserSecrets).includes("very-secret-password"), false);
+  assert.equal(agentSecrets[0].value, value);
+});
+
 test("secret pool assigns mapbox keys and proxy items to only one machine", () => {
   let id = 0;
   const vault = createSecretVault({

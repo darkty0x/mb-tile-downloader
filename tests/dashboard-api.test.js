@@ -559,3 +559,43 @@ test("dashboard secret route imports proxy lists as global pool items", async (t
   assert.equal(listed.body.secrets.every((secret) => secret.machineId === null), true);
   assert.equal(listed.body.secrets.every((secret) => secret.usage === "available"), true);
 });
+
+test("dashboard secret route stores credentials with redacted browser metadata", async (t) => {
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "credential-a",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+  const headers = { authorization: "Bearer admin-token" };
+
+  const saved = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    headers,
+    body: {
+      secretType: "credential",
+      label: "Storj",
+      value: JSON.stringify({
+        protocolUrl: "https://ap1.storj.io",
+        username: "operator@example.com",
+        password: "very-secret-password",
+      }),
+    },
+  });
+  const listed = await request(server, {
+    path: "/api/secrets",
+    headers,
+  });
+
+  assert.equal(saved.status, 200);
+  assert.equal(saved.body.secret.secretType, "credential");
+  assert.deepEqual(saved.body.secret.credential, {
+    protocolUrl: "https://ap1.storj.io",
+    username: "operator@example.com",
+    hasPassword: true,
+  });
+  assert.equal(JSON.stringify(listed.body).includes("very-secret-password"), false);
+  assert.equal(listed.body.secrets[0].redactedValue, "operator@example.com @ ap1.storj.io");
+});

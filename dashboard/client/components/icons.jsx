@@ -23,6 +23,7 @@ const paths = {
   env: [<path key="a" d="M5 6h14M5 12h14M5 18h14" />, <circle key="b" cx="9" cy="6" r="2" />, <circle key="c" cx="15" cy="12" r="2" />, <circle key="d" cx="11" cy="18" r="2" />],
   settings: [<path key="a" d="M5 6h6M15 6h4" />, <path key="b" d="M5 12h3M12 12h7" />, <path key="c" d="M5 18h8M17 18h2" />, <circle key="d" cx="13" cy="6" r="2" />, <circle key="e" cx="10" cy="12" r="2" />, <circle key="f" cx="15" cy="18" r="2" />],
   secrets: [<rect key="a" x="5" y="10" width="14" height="10" rx="2" />, <path key="b" d="M8 10V7a4 4 0 0 1 8 0v3" />],
+  credentials: [<rect key="a" x="4" y="5" width="16" height="14" rx="2.5" />, <path key="b" d="M8 10h5M8 14h3" />, <circle key="c" cx="16.5" cy="13.5" r="1.5" />, <path key="d" d="m18 15 2 2M20 17l-1.5 1.5" />],
   console: [<path key="a" d="m5 7 5 5-5 5" />, <path key="b" d="M12 17h7" />],
   play: [<path key="a" d="M8 5v14l11-7Z" />],
   pause: [<path key="a" d="M7 5h4v14H7zM15 5h4v14h-4z" />],

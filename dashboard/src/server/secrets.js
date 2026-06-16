@@ -1,6 +1,6 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
-const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access"]);
+const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", "credential"]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error"]);
 export const SECRET_POOL_TARGETS = {
   mapbox_token: 1,
@@ -40,11 +40,64 @@ function redact(value) {
   return `${text.slice(0, 4)}...${text.slice(-4)}`;
 }
 
+function parseCredentialValue(value) {
+  const payload = typeof value === "string" ? JSON.parse(value) : value;
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
+    throw new Error("credential value must be a JSON object");
+  }
+  const protocolUrl = String(payload.protocolUrl || "").trim();
+  const username = String(payload.username || "").trim();
+  const password = String(payload.password ?? "");
+  if (!protocolUrl) throw new Error("credential protocol URL is required");
+  if (!username) throw new Error("credential username is required");
+  if (!password.trim()) throw new Error("credential password is required");
+  const parsedUrl = new URL(protocolUrl);
+  if (!/^https?:$/.test(parsedUrl.protocol)) {
+    throw new Error("credential protocol URL must use http or https");
+  }
+  return {
+    protocolUrl,
+    username,
+    password,
+  };
+}
+
+function normalizeCredentialValue(value) {
+  const credential = parseCredentialValue(value);
+  return JSON.stringify({
+    protocolUrl: credential.protocolUrl,
+    username: credential.username,
+    password: credential.password,
+  });
+}
+
+function credentialBrowserMetadata(value) {
+  const credential = parseCredentialValue(value);
+  return {
+    protocolUrl: credential.protocolUrl,
+    username: credential.username,
+    hasPassword: Boolean(credential.password),
+  };
+}
+
+function credentialRedactedValue(metadata) {
+  const host = new URL(metadata.protocolUrl).host;
+  return `${metadata.username} @ ${host}`;
+}
+
 function normalizeSecretValue(secretType, value) {
+  if (secretType === "credential") return normalizeCredentialValue(value);
   const text = String(value || "").trim();
   if (!text) throw new Error("secret value is required");
   if (secretType === "proxy_txt") return text.replace(/\s+/g, "");
   return text;
+}
+
+function duplicateKeyForSecret(secretType, value) {
+  const normalized = normalizeSecretValue(secretType, value);
+  if (secretType !== "credential") return normalized.toLowerCase();
+  const credential = parseCredentialValue(normalized);
+  return `${new URL(credential.protocolUrl).href}\n${credential.username}`.toLowerCase();
 }
 
 function secretUsage(record) {
@@ -53,7 +106,8 @@ function secretUsage(record) {
 }
 
 function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
-  const value = includeValue ? decrypt(record.encryptedValue, appSecret) : null;
+  const value = decrypt(record.encryptedValue, appSecret);
+  const credential = record.secretType === "credential" ? credentialBrowserMetadata(value) : null;
   return {
     secretId: record.secretId,
     machineId: record.machineId,
@@ -64,7 +118,10 @@ function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
     usage: secretUsage(record),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    ...(includeValue ? { value } : { redactedValue: redact(decrypt(record.encryptedValue, appSecret)) }),
+    ...(includeValue ? { value } : {
+      redactedValue: credential ? credentialRedactedValue(credential) : redact(value),
+      ...(credential ? { credential } : {}),
+    }),
   };
 }
 
@@ -87,6 +144,7 @@ function normalizeSecretRow(row) {
 }
 
 export function splitSecretValues(secretType, value) {
+  if (secretType === "credential") return [normalizeSecretValue(secretType, value)];
   if (secretType === "mapbox_token" || secretType === "proxy_txt") {
     const seen = new Set();
     return String(value || "")
@@ -107,10 +165,10 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
   const records = new Map();
 
   function findDuplicate(secretType, value, ignoreSecretId = null) {
-    const nextKey = normalizeSecretValue(secretType, value).toLowerCase();
+    const nextKey = duplicateKeyForSecret(secretType, value);
     for (const record of records.values()) {
       if (record.secretId === ignoreSecretId || record.secretType !== secretType) continue;
-      const existingKey = normalizeSecretValue(secretType, decrypt(record.encryptedValue, appSecret)).toLowerCase();
+      const existingKey = duplicateKeyForSecret(secretType, decrypt(record.encryptedValue, appSecret));
       if (existingKey === nextKey) return record;
     }
     return null;
@@ -221,11 +279,11 @@ export function createPostgresSecretVault({
   }
 
   async function findDuplicate(secretType, value, ignoreSecretId = null) {
-    const nextKey = normalizeSecretValue(secretType, value).toLowerCase();
+    const nextKey = duplicateKeyForSecret(secretType, value);
     const result = await db.query("SELECT * FROM secrets WHERE secret_type=$1 ORDER BY created_at ASC", [secretType]);
     for (const row of result.rows.map(normalizeSecretRow)) {
       if (row.secretId === ignoreSecretId) continue;
-      const existingKey = normalizeSecretValue(secretType, decrypt(row.encryptedValue, appSecret)).toLowerCase();
+      const existingKey = duplicateKeyForSecret(secretType, decrypt(row.encryptedValue, appSecret));
       if (existingKey === nextKey) return row;
     }
     return null;
