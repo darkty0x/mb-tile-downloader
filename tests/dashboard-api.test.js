@@ -306,6 +306,7 @@ test("dashboard settings expose and persist alert thresholds", async (t) => {
     mapboxTokensPerServer: 2,
     proxiesPerServer: 50,
   });
+  assert.equal(defaults.body.settings.sync.dashboardPollMs, 5000);
   assert.equal(updated.status, 200);
   assert.deepEqual(listed.body.settings.alertThresholds, {
     mapboxTokensPerServer: 4,
@@ -539,6 +540,24 @@ test("dashboard settings reject invalid alert thresholds", async (t) => {
 
   assert.equal(response.status, 400);
   assert.match(response.body.error, /mapboxTokensPerServer/);
+});
+
+test("dashboard settings expose and persist sync polling", async (t) => {
+  const server = await withServer(t);
+
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/settings",
+    body: {
+      sync: {
+        dashboardPollMs: 2500,
+      },
+    },
+  });
+  const listed = await request(server, { path: "/api/settings" });
+
+  assert.equal(updated.status, 200);
+  assert.equal(listed.body.settings.sync.dashboardPollMs, 2500);
 });
 
 test("dashboard app awaits async persistent store methods", async (t) => {

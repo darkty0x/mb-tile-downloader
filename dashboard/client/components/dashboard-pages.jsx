@@ -715,14 +715,21 @@ function ServerPageSecrets({ state, actions }) {
 
 function ServerPageConsole({ state, actions }) {
   const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
-  const text = state.events.length
-    ? state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`).join("\n")
-    : localLines.length
-      ? localLines.join("\n")
+  const eventLines = state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
+  const sections = [
+    eventLines.length ? ["Dashboard Events", eventLines] : null,
+    localLines.length ? ["Agent Log Tail", localLines] : null,
+  ].filter(Boolean);
+  const text = sections.length
+    ? sections.map(([title, lines]) => [`--- ${title} ---`, ...lines].join("\n")).join("\n\n")
     : "No Events Yet";
   return (
     <section className="grid gap-2">
-      <SectionTitle title="Console" action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>} />
+      <SectionTitle
+        title="Console"
+        meta={`${eventLines.length} events | ${localLines.length} log lines`}
+        action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>}
+      />
       <pre className="ptg-scrollbar min-h-[420px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{text}</pre>
     </section>
   );
@@ -962,6 +969,7 @@ export function SettingsDashboard({ state, actions }) {
   const serverCount = state.machines.length;
   const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
   const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
+  const dashboardPollMs = Number(state.settings.sync?.dashboardPollMs || 5000);
   const mapboxAlertAt = mapboxPerServer * serverCount;
   const proxyAlertAt = proxiesPerServer * serverCount;
 
@@ -974,8 +982,8 @@ export function SettingsDashboard({ state, actions }) {
               <Icon name="settings" className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-[17px] font-[850] leading-tight">Alert Thresholds</h3>
-              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">Applied across {serverCount} connected servers</p>
+              <h3 className="text-[17px] font-[850] leading-tight">Dashboard Settings</h3>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">Polling and alert thresholds for {serverCount} connected servers</p>
             </div>
           </div>
           <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right shadow-[0_1px_1px_rgba(15,23,42,0.03)] max-sm:text-left">
@@ -984,7 +992,7 @@ export function SettingsDashboard({ state, actions }) {
           </div>
         </div>
         <form
-          key={`${mapboxPerServer}-${proxiesPerServer}`}
+          key={`${mapboxPerServer}-${proxiesPerServer}-${dashboardPollMs}`}
           className="grid gap-4 p-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -1011,6 +1019,29 @@ export function SettingsDashboard({ state, actions }) {
                 min="0"
                 step="1"
                 defaultValue={proxiesPerServer}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+            <div className="grid grid-cols-[minmax(0,1fr)_220px] items-end gap-3 max-sm:grid-cols-1">
+              <div className="min-w-0">
+                <span className="flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
+                  <Icon name="sync" className="h-4 w-4 text-[var(--ptg-primary)]" />
+                  Live dashboard polling
+                </span>
+                <p className="mt-1 text-[11.5px] font-[550] leading-snug text-[var(--ptg-on-surface-variant)]">
+                  Visible browser tabs refresh server status, events, jobs, config, env, and console data on this interval.
+                </p>
+              </div>
+              <TextInput
+                label="Poll interval (ms)"
+                name="dashboardPollMs"
+                type="number"
+                min="1000"
+                step="500"
+                defaultValue={dashboardPollMs}
                 required
               />
             </div>

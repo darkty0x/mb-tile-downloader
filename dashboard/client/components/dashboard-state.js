@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
 import { DEFAULT_DASHBOARD_SETTINGS, mergeDashboardSettings } from "./dashboard-core";
@@ -26,6 +26,12 @@ export function useDashboardState() {
   const [editor, setEditor] = useState({ type: "summary" });
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
+  const selectedMachineIdRef = useRef(selectedMachineId);
+  const refreshInFlightRef = useRef(false);
+
+  useEffect(() => {
+    selectedMachineIdRef.current = selectedMachineId;
+  }, [selectedMachineId]);
 
   useEffect(() => {
     if (!notice) return undefined;
@@ -47,7 +53,7 @@ export function useDashboardState() {
     return body;
   }
 
-  async function refreshMachineData(machineId = selectedMachineId) {
+  async function refreshMachineData(machineId = selectedMachineIdRef.current) {
     if (!machineId) {
       setConfigs([]);
       setEnvProfiles([]);
@@ -81,8 +87,10 @@ export function useDashboardState() {
     setSettings(mergeDashboardSettings(nextSettings));
   }
 
-  async function refreshAll() {
-    setLoading(true);
+  async function refreshAll({ showLoading = true } = {}) {
+    if (refreshInFlightRef.current) return;
+    refreshInFlightRef.current = true;
+    if (showLoading) setLoading(true);
     try {
       const [
         { snapshot },
@@ -92,8 +100,9 @@ export function useDashboardState() {
         api("/api/config-templates"),
       ]);
       const nextMachines = snapshot.machines || [];
-      const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
-        ? selectedMachineId
+      const currentSelected = selectedMachineIdRef.current;
+      const nextSelected = currentSelected && nextMachines.some((machine) => machine.machineId === currentSelected)
+        ? currentSelected
         : null;
       setMachines(nextMachines);
       setSecretPool(snapshot.secretPool || []);
@@ -103,9 +112,11 @@ export function useDashboardState() {
       setGlobalJobs(snapshot.jobs || []);
       setGlobalEvents(snapshot.events || []);
       setSelectedMachineId(nextSelected);
+      selectedMachineIdRef.current = nextSelected;
       await refreshMachineData(nextSelected);
     } finally {
-      setLoading(false);
+      refreshInFlightRef.current = false;
+      if (showLoading) setLoading(false);
     }
   }
 
@@ -115,6 +126,17 @@ export function useDashboardState() {
     }, 250);
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    const pollMs = Number(settings.sync?.dashboardPollMs);
+    if (!Number.isFinite(pollMs) || pollMs < 1000) return undefined;
+    const poll = () => {
+      if (typeof document !== "undefined" && document.visibilityState !== "visible") return;
+      refreshAll({ showLoading: false }).catch((err) => setNotice({ message: err.message, kind: "error" }));
+    };
+    const timer = setInterval(poll, pollMs);
+    return () => clearInterval(timer);
+  }, [settings.sync?.dashboardPollMs]);
 
   const selectedMachine = useMemo(() => machines.find((machine) => machine.machineId === selectedMachineId) || null, [machines, selectedMachineId]);
   const activeConfig = useMemo(() => configs.find((config) => config.active) || configs[0] || null, [configs]);
@@ -314,6 +336,9 @@ export function useDashboardState() {
           alertThresholds: {
             mapboxTokensPerServer: Number(formData.get("mapboxTokensPerServer")),
             proxiesPerServer: Number(formData.get("proxiesPerServer")),
+          },
+          sync: {
+            dashboardPollMs: Number(formData.get("dashboardPollMs")),
           },
         };
         const { settings: nextSettings } = await api("/api/settings", {

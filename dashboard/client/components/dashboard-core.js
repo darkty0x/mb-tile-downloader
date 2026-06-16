@@ -51,6 +51,9 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
     mapboxTokensPerServer: 2,
     proxiesPerServer: 50,
   },
+  sync: {
+    dashboardPollMs: 5000,
+  },
 };
 
 export const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
@@ -67,6 +70,10 @@ export function mergeDashboardSettings(settings = {}) {
     alertThresholds: {
       ...DEFAULT_DASHBOARD_SETTINGS.alertThresholds,
       ...(settings.alertThresholds || {}),
+    },
+    sync: {
+      ...DEFAULT_DASHBOARD_SETTINGS.sync,
+      ...(settings.sync || {}),
     },
   };
 }

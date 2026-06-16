@@ -362,12 +362,22 @@ function ServerSecrets({ state, actions }) {
 }
 
 function ServerConsole({ state, actions }) {
-  const text = state.events.length
-    ? state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`).join("\n")
+  const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
+  const eventLines = state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
+  const sections = [
+    eventLines.length ? ["Dashboard Events", eventLines] : null,
+    localLines.length ? ["Agent Log Tail", localLines] : null,
+  ].filter(Boolean);
+  const text = sections.length
+    ? sections.map(([title, lines]) => [`--- ${title} ---`, ...lines].join("\n")).join("\n\n")
     : "No Events Yet";
   return (
     <section className="grid gap-2">
-      <SectionTitle title="Console" action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>} />
+      <SectionTitle
+        title="Console"
+        meta={`${eventLines.length} events | ${localLines.length} log lines`}
+        action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>}
+      />
       <pre className="ptg-scrollbar min-h-[420px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{text}</pre>
     </section>
   );

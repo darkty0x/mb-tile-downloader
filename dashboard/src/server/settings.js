@@ -3,6 +3,9 @@ export const DEFAULT_DASHBOARD_SETTINGS = Object.freeze({
     mapboxTokensPerServer: 2,
     proxiesPerServer: 50,
   }),
+  sync: Object.freeze({
+    dashboardPollMs: 5000,
+  }),
 });
 
 function normalizeNonNegativeInteger(value, name, fallback) {
@@ -22,6 +25,10 @@ export function normalizeDashboardSettings(input = {}, existing = DEFAULT_DASHBO
     ? source.alertThresholds
     : {};
   const currentThresholds = current.alertThresholds || DEFAULT_DASHBOARD_SETTINGS.alertThresholds;
+  const sync = source.sync && typeof source.sync === "object" && !Array.isArray(source.sync)
+    ? source.sync
+    : {};
+  const currentSync = current.sync || DEFAULT_DASHBOARD_SETTINGS.sync;
 
   return {
     alertThresholds: {
@@ -34,6 +41,13 @@ export function normalizeDashboardSettings(input = {}, existing = DEFAULT_DASHBO
         alertThresholds.proxiesPerServer,
         "settings.alertThresholds.proxiesPerServer",
         currentThresholds.proxiesPerServer
+      ),
+    },
+    sync: {
+      dashboardPollMs: normalizeNonNegativeInteger(
+        sync.dashboardPollMs,
+        "settings.sync.dashboardPollMs",
+        currentSync.dashboardPollMs
       ),
     },
   };

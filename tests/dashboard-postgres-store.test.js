@@ -261,11 +261,15 @@ test("postgres store persists dashboard alert settings", async () => {
     mapboxTokensPerServer: 2,
     proxiesPerServer: 50,
   });
+  assert.equal((await store.getSettings()).sync.dashboardPollMs, 5000);
 
   await store.updateSettings({
     alertThresholds: {
       mapboxTokensPerServer: 5,
       proxiesPerServer: 80,
+    },
+    sync: {
+      dashboardPollMs: 3000,
     },
   });
 
@@ -273,6 +277,7 @@ test("postgres store persists dashboard alert settings", async () => {
     mapboxTokensPerServer: 5,
     proxiesPerServer: 80,
   });
+  assert.equal((await store.getSettings()).sync.dashboardPollMs, 3000);
 });
 
 test("postgres store lists expired machines as offline", async () => {
