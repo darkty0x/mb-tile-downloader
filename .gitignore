@@ -4,7 +4,10 @@ proxy.txt
 /configs
 .DS_Store
 /node_modules
+/dashboard/node_modules
+/dashboard/src/client/dist
 /outputs
+/output
 /reports
 /download
 /archives

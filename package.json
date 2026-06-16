@@ -4,6 +4,9 @@
   "description": "Cross-platform production tile downloader with row-level resume and provider configs.",
   "main": "downloader.js",
   "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "test:smoke": "node --test --test-concurrency=1 tests/cli-smoke.test.js",
@@ -18,6 +21,8 @@
     "upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
     "storj-upload": "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js",
     "storj-download": "node scripts/install-storj-uplink.js --if-missing && node storj-downloader.js",
+    "agent": "node --env-file-if-exists=.env src/agent/agent.js",
+    "dashboard": "node --env-file-if-exists=.env dashboard/src/server/app.js",
     "unzip-ranges": "node unzip-ranges.js",
     "delete-unavailable": "node downloader.js delete-unavailable",
     "upload:install-uplink": "node scripts/install-storj-uplink.js",

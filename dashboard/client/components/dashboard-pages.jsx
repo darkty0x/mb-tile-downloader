@@ -1,0 +1,1140 @@
+"use client";
+
+import { buildOverviewModel } from "../lib/overview-model";
+import { Icon } from "./icons";
+import { AppButton, IconButton, MetricCard, SectionTitle, StatusPill, Surface, TextInput, UsageBar } from "./ui";
+import { COMMANDS, SECRET_LABELS, SECRET_SECTION_VISIBLE_LIMIT, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, fleetState, formatBytes, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+
+const KPI_CARDS = [
+  ["serversOnline", "servers"],
+  ["activeJobs", "pipelines"],
+  ["throughput", "speed"],
+  ["storagePressure", "disk"],
+  ["failedJobs", "warning"],
+  ["resourceAlerts", "alerts"],
+];
+
+const STEP_ICONS = {
+  download: "play",
+  validate: "check",
+  zip: "config",
+  upload: "sync",
+};
+
+function kpiTone(key, metric) {
+  if (key === "failedJobs" && Number(metric.value) > 0) return "danger";
+  if (key === "resourceAlerts" && Number(metric.value) > 0) return "warn";
+  if (key === "storagePressure" && Number.parseInt(metric.value, 10) >= 85) return "warn";
+  if (key === "serversOnline" && String(metric.value).startsWith("0")) return "muted";
+  return "primary";
+}
+
+function diskPeakForMachine(machine) {
+  return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+}
+
+function pipelineTone(status) {
+  if (status === "complete") return "success";
+  if (status === "running") return "primary";
+  if (status === "error") return "danger";
+  return "muted";
+}
+
+function InsightCard({ icon, label, value, detail, tone = "primary" }) {
+  return (
+    <Surface className={`ptg-metric-tile min-h-[112px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+      <div className="flex items-start gap-3">
+        <span className={`ptg-icon-well inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] ${tone === "danger" ? "red" : tone === "warn" ? "amber" : tone === "primary" ? "" : ""}`}>
+          <Icon name={icon} className="h-5 w-5" />
+        </span>
+        <span className="min-w-0">
+          <span className="block truncate text-[11px] font-[800] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
+          <strong className="mt-2 block truncate text-[26px] font-[900] leading-none text-[var(--ptg-on-surface)]">{value}</strong>
+          <p className={`mt-2 truncate text-[11.5px] font-[700] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
+        </span>
+      </div>
+    </Surface>
+  );
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2">
+      <small className="block truncate text-[10.5px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</small>
+      <strong className="mt-1 block truncate text-[16px] font-[850] leading-none">{value}</strong>
+    </span>
+  );
+}
+
+function PipelineOverview({ overview }) {
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Live Pipeline Progress" meta="All active ranges" />
+      <div className="grid grid-cols-4 gap-5 max-xl:grid-cols-2 max-sm:grid-cols-1">
+        {overview.pipeline.map((step, index) => {
+          const tone = pipelineTone(step.status);
+          return (
+            <div key={step.key} className="relative min-w-0">
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${tone === "success" ? "bg-[var(--ptg-success)] text-white" : tone === "danger" ? "bg-[var(--ptg-error)] text-white" : tone === "primary" ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-surface-container-high)] text-[var(--ptg-on-surface-variant)]"}`}>
+                <Icon name={STEP_ICONS[step.key] || "pipelines"} className="h-4 w-4" />
+              </span>
+                <span className="h-[3px] flex-1 rounded-full bg-[#d9e3f0]">
+                  <span className={`block h-full rounded-full ${tone === "success" ? "bg-[var(--ptg-success)]" : tone === "danger" ? "bg-[var(--ptg-error)]" : "bg-[var(--ptg-primary)]"}`} style={{ width: `${step.progress}%` }} />
+                </span>
+              </div>
+              <div className="mt-3 min-w-0 pl-[2px]">
+                <strong className="block truncate text-[13px] font-[850]">{index + 1}. {step.label}</strong>
+                <strong className={`mt-3 block text-[21px] font-[900] leading-none ${tone === "success" ? "text-[var(--ptg-success)]" : tone === "danger" ? "text-[var(--ptg-error)]" : "text-[var(--ptg-primary)]"}`}>{step.progress}%</strong>
+                <p className="mt-2 truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{step.status === "running" ? "In Progress" : displayStatus(step.status)}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </Surface>
+  );
+}
+
+function FleetHealthCard({ overview }) {
+  const total = Object.values(overview.health).reduce((sum, value) => sum + value, 0);
+  const healthy = total ? Math.round((overview.health.healthy / total) * 100) : 0;
+  const warning = total ? Math.round((overview.health.warning / total) * 100) : 0;
+  const critical = total ? Math.round((overview.health.critical / total) * 100) : 0;
+  const healthyStop = healthy * 3.6;
+  const warningStop = healthyStop + warning * 3.6;
+  const criticalStop = warningStop + critical * 3.6;
+  const ring = total
+    ? `conic-gradient(var(--ptg-success) 0 ${healthyStop}deg, var(--ptg-warning) ${healthyStop}deg ${warningStop}deg, var(--ptg-error) ${warningStop}deg ${criticalStop}deg, #9aa8bd ${criticalStop}deg 360deg)`
+    : "conic-gradient(#dbe5f2 0 360deg)";
+  return (
+    <Surface className="min-h-[278px] p-4">
+      <SectionTitle title="Fleet Health" meta={total ? `${total} servers registered` : "Waiting for server heartbeat"} />
+      <div className="grid grid-cols-[132px_minmax(0,1fr)] items-center gap-5 max-sm:grid-cols-1">
+        <div className="relative mx-auto h-32 w-32 rounded-full p-3" style={{ background: ring }}>
+          <div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-[inset_0_0_0_1px_var(--ptg-outline)]">
+            <span>
+              <strong className="block text-[25px] font-[850] leading-none">{healthy}%</strong>
+              <small className="mt-1 block text-[10.5px] font-[800] uppercase text-[var(--ptg-on-surface-variant)]">Healthy</small>
+            </span>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {[
+            ["healthy", "Healthy", overview.health.healthy, "success"],
+            ["warning", "Watch", overview.health.warning, "warn"],
+            ["critical", "Critical", overview.health.critical, "error"],
+            ["offline", "Offline", overview.health.offline, "neutral"],
+          ].map(([key, label, value, status]) => (
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <StatusPill status={status}>{label}</StatusPill>
+                <span className="truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{key}</span>
+              </span>
+              <strong className="text-[14px] font-[850]">{value}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function DiskCapacityCard({ state }) {
+  const rows = state.machines
+    .map((machine) => ({ machine, peak: diskPeakForMachine(machine), disk: [...(machine.disk || [])].sort((a, b) => (Number(b.percentUsed) || 0) - (Number(a.percentUsed) || 0))[0] }))
+    .sort((a, b) => b.peak - a.peak)
+    .slice(0, 5);
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Disk Capacity" meta="Highest used drive per server" />
+      <div className="grid gap-2">
+        {rows.length ? rows.map(({ machine, peak, disk }) => (
+          <div key={machine.machineId} className="grid grid-cols-[minmax(0,1fr)_92px_44px] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <div className="min-w-0">
+              <strong className="block truncate text-[12.5px] font-[820]">{machine.displayName || machine.machineId}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{disk?.mount || disk?.name || "Drive"} | {formatBytes(disk?.freeBytes)} Free</small>
+            </div>
+            <UsageBar percent={peak} className="w-[92px]" />
+            <strong className="text-right text-[12px] font-[850]">{peak}%</strong>
+          </div>
+        )) : <EmptyLine>No disk snapshots yet</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function ActiveRangesCard({ overview }) {
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Active Ranges" meta="Largest queued or active downloader ranges" />
+      <div className="grid gap-2">
+        {overview.activeRanges.length ? overview.activeRanges.map((range, index) => (
+          <div key={`${range.name}-${index}`} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <span className="ptg-icon-well inline-flex h-8 w-8 items-center justify-center rounded-lg">
+              <Icon name="layers" className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <strong className="block truncate text-[12.5px] font-[820]">{range.name}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">z={range.z} | {range.tiles.toLocaleString()} tiles</small>
+            </div>
+            <StatusPill status={range.status === "queued" ? "busy" : "neutral"}>{displayStatus(range.status)}</StatusPill>
+          </div>
+        )) : <EmptyLine>No active range selected</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function ResourceAlertsCard({ overview, actions }) {
+  return (
+    <Surface className="p-4">
+      <SectionTitle
+        title="Resource Alerts"
+        meta="Uses thresholds from Settings"
+        action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>Thresholds</AppButton>}
+      />
+      <div className="grid gap-2">
+        {overview.resourceAlerts.length ? overview.resourceAlerts.map((alert) => (
+          <div key={alert.type} className="rounded-lg border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <strong className="text-[12.5px] font-[850]">{alert.label}</strong>
+              <StatusPill status="warn">low</StatusPill>
+            </div>
+            <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+              {alert.available} Available, Threshold {alert.threshold}
+            </p>
+          </div>
+        )) : (
+          <div className="rounded-lg border border-[rgba(11,155,114,0.18)] bg-[#edfbf6] px-3 py-3">
+            <StatusPill status="success">clear</StatusPill>
+            <p className="mt-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">Mapbox and proxy pools are above their alert lines.</p>
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+function ManagementProfilesSummary({ state, actions }) {
+  const connections = state.secretPool.filter(isServerConnection);
+  const onlineAgents = state.machines.filter((machine) => machine.status !== "offline").length;
+  return (
+    <Surface className="grid min-h-[174px] place-items-center p-5 text-center">
+      <div>
+        <span className="ptg-icon-well mx-auto inline-flex h-12 w-12 items-center justify-center rounded-[12px]">
+          <Icon name="control" className="h-6 w-6" />
+        </span>
+        <h3 className="mt-4 text-[16px] font-[850]">Management Profiles</h3>
+        <p className="mx-auto mt-2 max-w-[260px] text-[12px] font-[600] leading-5 text-[var(--ptg-on-surface-variant)]">
+          {connections.length} Remote Login{connections.length === 1 ? "" : "s"} | {onlineAgents}/{state.machines.length} Agents Online
+        </p>
+        <AppButton className="mt-4" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Servers</AppButton>
+      </div>
+    </Surface>
+  );
+}
+
+function QuickActionsCard({ actions }) {
+  const items = [
+    ["console", "Run Command", () => actions.setSelectedTab("events")],
+    ["pause", "Pause All", () => actions.setNotice({ message: "Open a server management page before sending commands", kind: "error" })],
+    ["refresh", "Sync Config", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
+    ["pipelines", "View Pipelines", () => actions.setSelectedTab("pipelines")],
+    ["events", "View Logs", () => actions.setSelectedTab("events")],
+    ["alerts", "Add Alert", () => actions.setSelectedTab("alerts")],
+  ];
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Quick Actions" />
+      <div className="grid grid-cols-2 gap-2">
+        {items.map(([icon, label, onClick]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={onClick}
+            className="state-layer inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 text-[12px] font-[760] text-[var(--ptg-on-surface)] hover:border-[var(--ptg-outline-strong)] hover:text-[var(--ptg-primary)]"
+          >
+            <Icon name={icon} className="h-4 w-4 text-[var(--ptg-primary)]" />
+            <span className="truncate">{label}</span>
+          </button>
+        ))}
+      </div>
+    </Surface>
+  );
+}
+
+function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
+  const visible = events.slice(0, limit);
+  return (
+    <Surface className="p-4">
+      <SectionTitle title={title} meta={`${events.length} events loaded`} />
+      <div className="grid gap-2">
+        {visible.length ? visible.map((event, index) => (
+          <div key={`${event.createdAt}-${event.type}-${index}`} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <span className={`mt-1 h-2.5 w-2.5 rounded-full ${event.severity === "error" ? "bg-[var(--ptg-error)]" : event.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
+            <span className="min-w-0">
+              <strong className="block truncate text-[12px] font-[820]">{event.type}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{event.message}</small>
+            </span>
+            <time className="text-[10.5px] font-[700] text-[var(--ptg-on-surface-variant)]">{shortDate(event.createdAt)}</time>
+          </div>
+        )) : <EmptyLine>No events yet</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function isServerConnection(secret) {
+  if (secret.secretType === "server_rdp_credential") return true;
+  return secret.secretType === "credential" && ["rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol);
+}
+
+function machineNameForId(state, machineId) {
+  if (!machineId) return "No Agent ID";
+  const machine = state.machines.find((item) => item.machineId === machineId);
+  return machine?.displayName || displayMachineId(machineId);
+}
+
+export function OverviewDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  return (
+    <section className="screen-enter grid gap-4">
+      <section className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        {KPI_CARDS.map(([key, icon]) => {
+          const metric = overview.kpis[key];
+          return (
+            <InsightCard
+              key={key}
+              icon={icon}
+              label={metric.label}
+              value={metric.value}
+              detail={metric.detail}
+              tone={kpiTone(key, metric)}
+            />
+          );
+        })}
+      </section>
+      <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-2xl:grid-cols-1">
+        <div className="grid gap-4">
+          <PipelineOverview overview={overview} />
+          <section className="grid grid-cols-[minmax(260px,0.7fr)_minmax(320px,0.85fr)_minmax(320px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
+            <FleetHealthCard overview={overview} />
+            <DiskCapacityCard state={state} />
+            <ResourceAlertsCard overview={overview} actions={actions} />
+          </section>
+          <ActiveRangesCard overview={overview} />
+        </div>
+        <div className="grid content-start gap-4">
+          <ManagementProfilesSummary state={state} actions={actions} />
+          <QuickActionsCard actions={actions} />
+          <EventStreamCard events={overview.recentEvents} title="Live Event Console" limit={7} />
+        </div>
+      </section>
+    </section>
+  );
+}
+
+export function ServersDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  const connections = state.secretPool.filter(isServerConnection);
+  const onlineAgents = state.machines.filter((machine) => machine.status !== "offline").length;
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <section className="ptg-card-grid gap-3">
+        <InsightCard icon="servers" label="Registered Servers" value={state.machines.length} detail={`${overview.health.healthy} healthy, ${overview.health.critical} critical`} />
+        <InsightCard icon="disk" label="Disk Pressure" value={`${overview.diskPressure}%`} detail="Highest observed drive usage" tone={overview.diskPressure >= 85 ? "warn" : "primary"} />
+        <InsightCard icon="control" label="Management Profiles" value={connections.length} detail={`${onlineAgents}/${state.machines.length} Agents Online`} />
+      </section>
+      <ServerConnectionsSection state={state} actions={actions} />
+      <ServersTable state={state} actions={actions} />
+    </section>
+  );
+}
+
+function ServerConnectionsSection({ state, actions }) {
+  const connections = state.secretPool.filter(isServerConnection);
+  const onlineAgents = state.machines.filter((machine) => machine.status !== "offline").length;
+  return (
+    <Surface className="p-4">
+      <SectionTitle
+        title="Connection Profiles"
+        meta={`${connections.length} Saved Remote Login${connections.length === 1 ? "" : "s"} | ${onlineAgents}/${state.machines.length} Agents Online`}
+        action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>}
+      />
+      <div className="mb-3 grid grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-xl border border-[rgba(18,103,216,0.16)] bg-[var(--ptg-primary-soft)] px-3 py-2.5">
+        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[var(--ptg-primary)] shadow-[0_1px_2px_rgba(10,26,51,0.06)]">
+          <Icon name="control" className="h-4 w-4" />
+        </span>
+        <p className="text-[12px] font-[650] leading-5 text-[var(--ptg-primary-dark)]">
+          Validation checks the remote endpoint plus the matching local downloader agent. Dashboard commands are queued for the agent; RDP, SSH, and WinRM profiles are never used for arbitrary remote execution.
+        </p>
+      </div>
+      <div className="grid gap-2">
+        {connections.length ? connections.map((connection) => {
+          const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+          const validation = state.serverValidationResults[connection.secretId];
+          const endpoint = `${displayProtocol(connection.credential.protocol)}://${connection.credential.host}:${connection.credential.port}`;
+          return (
+            <div
+              key={connection.secretId}
+              className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-lg:grid-cols-[34px_minmax(0,1fr)]"
+            >
+              <span className="ptg-icon-well inline-flex h-8 w-8 items-center justify-center rounded-lg">
+                <Icon name="credentials" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <strong className="truncate text-[13px] font-[850]">{connection.label}</strong>
+                  <StatusPill status={validation?.valid ? "success" : validation ? "error" : "neutral"}>
+                    {validation?.valid ? "Valid" : validation ? "Not Ready" : displayProtocol(connection.credential.protocol)}
+                  </StatusPill>
+                </div>
+                <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                  {endpoint} | {connection.credential.username} | {machineNameForId(state, targetMachineId)}
+                </p>
+                {validation ? (
+                  <p className="mt-1 truncate text-[11px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                    Network {validation.network.ok ? "Reachable" : "Blocked"} | Agent {displayStatus(validation.agent.status)}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
+                <AppButton icon="control" onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Manage</AppButton>
+                <AppButton icon="control" onClick={(event) => {
+                  actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                }}>Validate</AppButton>
+                <IconButton
+                  icon="trash"
+                  label={`Remove ${connection.label}`}
+                  className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
+                  onClick={(event) => {
+                    actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                  }}
+                />
+              </div>
+            </div>
+          );
+        }) : (
+          <EmptyLine>No saved connection profiles. Add one with IP, port, username, and password.</EmptyLine>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+export function ServerManagementPage({ state, actions }) {
+  const connection = state.secretPool.find((item) => item.secretId === state.editor.id);
+  if (!connection) {
+    return (
+      <section className="screen-enter mt-4 grid gap-4">
+        <Surface className="p-5">
+          <SectionTitle title="Server Management" action={<AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>Back To Servers</AppButton>} />
+          <EmptyLine>Connection profile not found.</EmptyLine>
+        </Surface>
+      </section>
+    );
+  }
+  const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+  const machine = targetMachineId ? state.machines.find((item) => item.machineId === targetMachineId) : null;
+  const validation = state.serverValidationResults[connection.secretId];
+  const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const counts = {
+    configs: state.configs.length,
+    env: state.envProfiles.length,
+    secrets: state.secrets.length,
+    console: state.events.length,
+  };
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <Surface className="p-4">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div className="grid min-w-0 grid-cols-[48px_minmax(0,1fr)] gap-3">
+            <span className="ptg-icon-well inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px]">
+              <Icon name="servers" className="h-6 w-6" />
+            </span>
+            <div className="min-w-0">
+              <h2 className="truncate text-[22px] font-[900] leading-tight">{connection.label}</h2>
+              <p className="mt-1 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{endpoint} | {connection.credential?.username || "Missing"} | {displayMachineId(targetMachineId)}</p>
+            </div>
+          </div>
+          <div className="flex flex-wrap justify-end gap-2">
+            <StatusPill status={machine ? statusKind(machine.status) : "neutral"}>{machine ? displayStatus(machine.status) : "Agent Not Registered"}</StatusPill>
+            {validation ? <StatusPill status={validation.valid ? "success" : "error"}>{validation.valid ? "Valid" : "Not Ready"}</StatusPill> : null}
+            <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Validate</AppButton>
+            <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>Edit Credentials</AppButton>
+            <AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>Back</AppButton>
+          </div>
+        </div>
+        <div className="mt-4 grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
+          <MiniMetric label="Agent ID" value={displayMachineId(targetMachineId)} />
+          <MiniMetric label="Platform" value={machine?.platform || "Waiting"} />
+          <MiniMetric label="Disk Peak" value={machine ? `${diskPeakForMachine(machine)}%` : "--"} />
+          <MiniMetric label="Last Seen" value={machine ? shortDate(machine.lastSeenAt) : "Waiting"} />
+        </div>
+      </Surface>
+
+      <section className="grid grid-cols-6 gap-2 max-lg:grid-cols-3 max-sm:grid-cols-2">
+        {COMMANDS.map(([type, label, icon]) => (
+          <AppButton
+            key={type}
+            variant={type === "start_pipeline" ? "filled" : "outlined"}
+            icon={icon}
+            className={type === "stop_pipeline" ? "danger-button" : ""}
+            disabled={!machine}
+            onClick={() => actions.sendCommand(type).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+          >
+            {label}
+          </AppButton>
+        ))}
+      </section>
+
+      <nav className="grid grid-cols-5 gap-1 rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Server management sections">
+        {SERVER_TABS.map(([tab, label, icon]) => (
+          <button
+            key={tab}
+            type="button"
+            onClick={() => actions.setSelectedServerTab(tab)}
+            className={`state-layer flex min-h-10 items-center justify-center gap-1 rounded-[8px] px-2 text-[11px] font-[760] ${
+              state.selectedServerTab === tab ? "bg-white text-[var(--ptg-primary)] shadow-[0_1px_3px_rgba(20,31,37,0.10)]" : "text-[var(--ptg-on-surface-variant)]"
+            }`}
+          >
+            <Icon name={icon} className={`h-3.5 w-3.5 ${state.selectedServerTab === tab ? "text-[var(--ptg-secondary)]" : ""}`} />
+            <span className="truncate">{label}</span>
+            {counts[tab] === undefined ? null : <strong className="rounded-full bg-[var(--ptg-surface-container-high)] px-1 text-[10px]">{counts[tab]}</strong>}
+          </button>
+        ))}
+      </nav>
+
+      <Surface className="p-4">
+        {state.selectedServerTab === "control" ? <ServerPageControl state={state} machine={machine} /> : null}
+        {state.selectedServerTab === "configs" ? <ServerPageConfigs state={state} actions={actions} /> : null}
+        {state.selectedServerTab === "env" ? <ServerPageEnv state={state} actions={actions} /> : null}
+        {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={state} actions={actions} /> : null}
+        {state.selectedServerTab === "console" ? <ServerPageConsole state={state} actions={actions} /> : null}
+      </Surface>
+    </section>
+  );
+}
+
+function ServerPageControl({ state, machine }) {
+  const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
+  const latest = state.events.at(-1);
+  const facts = [
+    ["layers", "Config", state.activeConfig?.name || "No Config Assigned"],
+    ["env", "Env", state.activeEnv?.name || "No Env Assigned"],
+    ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : "Missing"],
+    ["control", "Last Seen", machine ? shortDate(machine.lastSeenAt) : "Waiting"],
+  ];
+  return (
+    <section className="grid gap-4">
+      <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
+        {facts.map(([icon, label, value]) => (
+          <div key={label} className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+            <span className="flex items-center gap-1.5 text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]"><Icon name={icon} className="h-3.5 w-3.5 text-[var(--ptg-secondary)]" />{label}</span>
+            <strong className="mt-1.5 block break-words text-[13px]">{value}</strong>
+          </div>
+        ))}
+      </div>
+      <ServerPageDisk machine={machine} />
+      <div className="grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+        <StatusPill status={latest?.severity || "neutral"}>{displayStatus(latest?.severity || "Info")}</StatusPill>
+        <p className="text-[12px] leading-snug text-[var(--ptg-on-surface)]">{latest?.message || "No Events Yet"}</p>
+      </div>
+    </section>
+  );
+}
+
+function ServerPageDisk({ machine }) {
+  const disks = machine?.disk || [];
+  return (
+    <section className="grid gap-2">
+      <SectionTitle title="Disk Space" meta={`${disks.length} Drives`} />
+      {disks.length ? disks.map((disk) => {
+        const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
+        return (
+          <div key={`${disk.name}-${disk.mount}`} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-1">
+            <div className="min-w-0">
+              <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || ""} | {formatBytes(disk.freeBytes)} Free</small>
+            </div>
+            <UsageBar percent={pct} className="w-24 max-sm:w-full" />
+            <strong className="text-right text-[12px] max-sm:text-left">{pct}%</strong>
+          </div>
+        );
+      }) : <EmptyLine>No disk snapshot yet</EmptyLine>}
+    </section>
+  );
+}
+
+function ServerPageConfigs({ state, actions }) {
+  return (
+    <section className="grid gap-2">
+      <SectionTitle title="Config" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Add</AppButton>} />
+      {state.configs.length ? state.configs.map((config) => (
+        <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0">
+            <strong className="block truncate text-[12.5px]">{config.name}</strong>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+              {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | {config.config.ranges?.length || 0} Ranges | v{config.version}
+            </small>
+          </div>
+          <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "Active" : "Inactive"}</StatusPill>
+          <TableActions type="config" id={config.configId} duplicate actions={actions} />
+        </div>
+      )) : <EmptyLine>No config assigned to this server</EmptyLine>}
+    </section>
+  );
+}
+
+function ServerPageEnv({ state, actions }) {
+  return (
+    <section className="grid gap-2">
+      <SectionTitle title="Env" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-env" })}>Add</AppButton>} />
+      {state.envProfiles.length ? state.envProfiles.map((profile) => (
+        <div key={profile.envProfileId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0">
+            <strong className="block truncate text-[12.5px]">{profile.name}</strong>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{Object.keys(profile.env || {}).length} Variables | v{profile.version}</small>
+          </div>
+          <StatusPill status={profile.active ? "active" : "neutral"}>{profile.active ? "Active" : "Inactive"}</StatusPill>
+          <TableActions type="env" id={profile.envProfileId} duplicate actions={actions} />
+        </div>
+      )) : <EmptyLine>No env profile assigned to this server</EmptyLine>}
+    </section>
+  );
+}
+
+function ServerPageSecrets({ state, actions }) {
+  return (
+    <section className="grid gap-2">
+      <SectionTitle title="Secrets" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>Add</AppButton>} />
+      {state.secrets.length ? state.secrets.map((secret) => (
+        <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+          <div className="min-w-0">
+            <strong className="block truncate text-[12.5px]">{secret.label}</strong>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+          </div>
+          <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
+          <TableActions type="secret" id={secret.secretId} actions={actions} />
+        </div>
+      )) : <EmptyLine>No secrets assigned to this server</EmptyLine>}
+    </section>
+  );
+}
+
+function ServerPageConsole({ state, actions }) {
+  const text = state.events.length
+    ? state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`).join("\n")
+    : "No Events Yet";
+  return (
+    <section className="grid gap-2">
+      <SectionTitle title="Console" action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Refresh</AppButton>} />
+      <pre className="ptg-scrollbar min-h-[420px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{text}</pre>
+    </section>
+  );
+}
+
+export function PipelinesDashboard({ state }) {
+  const overview = buildOverviewModel(fleetState(state));
+  return (
+    <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+      <PipelineOverview overview={overview} />
+      <EventStreamCard events={overview.recentEvents} title="Pipeline Events" limit={8} />
+      <ActiveRangesCard overview={overview} />
+      <DiskCapacityCard state={state} />
+    </section>
+  );
+}
+
+export function ConfigsDashboard({ state, actions }) {
+  const templates = state.configTemplates || [];
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <Surface className="p-4">
+        <SectionTitle
+          title="Config Library"
+          meta={`${templates.length} root config type${templates.length === 1 ? "" : "s"} available for assignment`}
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Create Config</AppButton>}
+        />
+        <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
+          {templates.length ? templates.map((template) => (
+            <div key={template.id} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
+              <span className="ptg-icon-well inline-flex h-9 w-9 items-center justify-center rounded-lg">
+                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4.5 w-4.5" />
+              </span>
+              <strong className="mt-3 block truncate text-[13px] font-[850]">{template.label}</strong>
+              <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+              </p>
+            </div>
+          )) : <EmptyLine>No root configs discovered</EmptyLine>}
+        </div>
+      </Surface>
+      <ServersTable state={state} actions={actions} />
+    </section>
+  );
+}
+
+export function EventsDashboard({ state }) {
+  const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <EventStreamCard events={events} title="Dashboard Console" limit={20} />
+      <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
+        {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "No Events Yet"}
+      </pre>
+    </section>
+  );
+}
+
+export function AlertsDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  const failed = overview.recentEvents.filter((event) => event.severity === "error" || event.type === "range.failed");
+  return (
+    <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+      <ResourceAlertsCard overview={overview} actions={actions} />
+      <Surface className="p-4">
+        <SectionTitle title="Failures" meta={`${failed.length} recent failure event${failed.length === 1 ? "" : "s"}`} />
+        <div className="grid gap-2">
+          {failed.length ? failed.map((event, index) => (
+            <div key={`${event.createdAt}-${index}`} className="rounded-lg border border-[rgba(226,58,77,0.20)] bg-[#fff5f7] px-3 py-2.5">
+              <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-error)]">{event.type}</strong>
+              <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{event.message}</p>
+            </div>
+          )) : <EmptyLine>No failure events loaded</EmptyLine>}
+        </div>
+      </Surface>
+      <DiskCapacityCard state={state} />
+      <FleetHealthCard overview={overview} />
+    </section>
+  );
+}
+
+function machineLabel(state, machineId) {
+  if (!machineId) return "Available";
+  const machine = state.machines.find((item) => item.machineId === machineId);
+  return machine?.displayName || displayMachineId(machineId);
+}
+
+function secretCounts(secrets, secretType) {
+  const items = secrets.filter((secret) => secret.secretType === secretType);
+  const available = items.filter((secret) => secret.status === "active" && !secret.machineId).length;
+  const assigned = items.filter((secret) => secret.status === "active" && secret.machineId).length;
+  const disabled = items.length - available - assigned;
+  return { total: items.length, available, assigned, disabled };
+}
+
+export function SecretsDashboard({ state, actions }) {
+  const mapbox = secretCounts(state.secretPool, "mapbox_token");
+  const proxies = secretCounts(state.secretPool, "proxy_txt");
+  const serverCount = state.machines.length;
+  const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
+  const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
+  const alerts = [
+    {
+      type: "mapbox_token",
+      label: "Mapbox keys",
+      available: mapbox.available,
+      threshold: mapboxPerServer * serverCount,
+    },
+    {
+      type: "proxy_txt",
+      label: "Proxies",
+      available: proxies.available,
+      threshold: proxiesPerServer * serverCount,
+    },
+  ].filter((alert) => serverCount > 0 && alert.available <= alert.threshold);
+
+  return (
+    <section className="screen-enter mt-3 grid gap-2.5">
+      <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
+        <MetricCard icon="key" label="Mapbox Available" value={`${mapbox.available}/${mapbox.total}`} />
+        <MetricCard icon="secrets" label="Proxy Available" value={`${proxies.available}/${proxies.total}`} />
+        <MetricCard icon="servers" label="Assigned Items" value={mapbox.assigned + proxies.assigned} />
+        <MetricCard icon={alerts.length ? "warning" : "check"} label="Pool Alerts" value={alerts.length || "Clear"} />
+      </section>
+
+      {alerts.length ? (
+        <Surface className="grid gap-2 border-[rgba(143,95,0,0.25)] bg-[#fff9ed]">
+          <SectionTitle title="Capacity Alerts" meta={`${serverCount} servers connected | thresholds from Settings`} />
+          {alerts.map((alert) => (
+            <div key={alert.type} className="flex flex-wrap items-center gap-2 rounded-lg border border-[rgba(143,95,0,0.18)] bg-white px-3 py-2 text-[12px]">
+              <StatusPill status="warn">low</StatusPill>
+              <strong>{alert.label}</strong>
+              <span className="text-[var(--ptg-on-surface-variant)]">Available {alert.available}, Alert Threshold {alert.threshold}</span>
+            </div>
+          ))}
+        </Surface>
+      ) : null}
+
+      <section className="grid grid-cols-2 gap-2.5 max-xl:grid-cols-1">
+        <SecretResourceSection
+          title="Mapbox API Keys"
+          meta={`${mapbox.available} Available | ${mapbox.assigned} Assigned | ${mapbox.disabled} Disabled`}
+          icon="key"
+          secretType="mapbox_token"
+          state={state}
+          actions={actions}
+        />
+        <SecretResourceSection
+          title="Proxy Pool"
+          meta={`${proxies.available} Available | ${proxies.assigned} Assigned | ${proxies.disabled} Disabled`}
+          icon="secrets"
+          secretType="proxy_txt"
+          state={state}
+          actions={actions}
+        />
+      </section>
+    </section>
+  );
+}
+
+export function CredentialsDashboard({ state, actions }) {
+  const items = state.secretPool
+    .filter((secret) => secret.secretType === "credential" && !isServerConnection(secret))
+    .slice()
+    .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
+  const active = items.filter((secret) => secret.status === "active").length;
+  const disabled = items.filter((secret) => secret.status !== "active").length;
+
+  return (
+    <section className="screen-enter mt-3 grid gap-2.5">
+      <section className="grid grid-cols-3 gap-2.5 max-lg:grid-cols-1">
+        <MetricCard icon="credentials" label="Protocols" value={items.length} />
+        <MetricCard icon="check" label="Active" value={active} />
+        <MetricCard icon="stop" label="Inactive" value={disabled} />
+      </section>
+
+      <Surface className="max-w-full overflow-hidden">
+        <SectionTitle
+          title="Credentials Manager"
+          meta="Protocol login records stored in the encrypted secret vault"
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>Add Credential</AppButton>}
+        />
+        {items.length ? (
+          <div className="grid gap-2">
+            {items.map((secret) => (
+              <div
+                key={secret.secretId}
+                className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[32px_minmax(0,1fr)]"
+              >
+                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                  <Icon name="credentials" className="h-4 w-4" />
+                </span>
+                <div className="min-w-0">
+                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+                    <strong className="min-w-0 truncate text-[12.5px] font-[780]">{secret.label}</strong>
+                    <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
+                  </div>
+                  <div className="mt-1 grid grid-cols-2 gap-2 text-[11.5px] max-xl:grid-cols-1">
+                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
+                      <span className="font-[750] text-[var(--ptg-on-surface)]">URL</span> {secret.credential?.protocolUrl || "Missing"}
+                    </span>
+                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
+                      <span className="font-[750] text-[var(--ptg-on-surface)]">User</span> {secret.credential?.username || "Missing"}
+                    </span>
+                  </div>
+                </div>
+                <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
+                  <TableActions type="secret" id={secret.secretId} actions={actions} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <EmptyLine>No credentials stored yet</EmptyLine>
+        )}
+      </Surface>
+    </section>
+  );
+}
+
+function ThresholdPreview({ icon, label, value, detail }) {
+  return (
+    <div className="rounded-lg border border-[var(--ptg-outline)] bg-[#fbfdff] p-3">
+      <span className="flex items-center gap-2 text-[11px] font-[750] text-[var(--ptg-on-surface-variant)]">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+          <Icon name={icon} className="h-4 w-4" />
+        </span>
+        {label}
+      </span>
+      <strong className="mt-3 block text-[20px] font-[800] leading-none">{value}</strong>
+      <p className="mt-2 text-[11.5px] font-[500] leading-snug text-[var(--ptg-on-surface-variant)]">{detail}</p>
+    </div>
+  );
+}
+
+export function SettingsDashboard({ state, actions }) {
+  const serverCount = state.machines.length;
+  const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
+  const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
+  const mapboxAlertAt = mapboxPerServer * serverCount;
+  const proxyAlertAt = proxiesPerServer * serverCount;
+
+  return (
+    <section className="screen-enter mt-4 grid gap-3">
+      <Surface className="overflow-hidden p-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-4 py-4 max-sm:grid-cols-1">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]">
+              <Icon name="settings" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-[17px] font-[850] leading-tight">Alert Thresholds</h3>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">Applied across {serverCount} connected servers</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right shadow-[0_1px_1px_rgba(15,23,42,0.03)] max-sm:text-left">
+            <span className="block text-[10.5px] font-[750] uppercase text-[var(--ptg-on-surface-variant)]">Servers</span>
+            <strong className="mt-0.5 block text-[20px] font-[800] leading-none">{serverCount}</strong>
+          </div>
+        </div>
+        <form
+          key={`${mapboxPerServer}-${proxiesPerServer}`}
+          className="grid gap-4 p-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            actions.saveSettings(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+          }}
+        >
+          <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <TextInput
+                label="Mapbox keys per server"
+                name="mapboxTokensPerServer"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={mapboxPerServer}
+                required
+              />
+            </div>
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <TextInput
+                label="Proxies per server"
+                name="proxiesPerServer"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={proxiesPerServer}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+            <ThresholdPreview
+              icon="key"
+              label="Mapbox alert line"
+              value={`${mapboxAlertAt} keys`}
+              detail={`${mapboxPerServer} per server x ${serverCount} servers`}
+            />
+            <ThresholdPreview
+              icon="secrets"
+              label="Proxy alert line"
+              value={`${proxyAlertAt} proxies`}
+              detail={`${proxiesPerServer} per server x ${serverCount} servers`}
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-t border-[var(--ptg-outline)] pt-3">
+            <AppButton variant="filled" icon="check" type="submit">Save Settings</AppButton>
+            <AppButton
+              icon="sync"
+              type="button"
+              onClick={() => actions.refreshSettings().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            >
+              Reload
+            </AppButton>
+          </div>
+        </form>
+      </Surface>
+    </section>
+  );
+}
+
+function SecretResourceSection({ title, meta, icon, secretType, state, actions }) {
+  const items = state.secretPool
+    .filter((secret) => secret.secretType === secretType)
+    .slice()
+    .sort((a, b) => {
+      const rank = (secret) => secret.status === "active" && !secret.machineId ? 0 : secret.status !== "active" ? 1 : 2;
+      return rank(a) - rank(b) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label);
+    });
+  const visibleItems = items.slice(0, SECRET_SECTION_VISIBLE_LIMIT);
+  const addLabel = secretType === "proxy_txt" ? "Add Proxies" : "Add Key";
+
+  return (
+    <Surface className="min-h-[360px] max-w-full overflow-hidden">
+      <SectionTitle
+        title={title}
+        meta={meta}
+        action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType })}>{addLabel}</AppButton>}
+      />
+      <div className="grid gap-2">
+        {visibleItems.length ? visibleItems.map((secret) => (
+          <SecretResourceRow key={secret.secretId} secret={secret} icon={icon} state={state} actions={actions} />
+        )) : <EmptyLine>No {title.toLowerCase()} stored yet</EmptyLine>}
+        {items.length > visibleItems.length ? (
+          <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] px-3 py-2 text-center text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">
+            Showing {visibleItems.length} of {items.length} items
+          </p>
+        ) : null}
+      </div>
+    </Surface>
+  );
+}
+
+function SecretResourceRow({ secret, icon, state, actions }) {
+  const active = secret.status === "active";
+  const assigned = Boolean(secret.machineId);
+  const usageStatus = active && !assigned ? "active" : active ? "busy" : secret.status;
+  const usageLabel = active && !assigned ? "Available" : active ? machineLabel(state, secret.machineId) : displayStatus(secret.status);
+
+  async function disable() {
+    await actions.api(`/api/secrets/${encodeURIComponent(secret.secretId)}`, {
+      method: "PUT",
+      body: JSON.stringify({ status: "disabled" }),
+    });
+    await actions.refreshSecretPool();
+    await actions.refreshMachineData();
+  }
+
+  return (
+    <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[28px_minmax(0,1fr)]">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+        <Icon name={icon} className="h-4 w-4" />
+      </span>
+      <div className="min-w-0 pt-0.5">
+        <strong className="block min-w-0 truncate text-[12.5px] font-[760] leading-4">{secret.label}</strong>
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+          <StatusPill status={usageStatus}>{usageLabel}</StatusPill>
+          <small className="min-w-0 flex-1 truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+        </div>
+        {assigned ? <small className="mt-0.5 block truncate text-[10.5px] text-[var(--ptg-on-surface-variant)]">{displayMachineId(secret.machineId)}</small> : null}
+      </div>
+      <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
+        {active ? <IconButton label="Disable" icon="stop" onClick={() => disable().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
+        <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
+        <IconButton label="Delete" icon="trash" onClick={() => actions.deleteRecord("secret", secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+      </div>
+    </div>
+  );
+}
+
+function ServersTable({ state, actions }) {
+  const filtered = state.machines.filter((machine) =>
+    `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
+  );
+  const online = state.machines.filter((machine) => machine.status === "online").length;
+  const connectionForMachine = (machineId) => state.secretPool.find((secret) => isServerConnection(secret) && (secret.targetMachineId || secret.credential?.machineId || secret.machineId) === machineId);
+  return (
+    <Surface className="min-h-[500px] max-w-full overflow-hidden">
+      <SectionTitle
+        title="Servers"
+        meta={`${online}/${state.machines.length} Online`}
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full">
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>
+            <label className="relative block w-[min(320px,42vw)] max-sm:w-full">
+              <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+              <input
+                value={state.machineSearch}
+                onChange={(event) => actions.setMachineSearch(event.target.value)}
+                type="search"
+                placeholder="Search servers"
+                className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(18,103,216,0.12)]"
+              />
+            </label>
+          </div>
+        }
+      />
+      <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
+        <table className="w-full table-fixed border-collapse text-[12.5px] sm:table-auto">
+          <thead>
+            <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">Server</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">Status</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">Disk Peak</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">Platform</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">Last Seen</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {filtered.length ? filtered.map((machine) => {
+              const diskPeak = Math.max(0, ...((machine.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+              const connection = connectionForMachine(machine.machineId);
+              return (
+                <tr
+                  key={machine.machineId}
+                  className="bg-white transition hover:bg-[var(--ptg-primary-soft)]"
+                >
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
+                    <strong className="block max-w-[280px] truncate text-[12.5px]">{machine.displayName || machine.machineId}</strong>
+                    <small className="mt-0.5 block max-w-[300px] truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{displayMachineId(machine.machineId)}</small>
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5"><StatusPill status={statusKind(machine.status)}>{displayStatus(machine.status)}</StatusPill></td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
+                    {diskPeak ? <><UsageBar percent={diskPeak} className="mr-2 w-[48px] sm:w-[72px] 2xl:w-[110px]" /><strong>{diskPeak}%</strong></> : "--"}
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{machine.platform || "Unknown"}</td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{shortDate(machine.lastSeenAt)}</td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 text-right max-sm:px-1.5">
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        aria-label={`Manage ${machine.displayName || machine.machineId}`}
+                        disabled={!connection}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          if (!connection) {
+                            actions.setNotice({ message: "Add a connection profile before managing this server.", kind: "error" });
+                            return;
+                          }
+                          actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        }}
+                        className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
+                      >
+                        <Icon name="control" className="h-3.5 w-3.5 sm:hidden" />
+                        <span className="hidden sm:inline">Manage</span>
+                      </button>
+                      <IconButton
+                        icon="trash"
+                        label={`Remove ${machine.displayName || machine.machineId}`}
+                        className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          const ok = globalThis.confirm?.(`Remove server "${machine.displayName || machine.machineId}" from the dashboard? This releases assigned secrets and deletes server-scoped config/env records.`);
+                          if (!ok) return;
+                          actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        }}
+                      />
+                    </div>
+                  </td>
+                </tr>
+              );
+            }) : (
+              <tr><td className="px-3 py-8 text-center text-[var(--ptg-on-surface-variant)]" colSpan={6}>No Matching Servers</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </Surface>
+  );
+}
+
+function TableActions({ type, id, actions, duplicate = false }) {
+  return (
+    <div className="flex justify-end gap-1.5">
+      <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type, id })} />
+      {duplicate ? <IconButton label="Duplicate" icon="copy" onClick={() => actions.setEditor({ type, id, duplicate: true })} /> : null}
+      <IconButton label="Delete" icon="trash" onClick={() => actions.deleteRecord(type, id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+    </div>
+  );
+}
+
+function EmptyLine({ children }) {
+  return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
+}

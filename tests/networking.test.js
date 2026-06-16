@@ -153,7 +153,7 @@ test("configureNetworking rotates HTTPS requests across env proxy list", async (
   assert.equal(second[PROXY_INFO_SYMBOL].proxy, "http://proxy-b.example:8080");
 });
 
-test("configureNetworking defaults configured paid proxies to proxy-first", async () => {
+test("configureNetworking defaults configured paid proxies to direct-first fallback", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
@@ -169,8 +169,8 @@ test("configureNetworking defaults configured paid proxies to proxy-first", asyn
 
   assert.equal(await response.text(), "ok");
   assert.equal(undici.state.fetchCalls.length, 1);
-  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "proxy");
-  assert.equal(response[PROXY_INFO_SYMBOL].proxy, "http://proxy.example:8080");
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
+  assert.equal(response[PROXY_INFO_SYMBOL], undefined);
 });
 
 test("configureNetworking reuses proxy dispatchers for connection pooling", async () => {
@@ -181,6 +181,7 @@ test("configureNetworking reuses proxy dispatchers for connection pooling", asyn
     profile(),
     {
       TILE_DOWNLOADER_PROXY_LIST: "http://proxy.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "always",
     },
     { undici, targetGlobal }
   );

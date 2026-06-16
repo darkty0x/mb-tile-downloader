@@ -398,6 +398,10 @@ function createProxyRotationState(proxyEnv, env = process.env) {
     candidateCount(protocol) {
       return candidatesByProtocol(protocol).length;
     },
+    healthyCandidateCount(protocol) {
+      const key = protocolKey(protocol);
+      return candidatesByProtocol(protocol).filter((proxy) => !isBlocked(key, proxy)).length;
+    },
     hasHealthyCandidate(protocol) {
       const key = protocolKey(protocol);
       return candidatesByProtocol(protocol).some((proxy) => !isBlocked(key, proxy));
