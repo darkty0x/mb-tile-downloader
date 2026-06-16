@@ -440,11 +440,22 @@ export function ServerManagementPage({ state, actions }) {
   const snapshot = machine?.agentSnapshot || {};
   const validation = state.serverValidationResults[connection.secretId];
   const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const selectedMatchesTarget = Boolean(targetMachineId && state.selectedMachineId === targetMachineId);
+  const serverState = {
+    ...state,
+    selectedMachine: machine,
+    configs: selectedMatchesTarget ? state.configs : [],
+    envProfiles: selectedMatchesTarget ? state.envProfiles : [],
+    secrets: selectedMatchesTarget ? state.secrets : [],
+    events: selectedMatchesTarget ? state.events : [],
+    activeConfig: selectedMatchesTarget ? state.activeConfig : null,
+    activeEnv: selectedMatchesTarget ? state.activeEnv : null,
+  };
   const counts = {
-    configs: state.configs.length || snapshot.configs?.length || 0,
-    env: state.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
-    secrets: state.secrets.length || (snapshot.secrets ? Number(Boolean(snapshot.secrets.proxy?.exists)) + Number(snapshot.secrets.mapboxTokenCount || 0) : 0),
-    console: state.events.length || snapshot.console?.recentLines?.length || 0,
+    configs: serverState.configs.length || snapshot.configs?.length || 0,
+    env: serverState.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
+    secrets: serverState.secrets.length || (snapshot.secrets ? Number(Boolean(snapshot.secrets.proxy?.exists)) + Number(snapshot.secrets.mapboxTokenCount || 0) : 0),
+    console: serverState.events.length || snapshot.console?.recentLines?.length || 0,
   };
   return (
     <section className="screen-enter mt-4 grid gap-4">
@@ -508,11 +519,11 @@ export function ServerManagementPage({ state, actions }) {
       </nav>
 
       <Surface className="p-4">
-        {state.selectedServerTab === "control" ? <ServerPageControl state={state} machine={machine} /> : null}
-        {state.selectedServerTab === "configs" ? <ServerPageConfigs state={state} actions={actions} /> : null}
-        {state.selectedServerTab === "env" ? <ServerPageEnv state={state} actions={actions} /> : null}
-        {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={state} actions={actions} /> : null}
-        {state.selectedServerTab === "console" ? <ServerPageConsole state={state} actions={actions} /> : null}
+        {state.selectedServerTab === "control" ? <ServerPageControl state={serverState} machine={machine} /> : null}
+        {state.selectedServerTab === "configs" ? <ServerPageConfigs state={serverState} actions={actions} /> : null}
+        {state.selectedServerTab === "env" ? <ServerPageEnv state={serverState} actions={actions} /> : null}
+        {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={serverState} actions={actions} /> : null}
+        {state.selectedServerTab === "console" ? <ServerPageConsole state={serverState} actions={actions} /> : null}
       </Surface>
     </section>
   );
@@ -523,9 +534,11 @@ function ServerPageControl({ state, machine }) {
   const proxySummary = snapshot.secrets?.proxy;
   const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
   const latest = state.events.at(-1);
+  const localConfigCount = snapshot.configs?.length || 0;
+  const localEnvCount = snapshot.envFiles?.filter((file) => file.exists).length || 0;
   const facts = [
-    ["layers", "Config", state.activeConfig?.name || snapshot.managed?.activeConfigName || "No Config Assigned"],
-    ["env", "Env", state.activeEnv?.name || `${(snapshot.envFiles || []).filter((file) => file.exists).length} local files`],
+    ["layers", "Config", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `${localConfigCount} local config files` : "No Dashboard Config Assigned")],
+    ["env", "Env", state.activeEnv?.name || (localEnvCount ? `${localEnvCount} local env files` : "No Dashboard Env Assigned")],
     ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `${proxySummary.availableCount} local proxies` : "Missing"],
     ["control", "Last Seen", machine ? shortDate(machine.lastSeenAt) : "Waiting"],
   ];
