@@ -9,6 +9,7 @@ import { loadConfig } from "./src/config/config-loader.js";
 import { splitConfigByRows } from "./src/config/config-splitter.js";
 import { runDownloadJob } from "./src/engine/downloader-engine.js";
 import { createProvider } from "./src/providers/index.js";
+import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -658,6 +659,11 @@ async function clearTokenState(opts) {
 
 async function main() {
   const dotEnvKeys = loadDotEnvIfPresent();
+  assertDashboardManagedRun({
+    scriptName: "downloader.js",
+    argv: process.argv.slice(2),
+    allowCommands: ["split", "clear-token-state"],
+  });
   const opts = parseArgs(process.argv);
   opts.dotEnvKeys = dotEnvKeys;
   if (opts.command === "split") {

@@ -8,6 +8,7 @@ import { spawn } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
+import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -483,6 +484,7 @@ async function printShareLink({ bucket, prefix, dryRun }, configDir) {
 
 async function main() {
   loadDotEnvIfPresent();
+  assertDashboardManagedRun({ scriptName: "storj-uploader.js", argv: process.argv.slice(2) });
   const opts = parseArgs(process.argv);
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");

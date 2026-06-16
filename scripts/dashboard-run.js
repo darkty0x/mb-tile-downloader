@@ -9,6 +9,7 @@ import { syncDashboardStateIfConfigured } from "../src/agent/dashboard-state-syn
 import { collectDiskInfo } from "../src/agent/disk.js";
 import { loadAgentIdentity } from "../src/agent/identity.js";
 import { collectLocalSnapshot } from "../src/agent/local-snapshot.js";
+import { DASHBOARD_MANAGED_RUN_ENV } from "../src/agent/managed-run-guard.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -157,6 +158,7 @@ export function buildManagedEnv(baseEnv, synced) {
     ...nextEnv,
     ...(synced?.env || {}),
     ...(synced?.secretEnv || {}),
+    ...(synced?.synced ? { [DASHBOARD_MANAGED_RUN_ENV]: "1" } : {}),
   };
 }
 

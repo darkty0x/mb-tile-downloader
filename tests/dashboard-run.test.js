@@ -47,6 +47,7 @@ test("dashboard-run strips local secrets and applies dashboard env", () => {
   assert.equal(env.MAPBOX_ACCESS_TOKEN_1, undefined);
   assert.equal(env.TILE_DOWNLOADER_PROXY_LIST, undefined);
   assert.equal(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS, "4096");
+  assert.equal(env.DASHBOARD_MANAGED_RUN, "1");
 });
 
 test("dashboard-run runs direct command with synced config env and secrets", async () => {

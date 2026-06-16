@@ -9,6 +9,7 @@ import { collectDiskInfo } from "./disk.js";
 import { materializeEnvProfile } from "./env-materializer.js";
 import { loadAgentIdentity } from "./identity.js";
 import { collectLocalSnapshot } from "./local-snapshot.js";
+import { DASHBOARD_MANAGED_RUN_ENV } from "./managed-run-guard.js";
 import { createProcessRunner, resolveManagedCommand } from "./process-runner.js";
 import { createProgressEventForwarder } from "./progress-events.js";
 import { materializeSecrets } from "./secret-materializer.js";
@@ -196,6 +197,7 @@ export async function runAgent({
   const forwarder = createProgressEventForwarder({ machineId: identity.machineId, client });
   const agentControlEnv = {
     DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE: control.pauseAfterRangeFile,
+    [DASHBOARD_MANAGED_RUN_ENV]: "1",
   };
   const managedEnv = {};
   const runner = createRunner({

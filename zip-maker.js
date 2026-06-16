@@ -8,6 +8,7 @@ import { fileURLToPath } from "node:url";
 import { crc32 } from "node:zlib";
 
 import { loadConfig } from "./src/config/config-loader.js";
+import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { resolveOutputStorage, selectOutputRoot } from "./src/runtime/output-storage.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -1288,6 +1289,7 @@ async function archiveRange({
 
 async function main() {
   const dotEnvKeys = loadDotEnvIfPresent();
+  assertDashboardManagedRun({ scriptName: "zip-maker.js", argv: process.argv.slice(2) });
   const opts = parseArgs(process.argv);
   const configDir = path.dirname(opts.configPath);
   const archiveConfig = (await loadJsonIfExists(opts.configPath, {})) || {};
