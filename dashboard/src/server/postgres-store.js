@@ -42,6 +42,10 @@ function jsonValue(value, fallback) {
   return value;
 }
 
+function toJsonbParam(value, fallback) {
+  return JSON.stringify(value === undefined ? fallback : value);
+}
+
 function validateConfig(config) {
   if (!config || typeof config !== "object" || Array.isArray(config)) {
     throw new Error("config must be an object");
@@ -191,7 +195,7 @@ export function createPostgresDashboardStore({
           value_json=excluded.value_json,
           updated_at=excluded.updated_at
         RETURNING value_json`,
-        [SETTINGS_KEY, settings, now().toISOString()]
+        [SETTINGS_KEY, toJsonbParam(settings, {}), now().toISOString()]
       );
       return normalizeDashboardSettings(jsonValue(row?.value_json, settings));
     },
@@ -237,7 +241,7 @@ export function createPostgresDashboardStore({
           input.version || existing?.version || null,
           at.toISOString(),
           addMs(at, leaseMs).toISOString(),
-          Array.isArray(input.disk) ? input.disk : jsonValue(existing?.disk_json, []),
+          toJsonbParam(Array.isArray(input.disk) ? input.disk : jsonValue(existing?.disk_json, []), []),
           input.currentJobId ?? existing?.current_job_id ?? null,
           createdAt,
           at.toISOString(),
@@ -285,7 +289,7 @@ export function createPostgresDashboardStore({
           existing.version,
           at.toISOString(),
           addMs(at, leaseMs).toISOString(),
-          Array.isArray(input.disk) ? input.disk : jsonValue(existing.disk_json, []),
+          toJsonbParam(Array.isArray(input.disk) ? input.disk : jsonValue(existing.disk_json, []), []),
           input.currentJobId ?? existing.current_job_id,
           iso(existing.created_at),
           at.toISOString(),
@@ -332,7 +336,7 @@ export function createPostgresDashboardStore({
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *`,
-        [idGenerator(), machineId, name, 1, config, Boolean(input.active), at, at]
+        [idGenerator(), machineId, name, 1, toJsonbParam(config, {}), Boolean(input.active), at, at]
       );
       return configFromRow(row);
     },
@@ -357,7 +361,7 @@ export function createPostgresDashboardStore({
           existing.machine_id,
           input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
-          validateConfig(input.config ?? jsonValue(existing.config_json, {})),
+          toJsonbParam(validateConfig(input.config ?? jsonValue(existing.config_json, {})), {}),
           active,
           iso(existing.created_at),
           at,
@@ -394,7 +398,7 @@ export function createPostgresDashboardStore({
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *`,
-        [idGenerator(), machineId, name, 1, env, Boolean(input.active), at, at]
+        [idGenerator(), machineId, name, 1, toJsonbParam(env, {}), Boolean(input.active), at, at]
       );
       return envProfileFromRow(row);
     },
@@ -419,7 +423,7 @@ export function createPostgresDashboardStore({
           existing.machine_id,
           input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
-          normalizeEnv(input.env ?? jsonValue(existing.env_json, {})),
+          toJsonbParam(normalizeEnv(input.env ?? jsonValue(existing.env_json, {})), {}),
           active,
           iso(existing.created_at),
           at,
@@ -458,7 +462,7 @@ export function createPostgresDashboardStore({
           severity,
           requireNonEmpty(input.type, "type"),
           requireNonEmpty(input.message, "message"),
-          input.data && typeof input.data === "object" ? input.data : {},
+          toJsonbParam(input.data && typeof input.data === "object" ? input.data : {}, {}),
           now().toISOString(),
         ]
       );
@@ -485,7 +489,7 @@ export function createPostgresDashboardStore({
         [
           requireNonEmpty(input.machineId, "machineId"),
           commandType,
-          input.payload && typeof input.payload === "object" ? input.payload : {},
+          toJsonbParam(input.payload && typeof input.payload === "object" ? input.payload : {}, {}),
           input.requestedBy || null,
           now().toISOString(),
         ]
@@ -572,7 +576,7 @@ export function createPostgresDashboardStore({
           input.rangeId ?? existing?.range_id ?? null,
           status,
           requireNonEmpty(input.stage, "stage"),
-          input.progress && typeof input.progress === "object" ? input.progress : {},
+          toJsonbParam(input.progress && typeof input.progress === "object" ? input.progress : {}, {}),
           input.startedAt || iso(existing?.started_at) || at,
           finishedAt,
           input.error || null,

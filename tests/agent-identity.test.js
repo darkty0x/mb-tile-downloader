@@ -3,7 +3,9 @@ import assert from "node:assert/strict";
 import { mkdtemp, readFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
+import { pathToFileURL } from "node:url";
 
+import { isCliEntrypoint } from "../src/agent/agent.js";
 import { loadAgentIdentity } from "../src/agent/identity.js";
 
 test("agent identity requires a machine id", async () => {
@@ -31,4 +33,10 @@ test("agent identity reuses the same persisted instance id", async () => {
   const second = await loadAgentIdentity({ stateDir: dir, machineId: "worker-a" });
 
   assert.equal(second.agentInstanceId, first.agentInstanceId);
+});
+
+test("agent CLI entrypoint detects normalized file URL paths", () => {
+  const agentPath = path.resolve("src/agent/agent.js");
+  assert.equal(isCliEntrypoint(pathToFileURL(agentPath).href, agentPath), true);
+  assert.equal(isCliEntrypoint(pathToFileURL(agentPath).href, path.resolve("downloader.js")), false);
 });

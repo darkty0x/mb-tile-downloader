@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import { mkdir, rm, writeFile } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
 import { materializeConfig } from "./config-sync.js";
@@ -13,6 +14,11 @@ import { materializeSecrets } from "./secret-materializer.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 export const AGENT_PROTOCOL_VERSION = 1;
+
+export function isCliEntrypoint(metaUrl = import.meta.url, argvPath = process.argv[1]) {
+  if (!argvPath) return false;
+  return path.resolve(argvPath) === path.resolve(fileURLToPath(metaUrl));
+}
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -176,6 +182,7 @@ export async function runAgent({
   createRunner = createProcessRunner,
   collectDiskInfoImpl = collectDiskInfo,
   projectDir = process.cwd(),
+  log = () => {},
 } = {}) {
   const identity = await loadAgentIdentity({ stateDir, machineId: env.MACHINE_ID });
   const client = createClient({
@@ -209,6 +216,7 @@ export async function runAgent({
     version: env.npm_package_version || "unknown",
     agentProtocolVersion: AGENT_PROTOCOL_VERSION,
   });
+  log(`dashboard agent registered machineId=${identity.machineId} dashboard=${env.DASHBOARD_URL}`);
 
   async function tick() {
     const disk = await safeDiskSnapshot(collectDiskInfoImpl);
@@ -235,6 +243,7 @@ export async function runAgent({
   }
 
   await tick();
+  log(`dashboard agent heartbeat sent machineId=${identity.machineId}`);
   if (argv.includes("--once")) return;
 
   for (;;) {
@@ -243,8 +252,8 @@ export async function runAgent({
   }
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  runAgent().catch((err) => {
+if (isCliEntrypoint()) {
+  runAgent({ log: console.log }).catch((err) => {
     if (err instanceof ControlClientError && err.status === 409) {
       console.error(`dashboard machine id conflict: ${err.message}`);
       process.exit(2);
