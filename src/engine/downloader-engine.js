@@ -198,6 +198,7 @@ function createProgressReporter(enabled) {
   let lastTilesDone = 0;
   let lastRateAt = startedAt;
   let proxyBlockLogCount = 0;
+  let directBlockLogCount = 0;
 
   function seconds(ms) {
     return Math.max(ms / 1000, 0.001);
@@ -276,6 +277,8 @@ function createProgressReporter(enabled) {
         );
         return;
       }
+      directBlockLogCount++;
+      if (directBlockLogCount > 5 && count % 25 !== 0) return;
       line(
         `  ⏸ ${provider} temporary block detected status=${status} hits=${count}/${threshold} cooldown=${Math.round(
           cooldownMs / 1000
@@ -525,7 +528,7 @@ function unavailableFallbackConfig(config, provider, env = process.env) {
   if (provider.name !== "esri") return null;
 
   const envEnabled = parseBoolean(env.TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK);
-  if (envEnabled === false) return null;
+  if (envEnabled !== true) return null;
 
   const configured = config.tile?.unavailableFallback ?? config.unavailableFallback;
   if (configured === false || configured?.enabled === false) return null;

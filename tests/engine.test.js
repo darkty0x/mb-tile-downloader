@@ -683,6 +683,7 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
       verifyAfterDownload: false,
     },
     stateDb: db,
+    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
     progress: false,
     skipVerifyAfterDownload: true,
     fetchImpl: async (url) => {
@@ -732,6 +733,56 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
   db.close();
 });
 
+test("Esri unavailable fallback is disabled by default", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const requestedUrls = [];
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "esri-parent-fallback-disabled",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: {
+        extension: "jpg",
+        yScheme: "xyz",
+        unavailableTileSha256: placeholderHash,
+        unavailableFallback: { maxParentZoomOffset: 1 },
+      },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        { zoomStart: 14, zoomEnd: 14, xStart: 9605, xEnd: 9605, yStart: 5825, yEnd: 5825, label: "a" },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: undefined },
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url));
+      return new Response(placeholder, {
+        status: 200,
+        headers: { "content-type": "image/jpeg" },
+      });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 0);
+  assert.equal(result.tilesCreated, 0);
+  assert.equal(result.tilesMissing, 1);
+  assert.deepEqual(requestedUrls, ["https://example.test/14/5825/9605"]);
+
+  db.close();
+});
+
 test("Esri unavailable fallback searches older Wayback releases before marking missing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -764,6 +815,7 @@ test("Esri unavailable fallback searches older Wayback releases before marking m
       verifyAfterDownload: false,
     },
     stateDb: db,
+    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
     progress: false,
     skipVerifyAfterDownload: true,
     fetchImpl: async (url) => {
@@ -850,6 +902,7 @@ test("Esri unavailable fallback tries deeper current parents before older Waybac
       verifyAfterDownload: false,
     },
     stateDb: db,
+    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
     progress: false,
     skipVerifyAfterDownload: true,
     fetchImpl: async (url) => {
@@ -901,6 +954,7 @@ test("Esri missing exact tiles can be synthesized from a current parent tile", a
   await withEnv(
     {
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
+      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1",
     },
     async () => {
       const result = await runDownloadJob({
@@ -960,6 +1014,7 @@ test("Esri retryable current-tile blocks can fall back to Wayback instead of fai
     {
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
       TILE_DOWNLOADER_ESRI_ENABLE_COOLDOWN: "0",
+      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1",
     },
     async () => {
       const result = await runDownloadJob({

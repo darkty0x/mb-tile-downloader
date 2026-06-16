@@ -102,7 +102,7 @@ Production tile downloader
 
 Usage:
   node downloader.js <configPath...> [--validate] [--force-verify] [--dry-run] [--skip-verify]
-  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--range-index N] [--esri-fast] [--no-proxy]
+  [--row-recovery-passes N] [--recovery-backoff-ms N] [--max-rows-in-flight N] [--max-concurrent-requests N] [--range-index N] [--esri-fast] [--synthesize-missing] [--no-proxy]
   [--state-db path-or-dir]
   node downloader.js split <configPath> --parts N [--out dir] [--names cig,cmi,kuh]
   node downloader.js delete-unavailable <configPath...>
@@ -218,6 +218,7 @@ function parseArgs(argv) {
     dryRun: false,
     skipVerifyAfterDownload: false,
     esriFastMode: false,
+    synthesizeMissing: false,
     noProxy: false,
     maxConcurrentRequests: null,
     rowRecoveryPasses: null,
@@ -236,6 +237,7 @@ function parseArgs(argv) {
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--skip-verify") opts.skipVerifyAfterDownload = true;
     else if (arg === "--esri-fast") opts.esriFastMode = true;
+    else if (arg === "--synthesize-missing") opts.synthesizeMissing = true;
     else if (arg === "--no-proxy") opts.noProxy = true;
     else if (arg === "--proxy-trace") {
       // Deprecated compatibility no-op. Proxy use is reported automatically.
@@ -381,6 +383,9 @@ async function runOneConfig(configPath, opts) {
     ...(opts.maxConcurrentRequests
       ? { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: String(opts.maxConcurrentRequests) }
       : null),
+    ...(opts.synthesizeMissing
+      ? { TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" }
+      : null),
   };
   const config = await loadConfig(configPath, { env: configEnv });
   if (opts.rangeIndex !== null) {
@@ -397,7 +402,7 @@ async function runOneConfig(configPath, opts) {
   try {
     const proxyRuntimeEnv = opts.dryRun
       ? null
-      : process.env;
+      : configEnv;
     const proxyRotation = opts.dryRun || opts.noProxy
       ? null
       : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
@@ -439,6 +444,11 @@ async function runOneConfig(configPath, opts) {
       console.log("Mode: dry-run");
     } else {
       console.log("Mode: download/resume");
+    }
+    if (opts.synthesizeMissing) {
+      console.log("Synthesis: enabled (--synthesize-missing)");
+    } else {
+      console.log("Synthesis: disabled");
     }
 
     const result = await runDownloadJob({
