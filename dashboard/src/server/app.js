@@ -10,12 +10,14 @@ import {
   configJobNameForTemplate,
   configNameForTemplate,
   listConfigTemplates,
+  slugifyJobName,
   selectConfigTemplates,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
 import { createTelegramNotifier } from "./telegram.js";
+import { splitConfigByRows } from "../../../src/config/config-splitter.js";
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIR = path.resolve(SERVER_DIR, "../..");
@@ -90,6 +92,37 @@ async function serveClient(req, res, clientDir) {
     if (err.code !== "ENOENT") throw err;
     return false;
   }
+}
+
+function uniqueStrings(values) {
+  return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+async function resolveMachineTargets(store, body) {
+  const requestedIds = uniqueStrings(Array.isArray(body.machineIds) ? body.machineIds : [body.machineId]);
+  if (requestedIds.length === 0) return [{ machineId: null, label: "Global", splitName: "global" }];
+
+  const machines = await store.listMachines();
+  const byId = new Map(machines.map((machine) => [machine.machineId, machine]));
+  return requestedIds.map((machineId) => {
+    const machine = byId.get(machineId);
+    if (!machine) throw new Error(`unknown machine id: ${machineId}`);
+    return {
+      machineId,
+      label: machine.displayName || machineId,
+      splitName: slugifyJobName(machineId),
+    };
+  });
+}
+
+function displayNameForTarget({ baseName, target, multipleTargets }) {
+  if (!multipleTargets) return baseName;
+  return `${baseName} - ${target.label}`;
+}
+
+function jobNameForTarget({ baseJobName, target, multipleTargets }) {
+  if (!multipleTargets) return baseJobName;
+  return `${baseJobName}-${target.splitName}`;
 }
 
 export function createDashboardApp({
@@ -231,24 +264,53 @@ export function createDashboardApp({
           const templates = await selectConfigTemplates(body.templateIds, {
             templatesDir: configTemplatesDir,
           });
-          const multiple = templates.length > 1;
+          const targets = await resolveMachineTargets(store, body);
+          if (body.splitAcrossMachines && targets.length < 2) {
+            throw new Error("splitAcrossMachines requires at least two machineIds");
+          }
+          const multipleTemplates = templates.length > 1;
+          const multipleTargets = targets.length > 1;
+          const splitAcrossMachines = Boolean(body.splitAcrossMachines) && multipleTargets;
           const configs = [];
           for (const [index, template] of templates.entries()) {
-            const name = configNameForTemplate({
+            const sourceName = configNameForTemplate({
               baseName: body.name,
               template,
-              multiple,
+              multiple: multipleTemplates,
             });
-            const config = structuredClone(template.config);
-            config.jobName = configJobNameForTemplate({ name, template });
-            configs.push(
-              await store.createConfig({
-                machineId: body.machineId,
-                name,
-                active: Boolean(body.active) && index === 0,
-                config,
-              })
-            );
+            const sourceConfig = structuredClone(template.config);
+            sourceConfig.jobName = configJobNameForTemplate({ name: sourceName, template });
+            if (splitAcrossMachines) {
+              const split = splitConfigByRows(sourceConfig, {
+                names: targets.map((target) => target.splitName),
+              });
+              for (const [targetIndex, target] of targets.entries()) {
+                configs.push(
+                  await store.createConfig({
+                    machineId: target.machineId,
+                    name: displayNameForTarget({ baseName: sourceName, target, multipleTargets }),
+                    active: Boolean(body.active) && index === 0,
+                    config: split[targetIndex].config,
+                  })
+                );
+              }
+              continue;
+            }
+
+            const baseJobName = sourceConfig.jobName;
+            for (const target of targets) {
+              const name = displayNameForTarget({ baseName: sourceName, target, multipleTargets });
+              const config = structuredClone(sourceConfig);
+              config.jobName = jobNameForTarget({ baseJobName, target, multipleTargets });
+              configs.push(
+                await store.createConfig({
+                  machineId: target.machineId,
+                  name,
+                  active: Boolean(body.active) && index === 0,
+                  config,
+                })
+              );
+            }
           }
           json(res, 200, { configs });
           return;

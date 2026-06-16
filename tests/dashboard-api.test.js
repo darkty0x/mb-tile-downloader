@@ -233,6 +233,12 @@ test("dashboard batch config creation creates one runnable config per selected t
       idGenerator: () => `cfg-${++id}`,
     }),
   });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
 
   const response = await request(server, {
     method: "POST",
@@ -258,6 +264,144 @@ test("dashboard batch config creation creates one runnable config per selected t
     response.body.configs.map((config) => config.active),
     [true, false]
   );
+});
+
+test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");
+  let id = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => `cfg-${++id}`,
+    }),
+  });
+  const headers = { authorization: "Bearer agent-token" };
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: { machineId: "worker-b", agentInstanceId: "agent-b", displayName: "Worker B" },
+  });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      name: "Ukraine",
+      active: true,
+      machineIds: ["worker-a", "worker-b"],
+      templateIds: ["mapbox-pbf"],
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.body.configs.map((config) => ({
+      machineId: config.machineId,
+      name: config.name,
+      jobName: config.config.jobName,
+      ranges: config.config.ranges.length,
+      active: config.active,
+    })),
+    [
+      {
+        machineId: "worker-a",
+        name: "Ukraine - Worker A",
+        jobName: "ukraine-mapbox-pbf-worker-a",
+        ranges: 1,
+        active: true,
+      },
+      {
+        machineId: "worker-b",
+        name: "Ukraine - Worker B",
+        jobName: "ukraine-mapbox-pbf-worker-b",
+        ranges: 1,
+        active: true,
+      },
+    ]
+  );
+});
+
+test("dashboard batch config creation can split one selected type across selected servers", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json", {
+    ranges: [{ zoom: 4, xStart: 0, xEnd: 3, yStart: 0, yEnd: 9 }],
+  });
+  let id = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => `cfg-${++id}`,
+    }),
+  });
+  const headers = { authorization: "Bearer agent-token" };
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: { machineId: "worker-b", agentInstanceId: "agent-b", displayName: "Worker B" },
+  });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      name: "Ukraine",
+      active: true,
+      splitAcrossMachines: true,
+      machineIds: ["worker-a", "worker-b"],
+      templateIds: ["mapbox-pbf"],
+    },
+  });
+  const tileCounts = response.body.configs.map((config) =>
+    config.config.ranges.reduce(
+      (sum, range) => sum + (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
+      0
+    )
+  );
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.configs.map((config) => config.machineId), ["worker-a", "worker-b"]);
+  assert.deepEqual(response.body.configs.map((config) => config.config.jobName), [
+    "ukraine-mapbox-pbf-worker-a",
+    "ukraine-mapbox-pbf-worker-b",
+  ]);
+  assert.deepEqual(tileCounts, [20, 20]);
+  assert.deepEqual(response.body.configs.map((config) => config.config.ranges.length), [2, 2]);
+});
+
+test("dashboard batch config creation rejects unknown server assignment", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");
+  const server = await withServer(t, { configTemplatesDir: templatesDir });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      name: "Ukraine",
+      machineIds: ["missing-worker"],
+      templateIds: ["mapbox-pbf"],
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /unknown machine id: missing-worker/);
 });
 
 test("dashboard settings reject invalid alert thresholds", async (t) => {

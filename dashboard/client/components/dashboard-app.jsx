@@ -258,13 +258,17 @@ function useDashboardState() {
       },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const targetMachineIds = machineIds.length ? machineIds : selectedMachineId ? [selectedMachineId] : [];
+        if (!id && targetMachineIds.length === 0) throw new Error("select at least one server");
         if (!id && templateIds.length > 0) {
           const { configs: created } = await api("/api/configs/batch", {
             method: "POST",
             body: JSON.stringify({
-              machineId: selectedMachineId,
+              machineIds: targetMachineIds,
               name: formData.get("name"),
               active: formData.get("active") === "on",
+              splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
               templateIds,
             }),
           });
@@ -274,7 +278,7 @@ function useDashboardState() {
           return;
         }
         const body = {
-          machineId: selectedMachineId,
+          machineId: targetMachineIds[0] || null,
           name: formData.get("name"),
           active: formData.get("active") === "on",
           config: JSON.parse(formData.get("config")),
@@ -1078,11 +1082,79 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
   );
 }
 
+function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines, onServerChange, onSplitChange }) {
+  const selected = new Set(selectedMachineIds);
+  const splitEnabled = selectedMachineIds.length > 1;
+  return (
+    <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Servers</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{selected.size}/{machines.length} assigned</p>
+        </div>
+        <div className="flex gap-1.5">
+          <AppButton type="button" icon="servers" onClick={() => onServerChange(machines.map((machine) => machine.machineId))}>All</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onServerChange([])}>Clear</AppButton>
+        </div>
+      </div>
+      <div className="ptg-scrollbar grid max-h-44 gap-2 overflow-auto pr-1">
+        {machines.length ? machines.map((machine) => {
+          const checked = selected.has(machine.machineId);
+          return (
+            <label
+              key={machine.machineId}
+              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-[var(--ptg-background)] p-2.5 ${
+                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
+              }`}
+            >
+              <input
+                checked={checked}
+                className="sr-only"
+                name="machineIds"
+                onChange={(event) => {
+                  const next = event.target.checked
+                    ? [...selectedMachineIds, machine.machineId]
+                    : selectedMachineIds.filter((id) => id !== machine.machineId);
+                  onServerChange(next);
+                  if (next.length < 2) onSplitChange(false);
+                }}
+                type="checkbox"
+                value={machine.machineId}
+              />
+              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+                <Icon name="servers" className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[12.5px] font-[780]">{machine.displayName || machine.machineId}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{machine.machineId} | {machine.status}</small>
+              </span>
+            </label>
+          );
+        }) : <EmptyLine>No registered servers</EmptyLine>}
+      </div>
+      <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-[700] ${
+        splitEnabled ? "border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary-dark)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)] text-[var(--ptg-on-surface-variant)]"
+      }`}>
+        <input
+          checked={splitEnabled && splitAcrossMachines}
+          disabled={!splitEnabled}
+          name="splitAcrossMachines"
+          onChange={(event) => onSplitChange(event.target.checked)}
+          type="checkbox"
+        />
+        Split ranges across selected servers
+      </label>
+    </section>
+  );
+}
+
 function ConfigForm({ record, state, actions }) {
   const config = record?.config || SAMPLE_CONFIG;
   const id = record?.configId || "";
   const canUseTemplates = !id && !record?.config;
   const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
+  const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
   const defaultActive = record?.active ?? !id;
@@ -1093,6 +1165,15 @@ function ConfigForm({ record, state, actions }) {
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
       <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={defaultActive} /> Active</label>
+      {!id ? (
+        <ConfigServerPicker
+          machines={state.machines}
+          selectedMachineIds={selectedMachineIds}
+          splitAcrossMachines={splitAcrossMachines}
+          onServerChange={setSelectedMachineIds}
+          onSplitChange={setSplitAcrossMachines}
+        />
+      ) : null}
       {canUseTemplates && templates.length ? (
         <ConfigTemplatePicker
           templates={templates}
