@@ -26,13 +26,15 @@
 - [x] Proxy pool materializes to local root `proxy.txt`.
 - [x] Server connection validation exists, but it is not enough as an operational readiness check.
 - [x] PTG UI shell exists, but the dashboard is still too monolithic and does not fully match the requested reference quality.
-- [ ] Job progress is not yet a first-class durable API surface for the dashboard.
-- [ ] Agent pipeline does not yet persist every stage result to dashboard jobs.
+- [x] Job progress is now a first-class durable API surface for the dashboard.
+- [x] Agent pipeline now persists stage results to dashboard jobs.
+- [x] Fleet snapshot API exists so the dashboard can load fleet state without per-server loops.
 - [ ] Overview, Servers, Secrets, Credentials, Configs, Pipelines, Events, Alerts, and Settings pages need clearer separation and page-specific workflows.
 - [ ] The right-side "select server" style panel should be removed from the final layout.
 - [ ] Server add/remove/onboarding needs a complete operator flow with generated agent install/run commands.
 - [ ] Storj upload readiness still needs a machine-level preflight and dashboard-visible diagnostics.
-- [ ] Live dashboard sync needs an aggregated snapshot endpoint and predictable polling for 9 to 100+ servers.
+- [ ] Client-to-dashboard communication contract needs canonical endpoint names, retry/backoff policy, command leases, and protocol versioning.
+- [ ] Live dashboard sync needs predictable polling intervals for 9 to 100+ servers.
 - [ ] Telegram and web console notifications need a consistent event policy and deduping.
 
 ---
@@ -67,6 +69,130 @@ Machine control rule:
 - RDP credentials can be stored, validated, and shown as an operator connection profile.
 - RDP alone cannot prove the downloader is configured or controllable.
 - A server is operational only when the dashboard sees a matching online agent plus successful preflight.
+
+---
+
+## Client-Dashboard Communication Contract
+
+There is exactly one Railway-deployed PTG Dashboard per environment. Every installed `mb-tile-downloader` instance is a local worker client that communicates outbound to that Railway dashboard. The dashboard never opens a network connection into the local downloader machine for normal operation.
+
+Transport decision:
+
+- Use HTTPS polling from each local agent to Railway for v1.
+- Do not require inbound firewall openings, WebSocket support, or RDP control for downloader automation.
+- WebSocket or Server-Sent Events can be added later only as an optimization after the polling contract is stable.
+- RDP/SSH/WinRM credentials are operator inventory and validation aids, not the primary control channel.
+
+Required local agent environment:
+
+```text
+MACHINE_ID=server-01
+MACHINE_DISPLAY_NAME=PTG Server 01
+DASHBOARD_URL=https://backend-production-e5ef.up.railway.app
+AGENT_TOKEN=<shared deployment token>
+```
+
+Startup handshake:
+
+```text
+1. Agent loads or creates `.tile-state/agent-id.json`.
+2. Agent POSTs `/api/agents/register` with machineId, agentInstanceId, displayName, platform, version, and agentProtocolVersion.
+3. Dashboard rejects the registration with HTTP 409 when the same MACHINE_ID is held by a different live agent instance.
+4. Dashboard accepts reconnects from the same agent instance.
+5. Dashboard accepts takeover only after the previous lease expires.
+```
+
+Steady-state agent cycle:
+
+```text
+1. POST /api/agents/heartbeat
+   Payload: machine identity, platform, hostname, disk snapshot, currentJobId, agentProtocolVersion.
+
+2. GET /api/agents/configs?machineId=...
+   Agent materializes active dashboard config under `.tile-state/dashboard/configs/`.
+
+3. GET /api/agents/env-profiles?machineId=...
+   Agent materializes non-secret env under `.tile-state/dashboard/env.generated`.
+
+4. GET /api/agents/secrets?machineId=...
+   Agent materializes assigned active secrets under `.tile-state/dashboard/secrets.env.generated` and root `proxy.txt`.
+
+5. GET /api/agents/{machineId}/commands/poll
+   Dashboard atomically leases queued commands to that agent.
+
+6. Agent executes only allowlisted local commands.
+
+7. POST /api/agents/commands/{commandId}/ack
+   Agent marks command completed or failed with the exact error.
+
+8. POST /api/agents/events
+   Agent reports operator-visible event stream items.
+
+9. POST /api/agents/jobs and PUT /api/agents/jobs/{jobId}
+   Agent reports durable pipeline stage status.
+```
+
+Dashboard read model:
+
+```text
+GET /api/snapshot
+```
+
+The browser dashboard loads the fleet through one snapshot endpoint. The snapshot contains machines, jobs, events, configs, env profiles, settings, and the redacted secret pool. Machine-detail pages may call machine-specific endpoints after an operator selects one server.
+
+Canonical agent endpoint naming:
+
+```text
+POST /api/agents/register
+POST /api/agents/heartbeat
+POST /api/agents/events
+GET  /api/agents/{machineId}/commands/poll
+POST /api/agents/commands/{commandId}/ack
+GET  /api/agents/secrets?machineId=...
+GET  /api/agents/configs?machineId=...
+GET  /api/agents/env-profiles?machineId=...
+POST /api/agents/jobs
+PUT  /api/agents/jobs/{jobId}
+```
+
+Compatibility rule:
+
+- Existing singular job routes under `/api/agent/jobs` may remain temporarily as aliases.
+- New agent code should use the canonical plural `/api/agents/jobs` routes.
+- Remove singular aliases only after all deployed agents are upgraded.
+
+Command lifecycle:
+
+```text
+queued -> claimed -> completed
+queued -> claimed -> failed
+queued -> claimed -> expired -> queued
+```
+
+Commands must have a claim lease. If an agent dies after claiming a command, Railway requeues the command after the claim lease expires unless the command is marked non-retryable. Stop commands are idempotent.
+
+Connectivity failure behavior:
+
+- If Railway is unreachable before a command starts, the agent must not start new dashboard commands.
+- If Railway is unreachable while a managed local process is already running, the process may continue, but the agent retries reporting with backoff.
+- Agent retries must use bounded exponential backoff with jitter.
+- The dashboard marks a machine offline only from lease expiry, not from browser-side guessing.
+- Local tile state, zip files, and upload outputs remain local durable state even when dashboard communication is temporarily unavailable.
+
+Security boundary:
+
+- Agent endpoints require `Authorization: Bearer <AGENT_TOKEN>`.
+- Browser dashboard endpoints must never expose plaintext secret values.
+- Secret values are encrypted in Postgres and only decrypted for the assigned agent.
+- Agents must not send local `.env`, raw proxy contents, or service passwords back as events.
+- A future hardening step can replace the shared deployment token with per-machine tokens after onboarding is stable.
+
+Scaling assumptions:
+
+- 100 agents with 30-second heartbeats is acceptable for v1.
+- Dashboard browser refresh should use `/api/snapshot` every configured `dashboardPollMs` while visible.
+- Agent command polling should happen once per heartbeat cycle unless settings explicitly lower the interval.
+- Large logs are not streamed continuously; agents post structured events and bounded output snippets.
 
 ---
 
@@ -484,6 +610,119 @@ Expected result: overview data loads from one aggregated endpoint.
 ```bash
 git add dashboard/src/server/app.js dashboard/src/server/store.js dashboard/src/server/postgres-store.js dashboard/client/components/dashboard-app.jsx dashboard/client/lib/job-model.js tests/dashboard-snapshot.test.js
 git commit -m "Add fleet snapshot read model"
+```
+
+---
+
+## Task 3A: Client-Dashboard Communication Contract Hardening
+
+**Files:**
+- Modify: `dashboard/src/server/app.js`
+- Modify: `src/agent/control-client.js`
+- Modify: `src/agent/agent.js`
+- Modify: `dashboard/README.md`
+- Test: `tests/agent-control-client.test.js`
+- Test: `tests/agent-sync.test.js`
+
+- [ ] **Step 1: Write canonical job route tests**
+
+Add to `tests/agent-control-client.test.js`:
+
+```js
+test("control client uses canonical plural agent job routes", async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method });
+    return new Response(JSON.stringify({ job: { jobId: "job-1", status: "running" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const client = createControlClient({
+    baseUrl: "https://dashboard.example.com",
+    agentToken: "agent-token",
+    fetchImpl,
+  });
+
+  await client.postJob({ jobId: "job-1", machineId: "server-01", configId: "cfg-1", status: "running", stage: "download" });
+  await client.updateJob("job-1", { machineId: "server-01", configId: "cfg-1", status: "completed", stage: "upload" });
+
+  assert.deepEqual(calls.map((call) => [new URL(call.url).pathname, call.method]), [
+    ["/api/agents/jobs", "POST"],
+    ["/api/agents/jobs/job-1", "PUT"],
+  ]);
+});
+```
+
+- [ ] **Step 2: Add canonical plural job routes with singular aliases**
+
+In `dashboard/src/server/app.js`, route both canonical and compatibility paths:
+
+```text
+POST /api/agents/jobs
+PUT /api/agents/jobs/:jobId
+POST /api/agent/jobs
+PUT /api/agent/jobs/:jobId
+```
+
+The plural `/api/agents/jobs` routes are canonical. The singular `/api/agent/jobs` routes are temporary aliases for older agents.
+
+- [ ] **Step 3: Update control client to use canonical plural routes**
+
+In `src/agent/control-client.js`:
+
+```js
+postJob(payload) {
+  return request("/api/agents/jobs", payload);
+}
+
+updateJob(jobId, payload) {
+  return request(`/api/agents/jobs/${encodeURIComponent(jobId)}`, payload, "PUT");
+}
+```
+
+- [ ] **Step 4: Add protocol version to registration and heartbeat**
+
+In `src/agent/agent.js`, define:
+
+```js
+const AGENT_PROTOCOL_VERSION = 1;
+```
+
+Include it in both registration and heartbeat:
+
+```js
+agentProtocolVersion: AGENT_PROTOCOL_VERSION
+```
+
+Dashboard should store it later when schema support is added; for this task it only needs to accept the field without rejecting it.
+
+- [ ] **Step 5: Document the contract**
+
+Update `dashboard/README.md` with:
+
+```text
+Each machine runs `npm run agent` locally.
+Agents communicate outbound to DASHBOARD_URL over HTTPS.
+The dashboard never controls machines by RDP.
+RDP/SSH/WinRM credentials are inventory and validation data only.
+Commands are queued in Postgres and claimed by the local agent.
+```
+
+- [ ] **Step 6: Verify**
+
+```bash
+node --test tests/agent-control-client.test.js tests/agent-sync.test.js tests/dashboard-jobs.test.js
+npm --prefix dashboard test
+```
+
+Expected result: agent job reporting uses canonical plural routes, old singular routes still pass, and existing dashboard job tests stay green.
+
+- [ ] **Step 7: Commit**
+
+```bash
+git add dashboard/src/server/app.js src/agent/control-client.js src/agent/agent.js dashboard/README.md tests/agent-control-client.test.js tests/agent-sync.test.js tests/dashboard-jobs.test.js
+git commit -m "Define agent dashboard communication contract"
 ```
 
 ---
@@ -1258,7 +1497,7 @@ Recommended batches:
 
 ```text
 Batch 1: Tasks 1, 2, 3
-Batch 2: Tasks 4, 8
+Batch 2: Task 3A, Tasks 4, 8
 Batch 3: Tasks 5, 6
 Batch 4: Tasks 7, 9, 10
 Batch 5: Tasks 11, 12
@@ -1267,6 +1506,7 @@ Batch 5: Tasks 11, 12
 Rationale:
 
 - Jobs and snapshot API come first because the UI needs real progress data.
+- The communication contract is hardened before server onboarding because every server operation depends on that path.
 - Server onboarding and Storj diagnostics come before polish because they decide what operators can actually trust.
 - UI split should happen after core data shape is stable.
 - Secrets, notifications, and settings are safer once page structure is split.
@@ -1277,6 +1517,7 @@ Rationale:
 ## Spec Coverage Check
 
 - Multiple devices with unique machine id: covered by current machine registration and Task 4.
+- One Railway dashboard communicates with every local downloader client: covered by Client-Dashboard Communication Contract and Task 3A.
 - Conflict machine id should not run: covered by current conflict logic and machine tests.
 - Disk space by drive: covered by current disk heartbeat and Task 5 page polish.
 - Download one range, validate, zip, upload, then next range: current pipeline exists; Task 2 makes it dashboard-durable.
