@@ -6,6 +6,7 @@ import path from "node:path";
 
 import {
   buildManagedEnv,
+  publishImmediateDashboardSnapshot,
   runDashboardCommand,
   withDashboardConfig,
 } from "../scripts/dashboard-run.js";
@@ -17,10 +18,10 @@ test("dashboard-run injects active dashboard config when command has no config p
   );
 });
 
-test("dashboard-run keeps explicit config path operator overrides", () => {
+test("dashboard-run replaces explicit local config paths when dashboard config is active", () => {
   assert.deepEqual(
     withDashboardConfig(["node", "downloader.js", "configs/local.json"], ".tile-state/dashboard/configs/cfg-a.json"),
-    ["node", "downloader.js", "configs/local.json"]
+    ["node", "downloader.js", ".tile-state/dashboard/configs/cfg-a.json"]
   );
 });
 
@@ -72,6 +73,12 @@ test("dashboard-run runs direct command with synced config env and secrets", asy
     stateDir: path.join(dir, ".tile-state"),
     log: () => {},
     createClient: () => ({
+      async register() {
+        return { status: "registered" };
+      },
+      async postEvent() {
+        return { event: {} };
+      },
       async listConfigs(machineId) {
         assert.equal(machineId, "worker-a");
         return {
@@ -110,4 +117,44 @@ test("dashboard-run runs direct command with synced config env and secrets", asy
   const parsed = JSON.parse(await readFile(outputPath, "utf8"));
   assert.equal(parsed.token, "dashboard-token");
   assert.equal(parsed.concurrency, "4096");
+});
+
+test("dashboard-run publishes an immediate dashboard snapshot after sync", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-run-snapshot-"));
+  const calls = [];
+  const result = await publishImmediateDashboardSnapshot({
+    env: {
+      MACHINE_ID: "worker-a",
+      MACHINE_DISPLAY_NAME: "Worker A",
+      npm_package_version: "1.2.3",
+    },
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    synced: {
+      synced: true,
+      configPath: null,
+      envPath: path.join(dir, ".tile-state", "dashboard", "env.generated"),
+      secretsEnvPath: path.join(dir, ".tile-state", "dashboard", "secrets.env.generated"),
+      proxyPath: path.join(dir, "proxy.txt"),
+      secretEnv: { MAPBOX_ACCESS_TOKENS: "pk.a,pk.b" },
+    },
+    client: {
+      async register(payload) {
+        calls.push(["register", payload]);
+        return { status: "registered" };
+      },
+      async postEvent(payload) {
+        calls.push(["event", payload]);
+        return { event: payload };
+      },
+    },
+  });
+
+  assert.equal(result.published, true);
+  assert.equal(calls[0][0], "register");
+  assert.equal(calls[0][1].machineId, "worker-a");
+  assert.equal(calls[0][1].displayName, "Worker A");
+  assert.equal(calls[0][1].agentSnapshot.secrets.mapboxTokenCount, 2);
+  assert.equal(calls[1][0], "event");
+  assert.equal(calls[1][1].type, "dashboard-run.synced");
 });

@@ -3,7 +3,12 @@ import { spawn } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { AGENT_PROTOCOL_VERSION } from "../src/agent/agent.js";
+import { createControlClient } from "../src/agent/control-client.js";
 import { syncDashboardStateIfConfigured } from "../src/agent/dashboard-state-sync.js";
+import { collectDiskInfo } from "../src/agent/disk.js";
+import { loadAgentIdentity } from "../src/agent/identity.js";
+import { collectLocalSnapshot } from "../src/agent/local-snapshot.js";
 
 const __filename = fileURLToPath(import.meta.url);
 
@@ -101,6 +106,13 @@ function hasExplicitConfig(command, scriptIndex) {
   return command.slice(scriptIndex + 1).some(isJsonConfigArg);
 }
 
+function removeExplicitConfigs(command, scriptIndex) {
+  return [
+    ...command.slice(0, scriptIndex + 1),
+    ...command.slice(scriptIndex + 1).filter((arg) => !isJsonConfigArg(arg)),
+  ];
+}
+
 function isOptionWithInlineValue(arg) {
   return /^--[^=]+=/.test(arg);
 }
@@ -126,12 +138,12 @@ export function withDashboardConfig(command, configPath) {
   const scriptIndex = scriptIndexFor(command);
   const script = command[scriptIndex];
   if (!script || !MANAGED_CONFIG_SCRIPTS.has(path.basename(script))) return command;
-  if (hasExplicitConfig(command, scriptIndex)) return command;
   const mode = commandMode(command, scriptIndex);
   if (path.basename(script) === "downloader.js" && (mode === "split" || mode === "clear-token-state")) {
     return command;
   }
-  return [...command, configPath];
+  const baseCommand = hasExplicitConfig(command, scriptIndex) ? removeExplicitConfigs(command, scriptIndex) : command;
+  return [...baseCommand, configPath];
 }
 
 export function buildManagedEnv(baseEnv, synced) {
@@ -159,6 +171,62 @@ function plainCommand(command) {
   return [command[0], command.slice(1)];
 }
 
+async function safeDiskSnapshot({ projectDir }) {
+  try {
+    return await collectDiskInfo({ projectDir, platform: process.platform });
+  } catch (err) {
+    return [
+      {
+        name: "disk-scan",
+        filesystem: "unknown",
+        mount: "unknown",
+        totalBytes: 0,
+        freeBytes: 0,
+        usedBytes: 0,
+        percentUsed: 0,
+        error: err.message,
+      },
+    ];
+  }
+}
+
+export async function publishImmediateDashboardSnapshot({
+  client,
+  env = process.env,
+  projectDir = process.cwd(),
+  stateDir = ".tile-state",
+  synced,
+} = {}) {
+  if (!client || !synced?.synced) return { published: false, reason: "dashboard state was not synced" };
+  const identity = await loadAgentIdentity({ stateDir, machineId: env.MACHINE_ID });
+  const [disk, agentSnapshot] = await Promise.all([
+    safeDiskSnapshot({ projectDir }),
+    collectLocalSnapshot({ projectDir, stateDir, synced }),
+  ]);
+  await client.register({
+    ...identity,
+    displayName: env.MACHINE_DISPLAY_NAME || identity.machineId,
+    platform: process.platform,
+    version: env.npm_package_version || "unknown",
+    disk,
+    agentSnapshot,
+    agentProtocolVersion: AGENT_PROTOCOL_VERSION,
+  });
+  await client.postEvent({
+    machineId: identity.machineId,
+    severity: "info",
+    type: "dashboard-run.synced",
+    message: "Local command loaded dashboard-managed config, env, and secrets.",
+    data: {
+      configPath: synced.configPath || null,
+      envPath: synced.envPath || null,
+      secretsEnvPath: synced.secretsEnvPath || null,
+      proxyPath: synced.proxyPath || null,
+    },
+  });
+  return { published: true, machineId: identity.machineId };
+}
+
 export async function runDashboardCommand({
   argv = process.argv.slice(2),
   env = process.env,
@@ -168,14 +236,28 @@ export async function runDashboardCommand({
   log = console.log,
 } = {}) {
   const opts = parseDashboardRunArgs(argv);
+  let controlClient = null;
+  const clientFactory = (...args) => {
+    controlClient = (createClient || createControlClient)(...args);
+    return controlClient;
+  };
   const synced = await syncDashboardStateIfConfigured({
     env,
     projectDir,
     stateDir,
-    createClient,
+    createClient: clientFactory,
     log,
   });
   if (!synced.synced) log(`Dashboard state sync skipped: ${synced.reason}`);
+  if (synced.synced) {
+    await publishImmediateDashboardSnapshot({
+      client: controlClient,
+      env,
+      projectDir,
+      stateDir,
+      synced,
+    });
+  }
 
   const command = withDashboardConfig(opts.command, synced.configPath);
   const [runner, runnerArgs] = opts.watchdog ? watchdogCommand(command) : plainCommand(command);
