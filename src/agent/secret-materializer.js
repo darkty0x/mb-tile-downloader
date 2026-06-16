@@ -42,14 +42,11 @@ export async function materializeSecrets({
     .map((secret) => secret.value)
     .filter(Boolean)
     .join("\n");
-  let proxyPath = null;
-  if (proxyText) {
-    proxyPath = path.join(projectDir, "proxy.txt");
-    const tmpProxyPath = `${proxyPath}.tmp`;
-    const normalized = normalizeProxyText(proxyText);
-    await writeFile(tmpProxyPath, `${normalized}${normalized ? "\n" : ""}`);
-    await rename(tmpProxyPath, proxyPath);
-  }
+  const proxyPath = path.join(projectDir, "proxy.txt");
+  const tmpProxyPath = `${proxyPath}.tmp`;
+  const normalized = normalizeProxyText(proxyText);
+  await writeFile(tmpProxyPath, `${normalized}${normalized ? "\n" : ""}`);
+  await rename(tmpProxyPath, proxyPath);
 
   return { env, envPath, proxyPath };
 }

@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-import { syncDashboardSecretsIfConfigured } from "../src/agent/dashboard-secrets-sync.js";
+import { syncDashboardStateIfConfigured } from "../src/agent/dashboard-state-sync.js";
 
 try {
-  await syncDashboardSecretsIfConfigured({
+  await syncDashboardStateIfConfigured({
     projectDir: process.cwd(),
     stateDir: ".tile-state",
     log: (message) => console.log(message),
   });
 } catch (err) {
-  console.error(`Dashboard secret sync failed: ${err.message}`);
+  console.error(`Dashboard state sync failed: ${err.message}`);
   process.exit(1);
 }

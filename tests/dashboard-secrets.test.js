@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -332,4 +332,18 @@ test("secret materializer writes env and normalized proxy.txt atomically", async
     proxyFile,
     "http://a.example:8080\nhttp://b.example:8080\nhttp://c.example:8080\nhttp://d.example:8080\n"
   );
+});
+
+test("secret materializer clears stale proxy.txt when server assigns no proxies", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-secrets-clear-"));
+  await writeFile(path.join(dir, "proxy.txt"), "http://stale.example:8080\n", "utf8");
+
+  const result = await materializeSecrets({
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    secrets: [],
+  });
+
+  assert.equal(result.proxyPath, path.join(dir, "proxy.txt"));
+  assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "");
 });
