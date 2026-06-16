@@ -44,7 +44,7 @@ test("uses conservative Windows filesystem concurrency", () => {
   assert.equal(profile.pathFlavor, "windows");
 });
 
-test("caps direct Esri concurrency below public ArcGIS block thresholds", () => {
+test("uses requested Esri concurrency without proxy", () => {
   const profile = buildPlatformProfile({
     platform: "win32",
     provider: "esri",
@@ -55,12 +55,12 @@ test("caps direct Esri concurrency below public ArcGIS block thresholds", () => 
     defaultProxyFilePath: null,
   });
 
-  assert.equal(profile.maxConcurrentRequests, 64);
-  assert.equal(profile.perRowConcurrency, 64);
-  assert.equal(profile.wasConcurrencyCapped, true);
+  assert.equal(profile.maxConcurrentRequests, 4096);
+  assert.equal(profile.perRowConcurrency, 4096);
+  assert.equal(profile.wasConcurrencyCapped, false);
 });
 
-test("raises Esri concurrency when a paid proxy source is configured", () => {
+test("uses requested Esri concurrency with a paid proxy source configured", () => {
   const profile = buildPlatformProfile({
     platform: "win32",
     provider: "esri",
@@ -70,12 +70,12 @@ test("raises Esri concurrency when a paid proxy source is configured", () => {
     env: { TILE_DOWNLOADER_PROXY_LIST: "http://proxy-a.example:8080" },
   });
 
-  assert.equal(profile.maxConcurrentRequests, 1024);
-  assert.equal(profile.perRowConcurrency, 1024);
-  assert.equal(profile.wasConcurrencyCapped, true);
+  assert.equal(profile.maxConcurrentRequests, 4096);
+  assert.equal(profile.perRowConcurrency, 4096);
+  assert.equal(profile.wasConcurrencyCapped, false);
 });
 
-test("allows explicit proxy-backed Esri concurrency override", () => {
+test("ignores proxy-specific Esri cap so proxy and direct modes use the same source of truth", () => {
   const profile = buildPlatformProfile({
     platform: "win32",
     provider: "esri",
@@ -88,11 +88,11 @@ test("allows explicit proxy-backed Esri concurrency override", () => {
     },
   });
 
-  assert.equal(profile.maxConcurrentRequests, 2048);
-  assert.equal(profile.perRowConcurrency, 2048);
+  assert.equal(profile.maxConcurrentRequests, 4096);
+  assert.equal(profile.perRowConcurrency, 4096);
 });
 
-test("keeps direct Esri cap when proxy is disabled even if proxy.txt exists", () => {
+test("keeps requested Esri concurrency when proxy is disabled", () => {
   const profile = buildPlatformProfile({
     platform: "win32",
     provider: "esri",
@@ -103,9 +103,9 @@ test("keeps direct Esri cap when proxy is disabled even if proxy.txt exists", ()
     defaultProxyFilePath: null,
   });
 
-  assert.equal(profile.maxConcurrentRequests, 64);
-  assert.equal(profile.perRowConcurrency, 64);
-  assert.equal(profile.wasConcurrencyCapped, true);
+  assert.equal(profile.maxConcurrentRequests, 4096);
+  assert.equal(profile.perRowConcurrency, 4096);
+  assert.equal(profile.wasConcurrencyCapped, false);
 });
 
 test("keeps Mapbox platform concurrency uncapped by Esri limits", () => {

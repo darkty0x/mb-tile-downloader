@@ -216,13 +216,6 @@ function isProxyDisabled(env = process.env) {
   return ["1", "true", "yes", "on"].includes(value);
 }
 
-function hasProxySourceForUrl(url, env = process.env, options = {}) {
-  if (isProxyDisabled(env)) return false;
-  if (shouldBypassProxy(url, resolveAnyEnv(env, ["NO_PROXY", "no_proxy"]))) return false;
-  const proxyEnv = resolveProxyEnvironmentWithOptions(env, options);
-  return hasProxyEnvironment(proxyEnv);
-}
-
 function resolveProxyEnvironmentWithOptions(env = process.env, options = {}) {
   const auth = proxyAuthFromEnv(env);
   const defaultProxyFilePath =
@@ -417,17 +410,7 @@ function providerConcurrencyCap(provider, env = process.env, options = {}) {
 
   const esriCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_MAX_CONCURRENCY);
   if (esriCap) return esriCap;
-  const esriProxyCap = parsePositiveInt(env.TILE_DOWNLOADER_ESRI_PROXY_MAX_CONCURRENCY);
-  if (
-    hasProxySourceForUrl(
-      "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer",
-      env,
-      options
-    )
-  ) {
-    return esriProxyCap ?? genericCap ?? 1024;
-  }
-  return genericCap ?? 64;
+  return genericCap;
 }
 
 function providerRowsCap(provider, env = process.env) {
