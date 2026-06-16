@@ -67,29 +67,28 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-9 w-12 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 120 72">
+    <svg aria-hidden="true" className="h-11 w-11 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 64 64">
       <defs>
-        <linearGradient id="ptg-mark-blue" x1="16" x2="88" y1="16" y2="52" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#2fc6ff" />
-          <stop offset="0.58" stopColor="#0986f4" />
-          <stop offset="1" stopColor="#0056cb" />
+        <linearGradient id="ptg-mark-blue" x1="10" x2="48" y1="14" y2="50" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#34d5ff" />
+          <stop offset="1" stopColor="#0b7cff" />
         </linearGradient>
-        <linearGradient id="ptg-mark-red" x1="16" x2="112" y1="30" y2="41" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ff4d4d" />
-          <stop offset="1" stopColor="#e9062d" />
+        <linearGradient id="ptg-mark-red" x1="8" x2="56" y1="22" y2="44" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ff4c56" />
+          <stop offset="1" stopColor="#fb123b" />
         </linearGradient>
       </defs>
       <path
         className="brand-orbit-blue"
-        d="M63.8 9.8c26.8 0 49 10.9 49 24.2 0 13.2-22.2 24.2-49 24.2-27 0-49.1-11-49.1-24.2 0-13.3 22.1-24.2 49.1-24.2Zm0 9.9c-20.5 0-37.5 6.5-37.5 14.3s17 14.2 37.5 14.2 37.4-6.4 37.4-14.2-16.9-14.3-37.4-14.3Z"
+        d="M31.9 9.4c13.7 0 24.9 6 24.9 13.4S45.6 36.2 31.9 36.2 7 30.2 7 22.8 18.2 9.4 31.9 9.4Zm0 5.9c-10.6 0-19.2 3.4-19.2 7.5s8.6 7.5 19.2 7.5 19.2-3.4 19.2-7.5-8.6-7.5-19.2-7.5Z"
         fill="url(#ptg-mark-blue)"
       />
       <path
         className="brand-orbit-red"
-        d="M110.2 29.7c-4.5-9.2-24.3-16-48.5-16-27.1 0-49.1 8.5-49.1 19 0 7.1 10 13.2 24.9 16.4C19 47.8 4.9 40.6 4.9 32c0-12 25.7-21.8 57.4-21.8 26.9 0 49.5 7.1 55.7 16.6Z"
+        d="M55.5 25.3c-2.8-5.4-13.2-9.3-25.3-9.3-14.7 0-26.6 5.2-26.6 11.6 0 4.5 5.9 8.4 14.5 10.2C8.6 37 1.9 32.5 1.9 27.2c0-7.4 12.8-13.4 28.6-13.4 13.2 0 24.3 4.2 27.5 9.9Z"
         fill="url(#ptg-mark-red)"
       />
-      <text x="33" y="43" fill="#37c7ff" fontFamily="Manrope, Inter, Arial, sans-serif" fontSize="24" fontWeight="800" letterSpacing="-1.5">PTG</text>
+      <text x="17" y="36.5" fill="#35d4ff" fontFamily="Inter, Arial Black, Arial, sans-serif" fontSize="14" fontWeight="900" letterSpacing="-0.6">PTG</text>
     </svg>
   );
 }

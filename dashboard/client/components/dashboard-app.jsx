@@ -454,73 +454,39 @@ function Rail({ state, actions }) {
     if (tab === "configs") return state.configTemplates.length || state.globalConfigs.length || state.configs.length;
     return null;
   };
-  const primaryTabs = TABS.slice(0, 5);
-  const secondaryTabs = TABS.slice(5);
+  const shortLabel = (label) => label.length > 7 ? label.slice(0, 4) : label;
   return (
-    <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 flex h-screen flex-col gap-6 overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
-      <section className="flex items-center gap-3 px-0.5 pb-2">
+    <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col items-center gap-4 overflow-auto border-r border-[var(--ptg-rail-outline)] px-2 py-3 text-[var(--ptg-rail-text)] max-md:h-auto max-md:flex-row max-md:gap-2 max-md:border-b max-md:border-r-0 max-md:px-3 max-md:py-2">
+      <section className="flex min-h-12 w-full items-center justify-center border-b border-[var(--ptg-rail-outline)] pb-3 max-md:w-auto max-md:min-w-12 max-md:border-b-0 max-md:pb-0">
         <LogoMark />
-        <div className="min-w-0">
-          <h1 className="truncate text-[15px] font-[800] leading-tight">PTG</h1>
-          <p className="mt-0.5 text-[11px] font-[600] leading-[1.2] text-[var(--ptg-rail-muted)]">Management Dashboard</p>
-        </div>
       </section>
 
-      <nav className="grid gap-1.5" aria-label="Dashboard sections">
-        {primaryTabs.map(([tab, label, icon]) => {
+      <nav className="grid w-full gap-2 max-md:flex max-md:w-auto max-md:min-w-max max-md:gap-2" aria-label="Dashboard sections">
+        {TABS.map(([tab, label, icon]) => {
           const count = navCount(tab);
           return (
             <button
               key={tab}
+              aria-label={label}
+              title={label}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-3 text-left text-[13px] font-[760] ${
+              className={`state-layer relative flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 text-center text-[10px] font-[760] max-md:min-h-12 max-md:w-16 ${
                 state.selectedTab === tab
-                  ? "border-[#1e75ff] bg-[linear-gradient(90deg,#063b7d_0%,#0d2748_100%)] text-white shadow-[inset_3px_0_0_#1491ff,0_10px_24px_rgba(3,10,26,0.24)]"
-                  : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-[var(--ptg-rail-text)]"
-              }`}
-            >
-              <span className="flex min-w-0 items-center gap-2">
-                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#70c7ff]" : ""}`} />
-                <span className="truncate">{label}</span>
-              </span>
-              {count === null ? null : <strong className="rounded-full bg-[#17345c] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
-            </button>
-          );
-        })}
-        <div className="my-3 h-px bg-[#19304e]" />
-        {secondaryTabs.map(([tab, label, icon]) => {
-          const count = navCount(tab);
-          return (
-            <button
-              key={tab}
-              type="button"
-              onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-3 text-left text-[12px] font-[720] ${
-                state.selectedTab === tab
-                  ? "border-[#1e75ff] bg-[var(--ptg-rail-active)] text-white"
+                  ? "border-[rgba(186,122,255,0.35)] bg-[linear-gradient(180deg,rgba(163,51,246,0.28),rgba(30,41,59,0.72))] text-white shadow-[inset_3px_0_0_#a333f6,0_14px_30px_rgba(6,10,26,0.26)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
               }`}
             >
-              <span className="flex min-w-0 items-center gap-2">
-                <Icon name={icon} className="h-4 w-4" />
-                <span className="truncate">{label}</span>
-              </span>
-              {count === null ? null : <strong className="rounded-full bg-[#17345c] px-2 py-0.5 text-[10px] text-[#dce8f7]">{count}</strong>}
+              <Icon name={icon} className={`h-[21px] w-[21px] ${state.selectedTab === tab ? "text-[#bf7fff]" : ""}`} />
+              <span className="max-w-full truncate">{shortLabel(label)}</span>
+              {count === null ? null : <strong className="absolute right-1.5 top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-[#2c374d] px-1 text-[9px] text-[#eaf1ff]">{count}</strong>}
             </button>
           );
         })}
       </nav>
 
-      <section className="mt-auto rounded-lg border border-[#1d365b] bg-[#0c1d36]/80 p-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-[11px] font-[760] text-white">System Status</span>
-          <Icon name="control" className="h-4 w-4 text-[var(--ptg-success)]" />
-        </div>
-        <p className="mt-2 flex items-center gap-1.5 text-[11px] font-[600] text-[var(--ptg-rail-muted)]">
-          <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)]" />
-          {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Attention required" : "All systems operational"}
-        </p>
+      <section className="mt-auto grid h-11 w-11 place-items-center rounded-2xl border border-[var(--ptg-rail-outline)] bg-[rgba(255,255,255,0.04)] max-md:mt-0 max-md:min-w-11" title={overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Attention required" : "All systems operational"}>
+        <Icon name="control" className="h-5 w-5 text-[var(--ptg-success)]" />
       </section>
     </aside>
   );
@@ -531,24 +497,24 @@ function Header({ state, actions }) {
   const [title, subtitle] = PAGE_META[state.selectedTab] || PAGE_META.overview;
   const alerts = buildOverviewModel(fleetState(state)).resourceAlerts.length;
   return (
-    <header className="sticky top-0 z-10 -mx-5 -mt-5 border-b border-[var(--ptg-outline)] bg-white/82 px-5 py-4 backdrop-blur-xl max-md:-mx-4 max-md:-mt-4 max-md:px-4">
-      <div className="grid grid-cols-[minmax(180px,1fr)_minmax(260px,420px)_auto] items-center gap-4 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <h2 className="truncate text-[20px] font-[800] leading-tight tracking-[-0.01em]">{title}</h2>
-            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
-          </div>
-          <p className="mt-1 text-[12px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
-        </div>
-        <label className="relative block max-xl:hidden">
-          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+    <header className="sticky top-0 z-10 -mx-6 -mt-5 border-b border-[var(--ptg-outline)] bg-[#1d2736]/96 px-6 py-3 backdrop-blur-xl max-md:-mx-4 max-md:-mt-4 max-md:px-4">
+      <div className="grid grid-cols-[minmax(280px,450px)_minmax(0,1fr)_auto] items-center gap-4 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
+        <label className="relative block">
+          <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
           <input
             type="search"
-            placeholder="Search servers, configs, events..."
-            className="h-10 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-12 text-[12.5px] font-[650] shadow-[0_1px_2px_rgba(15,23,42,0.03)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(6,109,234,0.12)]"
+            placeholder="Search..."
+            className="h-10 w-full rounded-[20px] border border-[rgba(255,255,255,0.10)] bg-[#111927] pl-11 pr-12 text-[13px] font-[650] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] focus:border-[rgba(186,122,255,0.46)] focus:shadow-[0_0_0_3px_rgba(163,51,246,0.16)]"
           />
-          <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-background)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘K</kbd>
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘K</kbd>
         </label>
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center justify-end gap-2 max-xl:hidden">
+            <h2 className="truncate text-[12px] font-[800] uppercase tracking-[0.08em] text-[var(--ptg-on-surface-variant)]">{title}</h2>
+            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
+          </div>
+          <p className="mt-1 truncate text-right text-[11.5px] font-[600] text-[var(--ptg-on-surface-variant)] max-xl:hidden">{subtitle}</p>
+        </div>
         <div className="flex items-center justify-end gap-2 max-md:justify-between">
           <IconButton icon="command" label="Command palette" />
           <span className="relative">
@@ -560,8 +526,8 @@ function Header({ state, actions }) {
             label="Refresh dashboard"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
-          <button type="button" className="state-layer ml-1 grid h-10 grid-cols-[28px_minmax(0,1fr)_12px] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white px-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
-            <span className="ptg-admin-avatar h-7 w-7 rounded-full" />
+          <button type="button" className="state-layer ml-1 grid h-11 grid-cols-[32px_minmax(0,1fr)_12px] items-center gap-2 rounded-2xl border border-[var(--ptg-outline)] bg-[rgba(20,28,42,0.76)] px-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.16)]">
+            <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
             <span className="min-w-0 max-md:hidden">
               <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
               <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
@@ -625,17 +591,17 @@ function pipelineTone(status) {
 
 function InsightCard({ icon, label, value, detail, tone = "primary" }) {
   return (
-    <Surface className={`ptg-metric-tile min-h-[116px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+    <Surface className={`ptg-metric-tile min-h-[128px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
       <div className="flex items-start justify-between gap-3">
-        <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
+        <span className="ptg-icon-well inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
           <Icon name={icon} className="h-5 w-5" />
         </span>
-        <span className="rounded-full border border-white/70 bg-white/72 px-2 py-1 text-[10px] font-[800] uppercase text-[var(--ptg-on-surface-variant)] shadow-[0_1px_1px_rgba(15,23,42,0.04)]">
+        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-[800] uppercase text-[var(--ptg-on-surface-variant)] shadow-[0_1px_1px_rgba(15,23,42,0.18)]">
           Live
         </span>
       </div>
       <span className="mt-4 block text-[11px] font-[800] uppercase leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
-      <strong className="mt-2 block truncate text-[27px] font-[850] leading-none tracking-[-0.02em] text-[var(--ptg-on-surface)]">{value}</strong>
+      <strong className="mt-2 block truncate text-[30px] font-[850] leading-none tracking-[-0.02em] text-[var(--ptg-on-surface)]">{value}</strong>
       <p className="mt-2 truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{detail}</p>
     </Surface>
   );
@@ -644,36 +610,36 @@ function InsightCard({ icon, label, value, detail, tone = "primary" }) {
 function OverviewHero({ state, overview, actions }) {
   const latest = overview.recentEvents[0];
   return (
-    <Surface className="ptg-hero-panel overflow-hidden p-0">
-      <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)] gap-4 p-5 max-xl:grid-cols-1">
+    <Surface className="ptg-hero-panel overflow-hidden border-[rgba(255,255,255,0.16)] p-0 shadow-[0_22px_70px_rgba(112,32,225,0.26)]">
+      <div className="grid min-h-[286px] grid-cols-[minmax(0,1fr)_392px] gap-5 p-8 max-xl:grid-cols-1 max-sm:p-5">
         <div className="min-w-0">
-          <span className="inline-flex items-center gap-2 rounded-full bg-white/82 px-3 py-1 text-[11px] font-[820] text-[var(--ptg-primary-dark)] shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)]" />
+          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-[#1d2736]/72 px-3 py-1 text-[11px] font-[820] text-white shadow-[0_10px_24px_rgba(5,8,18,0.18)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)] shadow-[0_0_12px_var(--ptg-success)]" />
             PTG distributed downloader
           </span>
-          <h3 className="mt-4 max-w-[780px] text-[25px] font-[850] leading-[1.08] tracking-[-0.03em] text-[var(--ptg-on-surface)]">
+          <h3 className="mt-5 max-w-[800px] text-[34px] font-[850] leading-[1.02] tracking-[-0.04em] text-white max-lg:text-[28px]">
             Coordinate range downloads, validation, zip, and Storj upload from one console.
           </h3>
-          <p className="mt-3 max-w-[660px] text-[13px] font-[620] leading-6 text-[var(--ptg-on-surface-variant)]">
+          <p className="mt-4 max-w-[680px] text-[14px] font-[600] leading-6 text-white/78">
             {state.machines.length
               ? `${state.machines.length} registered server${state.machines.length === 1 ? "" : "s"} with ${overview.resourceAlerts.length} active pool alert${overview.resourceAlerts.length === 1 ? "" : "s"}.`
               : "Waiting for local agents to register with the dashboard."}
           </p>
-          <div className="mt-5 flex flex-wrap gap-2">
+          <div className="mt-6 flex flex-wrap gap-3">
             <AppButton variant="filled" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Fleet</AppButton>
             <AppButton icon="config" onClick={() => actions.setSelectedTab("configs")}>Manage Configs</AppButton>
             <AppButton icon="alerts" onClick={() => actions.setSelectedTab("alerts")}>Review Alerts</AppButton>
           </div>
         </div>
-        <div className="grid gap-3 rounded-xl border border-white/72 bg-white/72 p-4 shadow-[0_12px_36px_rgba(15,23,42,0.08)]">
+        <div className="grid gap-3 self-start rounded-[20px] border border-white/12 bg-[#202838]/86 p-4 shadow-[0_18px_50px_rgba(5,8,18,0.24)]">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <span className="block text-[11px] font-[820] uppercase text-[var(--ptg-on-surface-variant)]">Latest Signal</span>
-              <strong className="mt-1 block truncate text-[16px] font-[850]">{latest?.type || "No events yet"}</strong>
+              <span className="block text-[11px] font-[820] uppercase text-white/55">Latest Signal</span>
+              <strong className="mt-1 block truncate text-[18px] font-[850] text-white">{latest?.type || "No events yet"}</strong>
             </div>
             <span className={`ptg-event-dot ${latest?.severity === "error" ? "bg-[var(--ptg-error)]" : latest?.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
           </div>
-          <p className="min-h-11 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">{latest?.message || "Dashboard event stream will appear here once agents start reporting work."}</p>
+          <p className="min-h-11 text-[12.5px] font-[620] leading-5 text-white/68">{latest?.message || "Dashboard event stream will appear here once agents start reporting work."}</p>
           <div className="grid grid-cols-3 gap-2">
             <MiniMetric label="Disk Peak" value={`${overview.diskPressure}%`} />
             <MiniMetric label="Ranges" value={overview.activeRanges.length} />
@@ -687,7 +653,7 @@ function OverviewHero({ state, overview, actions }) {
 
 function MiniMetric({ label, value }) {
   return (
-    <span className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2">
+    <span className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
       <small className="block truncate text-[10.5px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">{label}</small>
       <strong className="mt-1 block truncate text-[16px] font-[850] leading-none">{value}</strong>
     </span>
@@ -1220,7 +1186,7 @@ function SettingsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-4 grid gap-3">
       <Surface className="overflow-hidden p-0">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[linear-gradient(135deg,#ffffff_0%,#f2f6ff_100%)] px-4 py-4 max-sm:grid-cols-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[linear-gradient(135deg,rgba(163,51,246,0.20)_0%,rgba(27,36,52,0.96)_100%)] px-4 py-4 max-sm:grid-cols-1">
           <div className="flex min-w-0 items-center gap-3">
             <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary)] text-white shadow-[0_10px_24px_rgba(18,103,216,0.20)]">
               <Icon name="settings" className="h-5 w-5" />
@@ -1508,8 +1474,8 @@ function ServerPanel({ state, actions }) {
     console: state.events.length,
   };
   return (
-    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/94 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
-      <header className="overflow-hidden rounded-xl border border-[var(--ptg-outline)] bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-4 shadow-[var(--ptg-shadow-1)]">
+    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433]/96 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+      <header className="overflow-hidden rounded-[20px] border border-[var(--ptg-outline)] bg-[linear-gradient(145deg,rgba(163,51,246,0.20),rgba(27,36,52,0.96))] p-4 shadow-[var(--ptg-shadow-1)]">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="truncate text-[17px] font-[850] leading-tight tracking-[-0.02em]">{machine.displayName || machine.machineId}</h2>
@@ -1537,14 +1503,14 @@ function ServerPanel({ state, actions }) {
         ))}
       </div>
 
-      <nav className="grid grid-cols-5 gap-1 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
+      <nav className="grid grid-cols-5 gap-1 rounded-[18px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
         {SERVER_TABS.map(([tab, label, icon]) => (
           <button
             key={tab}
             type="button"
             onClick={() => actions.setSelectedServerTab(tab)}
             className={`state-layer flex min-h-8 items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-[760] ${
-              state.selectedServerTab === tab ? "bg-white text-[var(--ptg-on-surface)] shadow-[0_1px_3px_rgba(20,31,37,0.12)]" : "text-[var(--ptg-on-surface-variant)]"
+              state.selectedServerTab === tab ? "bg-[rgba(255,255,255,0.10)] text-[var(--ptg-on-surface)] shadow-[0_1px_3px_rgba(20,31,37,0.22)]" : "text-[var(--ptg-on-surface-variant)]"
             }`}
           >
             <Icon name={icon} className={`h-3.5 w-3.5 ${state.selectedServerTab === tab ? "text-[var(--ptg-secondary)]" : ""}`} />
@@ -1714,7 +1680,7 @@ function ServerOnboardingForm({ state, actions }) {
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-xl border border-[var(--ptg-outline)] bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-4">
+      <div className="rounded-[20px] border border-[var(--ptg-outline)] bg-[linear-gradient(145deg,rgba(163,51,246,0.20),rgba(27,36,52,0.96))] p-4">
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
@@ -1782,7 +1748,7 @@ function EditorDrawer({ state, actions }) {
   if (editor.type === "summary") return null;
   if (editor.type === "server-onboarding") {
     return (
-      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
+      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433] p-4 shadow-[var(--ptg-shadow-2)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-[17px] font-[760]">Add Server</h3>
@@ -1799,7 +1765,7 @@ function EditorDrawer({ state, actions }) {
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
-    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
+    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433] p-4 shadow-[var(--ptg-shadow-2)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record, editor)}</h3>
@@ -2089,9 +2055,9 @@ export default function DashboardApp() {
   const { state, actions } = useDashboardState();
   const hasServerPanel = Boolean(state.selectedMachine);
   return (
-    <main className={`grid min-h-screen ${hasServerPanel ? "grid-cols-[248px_minmax(0,1fr)_372px] max-xl:grid-cols-[238px_minmax(0,1fr)_348px]" : "grid-cols-[248px_minmax(0,1fr)] max-xl:grid-cols-[238px_minmax(0,1fr)]"} bg-[var(--ptg-background)] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`ptg-dark-shell grid min-h-screen ${hasServerPanel ? "grid-cols-[80px_minmax(0,1fr)_372px] max-xl:grid-cols-[80px_minmax(0,1fr)_348px]" : "grid-cols-[80px_minmax(0,1fr)]"} bg-[var(--ptg-background)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
-      <section className="min-w-0 overflow-hidden p-5 max-md:p-4">
+      <section className="min-w-0 overflow-hidden p-5 pl-6 max-md:p-4">
         <Header state={state} actions={actions} />
         <Notice notice={state.notice} />
         {state.selectedTab === "settings" ? (
