@@ -39,6 +39,7 @@ const MIME = new Map([
   [".woff2", "font/woff2"],
 ]);
 const SERVER_CONNECTION_PROTOCOLS = new Set(["rdp", "ssh", "winrm", "winrms"]);
+const SERVER_CONNECTION_SECRET_TYPE = "server_rdp_credential";
 const SERVER_CONNECTION_DEFAULT_PORTS = {
   rdp: 3389,
   ssh: 22,
@@ -350,6 +351,14 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/agent-setup") {
+          json(res, 200, {
+            agentTokenConfigured: Boolean(agentToken),
+            agentToken,
+          });
+          return;
+        }
+
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           const body = await readJson(req);
           json(res, 200, { settings: await store.updateSettings(body) });
@@ -361,7 +370,7 @@ export function createDashboardApp({
           const connection = normalizeServerConnectionInput(await readJson(req));
           const secret = await secretVault.createSecret({
             machineId: null,
-            secretType: "credential",
+            secretType: SERVER_CONNECTION_SECRET_TYPE,
             label: connection.label,
             status: "active",
             value: JSON.stringify({
@@ -382,7 +391,7 @@ export function createDashboardApp({
           if (!secretVault?.getSecretForDashboard) throw new Error("secret vault is not configured");
           const secretId = decodeURIComponent(serverConnectionValidateMatch[1]);
           const connection = await secretVault.getSecretForDashboard(secretId);
-          if (connection.secretType !== "credential") throw new Error("server connection must be a credential secret");
+          if (!["credential", SERVER_CONNECTION_SECRET_TYPE].includes(connection.secretType)) throw new Error("server connection must be a server credential secret");
           const endpoint = endpointFromCredentialValue(connection.value);
           const network = await checkTcpEndpoint(endpoint);
           const targetMachineId = endpoint.machineId || connection.machineId;
@@ -574,7 +583,7 @@ export function createDashboardApp({
           if (req.method === "GET") {
             if (!secretVault.getSecretForDashboard) throw new Error("secret vault cannot decrypt dashboard secrets");
             const secret = await secretVault.getSecretForDashboard(secretId);
-            if (secret.secretType === "credential") {
+            if (["credential", SERVER_CONNECTION_SECRET_TYPE].includes(secret.secretType)) {
               json(res, 200, { secret });
               return;
             }

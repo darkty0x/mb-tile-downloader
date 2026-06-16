@@ -326,6 +326,7 @@ function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
 }
 
 function isServerConnection(secret) {
+  if (secret.secretType === "server_rdp_credential") return true;
   return secret.secretType === "credential" && ["rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol);
 }
 
@@ -627,7 +628,7 @@ export function SecretsDashboard({ state, actions }) {
 
 export function CredentialsDashboard({ state, actions }) {
   const items = state.secretPool
-    .filter((secret) => secret.secretType === "credential")
+    .filter((secret) => secret.secretType === "credential" && !isServerConnection(secret))
     .slice()
     .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
   const active = items.filter((secret) => secret.status === "active").length;

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { buildCredentialSecretValue } from "../lib/overview-model";
 import { DEFAULT_DASHBOARD_SETTINGS, mergeDashboardSettings } from "./dashboard-core";
 
 export function useDashboardState() {
@@ -162,9 +163,18 @@ export function useDashboardState() {
         setEditor({ type: "server-detail" });
         await refreshMachineData(machineId);
       },
+      async manageServerConnection(secretId) {
+        const connection = secretPool.find((item) => item.secretId === secretId);
+        const targetMachineId = connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId || null;
+        setSelectedMachineId(targetMachineId);
+        setSelectedServerTab("control");
+        setSelectedTab("servers");
+        setEditor({ type: "server-management", id: secretId });
+        await refreshMachineData(targetMachineId);
+      },
       async sendCommand(commandType) {
         const machine = machines.find((item) => item.machineId === selectedMachineId);
-        if (!machine) throw new Error("select a machine first");
+        if (!machine) throw new Error("open a server management page first");
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
           if (!activeConfig) throw new Error("active config is required");
@@ -274,16 +284,18 @@ export function useDashboardState() {
           status: formData.get("status"),
         };
         if (!id) body.secretType = secretType;
-        if (secretType === "credential") {
+        if (["credential", "server_rdp_credential"].includes(secretType)) {
           const protocolUrl = String(formData.get("credentialProtocolUrl") || "").trim();
+          const machineId = String(formData.get("credentialMachineId") || "").trim();
           const username = String(formData.get("credentialUsername") || "").trim();
           const password = String(formData.get("credentialPassword") || "");
           const existingProtocolUrl = String(formData.get("existingCredentialProtocolUrl") || "").trim();
+          const existingMachineId = String(formData.get("existingCredentialMachineId") || "").trim();
           const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
-          const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || username !== existingUsername;
+          const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || machineId !== existingMachineId || username !== existingUsername;
           if (!id || password || changedCredentialIdentity) {
-            if (!password) throw new Error("credential password is required when creating or changing URL/username");
-            body.value = JSON.stringify({ protocolUrl, username, password });
+            if (!password) throw new Error("credential password is required when creating or changing URL, Agent ID, or username");
+            body.value = buildCredentialSecretValue({ protocolUrl, machineId, username, password });
           }
         } else if (formData.get("value")) {
           body.value = formData.get("value");

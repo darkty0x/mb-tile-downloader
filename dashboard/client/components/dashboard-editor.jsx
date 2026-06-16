@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { buildServerOnboarding, nextServerDefaults } from "../lib/overview-model";
+import { buildWindowsAgentEnv, nextServerDefaults } from "../lib/overview-model";
 import { Icon } from "./icons";
 import { AppButton, ModalShell, SelectInput, TextArea, TextInput } from "./ui";
 import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus } from "./dashboard-core";
@@ -19,19 +19,55 @@ function ServerOnboardingForm({ state, actions }) {
   const [protocol, setProtocol] = useState("rdp");
   const [dashboardUrl, setDashboardUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
   const [editedDefaults, setEditedDefaults] = useState({ machineId: false, label: false });
-  const onboarding = buildServerOnboarding({ machineId, dashboardUrl });
-  const powershellCommand = [
-    `$env:MACHINE_ID="${onboarding.machineId.replaceAll('"', '`"')}"`,
-    `$env:DASHBOARD_URL="${onboarding.dashboardUrl.replaceAll('"', '`"')}"`,
-    '$env:AGENT_TOKEN="your-agent-token"',
-    "npm run agent",
-  ].join("\n");
-  const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+  const [agentSetup, setAgentSetup] = useState({ agentTokenConfigured: false, agentToken: "", loading: true });
+  const [showAgentToken, setShowAgentToken] = useState(false);
+  const [formNotice, setFormNotice] = useState(null);
+  const windowsEnv = buildWindowsAgentEnv({ machineId, dashboardUrl, agentToken: agentSetup.agentToken });
+  const copy = async (text, label = "Value") => {
+    try {
+      await navigator.clipboard?.writeText(String(text || ""));
+      setFormNotice({ kind: "success", message: `${label} Copied.` });
+    } catch (err) {
+      setFormNotice({ kind: "error", message: `Copy Failed: ${err.message}` });
+    }
+  };
 
   useEffect(() => {
     if (!editedDefaults.machineId) setMachineId(defaults.machineId);
     if (!editedDefaults.label) setLabel(defaults.label);
   }, [defaults.machineId, defaults.label, editedDefaults.machineId, editedDefaults.label]);
+
+  useEffect(() => {
+    let cancelled = false;
+    actions.api("/api/agent-setup")
+      .then((setup) => {
+        if (!cancelled) setAgentSetup({ ...setup, loading: false });
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setAgentSetup({ agentTokenConfigured: false, agentToken: "", loading: false });
+        setFormNotice({ kind: "error", message: err.message });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  function validateServerForm(formData) {
+    const requiredFields = [
+      ["machineId", "Machine ID"],
+      ["label", "Server Name"],
+      ["host", "IP / Host"],
+      ["username", "Username"],
+      ["password", "Password"],
+    ];
+    for (const [name, title] of requiredFields) {
+      if (!String(formData.get(name) || "").trim()) return `${title} Is Required.`;
+    }
+    const port = Number(formData.get("port"));
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return "Port Must Be Between 1 And 65535.";
+    return null;
+  }
 
   return (
     <section className="grid gap-4">
@@ -39,14 +75,14 @@ function ServerOnboardingForm({ state, actions }) {
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
-        <h4 className="mt-3 text-[15px] font-[850]">Server control uses the local agent</h4>
+        <h4 className="mt-3 text-[15px] font-[850]">Server Control Uses The Windows Agent</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
-          Save the remote login for inventory and reachability checks. Dashboard operations start after the same machine ID is online through `npm run agent`.
+          Save The Remote Login, Set The Agent `.env`, Then Validate The Same Machine ID From The Dashboard.
         </p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
           {[
-            ["credentials", "1. Save login"],
-            ["console", "2. Run agent"],
+            ["credentials", "1. Save Login"],
+            ["console", "2. Set Env"],
             ["control", "3. Validate"],
           ].map(([icon, label]) => (
             <span key={label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--ptg-outline)] bg-white px-2">
@@ -59,11 +95,19 @@ function ServerOnboardingForm({ state, actions }) {
 
       <form
         ref={formRef}
+        noValidate
         className="grid gap-3 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3"
         onSubmit={async (event) => {
           event.preventDefault();
+          const formData = new FormData(event.currentTarget);
+          const validationError = validateServerForm(formData);
+          if (validationError) {
+            setFormNotice({ message: validationError, kind: "error" });
+            return;
+          }
           try {
-            const connection = await actions.saveServerConnection(new FormData(event.currentTarget));
+            setFormNotice(null);
+            const connection = await actions.saveServerConnection(formData);
             const nextDefaults = nextServerDefaults({
               ...state,
               secretPool: [...state.secretPool, connection],
@@ -73,15 +117,28 @@ function ServerOnboardingForm({ state, actions }) {
             setEditedDefaults({ machineId: false, label: false });
             setMachineId(nextDefaults.machineId);
             setLabel(nextDefaults.label);
+            setFormNotice({ message: `${connection.label} Saved. Next Server Is Ready.`, kind: "success" });
           } catch (err) {
-            actions.setNotice({ message: err.message, kind: "error" });
+            setFormNotice({ message: err.message, kind: "error" });
           }
         }}
       >
         <div>
           <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Connection Profile</h4>
-          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored encrypted in the dashboard secret vault.</p>
+          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored Encrypted In The Dashboard Secret Vault.</p>
         </div>
+        {formNotice ? (
+          <div
+            role="alert"
+            className={`rounded-[10px] border px-3 py-2.5 text-[12px] font-[760] ${
+              formNotice.kind === "error"
+                ? "border-[rgba(210,55,55,0.28)] bg-[#fff1f1] text-[#b42318]"
+                : "border-[rgba(17,124,84,0.24)] bg-[#effaf4] text-[#067647]"
+            }`}
+          >
+            {formNotice.message}
+          </div>
+        ) : null}
         <TextInput
           label="Machine ID"
           name="machineId"
@@ -93,7 +150,7 @@ function ServerOnboardingForm({ state, actions }) {
           required
         />
         <TextInput
-          label="Label"
+          label="Server Name"
           name="label"
           value={label}
           onChange={(event) => {
@@ -112,31 +169,42 @@ function ServerOnboardingForm({ state, actions }) {
           <TextInput label="Port" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
         </div>
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
-        <TextInput label="Username" name="username" placeholder="root" autoComplete="username" required />
+        <TextInput label="Username" name="username" defaultValue="root" autoComplete="username" required />
         <TextInput label="Password" name="password" type="password" autoComplete="new-password" required />
         <AppButton variant="filled" icon="check" type="submit">Save Connection Profile</AppButton>
       </form>
 
       <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
 
-      <section className="grid gap-2">
-        <div className="flex items-center justify-between gap-3">
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">macOS / Linux</h4>
-          <AppButton icon="copy" onClick={() => copy(onboarding.command)}>Copy</AppButton>
+      <section className="grid gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3">
+        <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent Token</h4>
+        <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_auto]">
+          <TextInput
+            label="Sealed Token"
+            value={agentSetup.loading ? "Loading..." : agentSetup.agentTokenConfigured ? agentSetup.agentToken : "Not Configured"}
+            type="text"
+            style={agentSetup.agentTokenConfigured && !showAgentToken ? { WebkitTextSecurity: "disc" } : undefined}
+            readOnly
+          />
+          <AppButton icon={showAgentToken ? "eyeOff" : "eye"} onClick={() => setShowAgentToken((current) => !current)} disabled={!agentSetup.agentTokenConfigured}>
+            {showAgentToken ? "Hide" : "Show"}
+          </AppButton>
+          <AppButton icon="copy" onClick={() => copy(agentSetup.agentToken, "Agent Token")} disabled={!agentSetup.agentTokenConfigured}>
+            Copy
+          </AppButton>
         </div>
-        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{onboarding.command}</pre>
       </section>
 
       <section className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows PowerShell</h4>
-          <AppButton icon="copy" onClick={() => copy(powershellCommand)}>Copy</AppButton>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows Agent .env</h4>
+          <AppButton icon="copy" onClick={() => copy(windowsEnv, "Windows Agent Env")}>Copy</AppButton>
         </div>
-        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{powershellCommand}</pre>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{windowsEnv}</pre>
       </section>
 
       <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
-        If a machine ID is reused while another live agent owns it, registration is rejected as a conflict.
+        If A Machine ID Is Reused While Another Live Agent Owns It, Registration Is Rejected As A Conflict.
       </div>
     </section>
   );
@@ -193,11 +261,13 @@ function editorTitle(type, record, editor = {}) {
   if (type === "new-config") return "Add Config";
   if (type === "new-env") return "Add Env";
   if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "Add Credential";
+  if (type === "new-secret" && (record?.secretType === "server_rdp_credential" || editor.secretType === "server_rdp_credential")) return "Add Server Credential";
   if (type === "server-onboarding") return "Add Server";
   if (type === "new-secret") return "Add Secret";
   if (type === "config") return record?.configId ? "Edit Config" : "Duplicate Config";
   if (type === "env") return record?.envProfileId ? "Edit Env" : "Duplicate Env";
   if (type === "secret" && record?.secretType === "credential") return "Edit Credential";
+  if (type === "secret" && record?.secretType === "server_rdp_credential") return "Edit Server Credential";
   if (type === "secret") return "Edit Secret";
   return "Editor";
 }
@@ -454,12 +524,14 @@ function EnvForm({ record, actions }) {
 function SecretForm({ record, editor, actions }) {
   const id = record?.secretId || "";
   const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
+  const credential = record?.credential || {};
   const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
+  const [credentialMachineId, setCredentialMachineId] = useState(credential.machineId || record?.targetMachineId || "");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
   const [credentialPasswordLoaded, setCredentialPasswordLoaded] = useState(!id);
-  const credential = record?.credential || {};
-  const isCredential = selectedSecretType === "credential";
+  const isCredential = ["credential", "server_rdp_credential"].includes(selectedSecretType);
+  const lockSecretType = Boolean(id || editor?.secretType || record?.secretType);
 
   useEffect(() => {
     if (!id || !isCredential) {
@@ -473,6 +545,7 @@ function SecretForm({ record, editor, actions }) {
       .then(({ secret }) => {
         if (cancelled) return;
         const value = JSON.parse(secret.value || "{}");
+        setCredentialMachineId(String(value.machineId || ""));
         setCredentialPassword(String(value.password || ""));
         setCredentialPasswordLoaded(true);
       })
@@ -492,37 +565,48 @@ function SecretForm({ record, editor, actions }) {
       actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
     }}>
       <input type="hidden" name="machineId" value={record?.machineId || ""} />
-      {id ? <input type="hidden" name="secretType" value={selectedSecretType} /> : null}
-      <SelectInput
-        label="Type"
-        name="secretType"
-        value={selectedSecretType}
-        disabled={Boolean(id)}
-        onChange={(event) => setSelectedSecretType(event.target.value)}
-      >
-        {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </SelectInput>
-      <TextInput label={isCredential ? "Protocol Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Storj" : "primary"} />
+      {lockSecretType ? (
+        <input type="hidden" name="secretType" value={selectedSecretType} />
+      ) : (
+        <SelectInput
+          label="Type"
+          name="secretType"
+          value={selectedSecretType}
+          onChange={(event) => setSelectedSecretType(event.target.value)}
+        >
+          {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </SelectInput>
+      )}
+      <TextInput label={isCredential ? "Server Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Server 02" : "Primary"} />
       <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
         {SECRET_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
       </SelectInput>
       {isCredential ? (
         <>
           <input type="hidden" name="existingCredentialProtocolUrl" value={credential.protocolUrl || ""} />
+          <input type="hidden" name="existingCredentialMachineId" value={credential.machineId || record?.targetMachineId || ""} />
           <input type="hidden" name="existingCredentialUsername" value={credential.username || ""} />
           <TextInput
             label="Protocol URL"
             name="credentialProtocolUrl"
             type="url"
             defaultValue={credential.protocolUrl || ""}
-            placeholder="https://dashboard.example.com"
+            placeholder="rdp://203.0.113.10:7777"
+            required
+          />
+          <TextInput
+            label="Agent ID"
+            name="credentialMachineId"
+            value={credentialMachineId}
+            onChange={(event) => setCredentialMachineId(event.target.value)}
+            placeholder="SERVER-02"
             required
           />
           <TextInput
             label="Username"
             name="credentialUsername"
             defaultValue={credential.username || ""}
-            placeholder="name@example.com"
+            placeholder="root"
             autoComplete="username"
             required
           />
@@ -536,7 +620,7 @@ function SecretForm({ record, editor, actions }) {
             placeholder={credentialPasswordLoaded ? "Password" : "Loading Password"}
             required={!id}
           />
-          <div className="flex flex-wrap gap-2">
+          <div className="grid grid-cols-2 gap-2 max-[460px]:grid-cols-1 sm:flex sm:justify-end">
             <AppButton
               icon={showCredentialPassword ? "eyeOff" : "eye"}
               type="button"
@@ -561,9 +645,12 @@ function SecretForm({ record, editor, actions }) {
           placeholder={id ? "Leave blank to keep current value" : selectedSecretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
         />
       )}
-      <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit">{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
-        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+      <div className="mt-1 grid gap-2 border-t border-[var(--ptg-outline)] pt-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
+        {id ? (
+          <AppButton className="danger-button justify-self-start" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton>
+        ) : <span />}
+        <span className="hidden sm:block" />
+        <AppButton className="max-sm:w-full" variant="filled" icon="check" type="submit">{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
       </div>
     </form>
   );

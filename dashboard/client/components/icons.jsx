@@ -42,6 +42,7 @@ const paths = {
   eyeOff: [<path key="a" d="M3 3l18 18" />, <path key="b" d="M10.6 5.2A10.8 10.8 0 0 1 12 5c6 0 9.5 7 9.5 7a16.4 16.4 0 0 1-2.4 3.2" />, <path key="c" d="M6.6 6.7C3.9 8.5 2.5 12 2.5 12s3.5 7 9.5 7a9.8 9.8 0 0 0 4.4-1" />, <path key="d" d="M9.8 9.8a2.6 2.6 0 0 0 3.5 3.5" />],
   check: [<path key="a" d="m5 12 4 4L19 6" />],
   search: [<circle key="a" cx="11" cy="11" r="6" />, <path key="b" d="m16 16 4 4" />],
+  chevronDown: [<path key="a" d="m6 9 6 6 6-6" />],
   close: [<path key="a" d="M7 7l10 10M17 7 7 17" />],
   disk: [<path key="a" d="M5 6h14l2 8v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4l2-8Z" />, <path key="b" d="M6 14h12M8 17h.01M12 17h4" />],
   home: [<path key="a" d="M4 11.5 12 5l8 6.5" />, <path key="b" d="M6.5 10.5V20h11v-9.5" />, <path key="c" d="M10 20v-5h4v5" />],

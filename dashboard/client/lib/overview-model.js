@@ -4,6 +4,7 @@ const PIPELINE_STEPS = [
   ["zip", "Zip"],
   ["upload", "Upload"],
 ];
+const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
 
 function shellQuote(value) {
   const text = String(value || "");
@@ -26,6 +27,17 @@ export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}
   };
 }
 
+export function buildWindowsAgentEnv({ dashboardUrl = "", agentToken = "", machineId = "" } = {}) {
+  const normalizedDashboardUrl = String(dashboardUrl || "https://your-railway-app.up.railway.app").trim() || "https://your-railway-app.up.railway.app";
+  const normalizedAgentToken = String(agentToken || "").trim();
+  const normalizedMachineId = (String(machineId || "SERVER-01").trim() || "SERVER-01").toUpperCase();
+  return [
+    `DASHBOARD_URL=${normalizedDashboardUrl}`,
+    `AGENT_TOKEN=${normalizedAgentToken}`,
+    `MACHINE_ID=${normalizedMachineId}`,
+  ].join("\n");
+}
+
 function serverNumberFromText(value) {
   const match = /\bserver[\s_-]*(\d+)\b/i.exec(String(value || ""));
   return match ? Number.parseInt(match[1], 10) : null;
@@ -42,7 +54,7 @@ function collectServerNumbers({ machines = [], secretPool = [] } = {}) {
     add(machine.displayName);
   }
   for (const secret of secretPool) {
-    if (secret.secretType !== "credential") continue;
+    if (!SERVER_CREDENTIAL_SECRET_TYPES.has(secret.secretType)) continue;
     add(secret.label);
     add(secret.machineId);
     add(secret.targetMachineId);
@@ -60,6 +72,21 @@ export function nextServerDefaults(source = {}) {
     label: `Server ${suffix}`,
     machineId: `SERVER-${suffix}`,
   };
+}
+
+export function buildCredentialSecretValue({
+  protocolUrl = "",
+  machineId = "",
+  username = "",
+  password = "",
+} = {}) {
+  const normalizedMachineId = String(machineId || "").trim().toUpperCase();
+  return JSON.stringify({
+    protocolUrl: String(protocolUrl || "").trim(),
+    ...(normalizedMachineId ? { machineId: normalizedMachineId } : {}),
+    username: String(username || "").trim(),
+    password: String(password ?? ""),
+  });
 }
 
 function thresholdValue(settings, name, fallback) {

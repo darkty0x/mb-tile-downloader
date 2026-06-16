@@ -128,12 +128,15 @@ export function SelectInput({ label, children, className = "", ...props }) {
   return (
     <label className={`grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)] ${className}`}>
       <span>{label}</span>
-      <select
-        className="h-10 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)]"
-        {...props}
-      >
-        {children}
-      </select>
+      <span className="relative block">
+        <select
+          className="h-10 w-full appearance-none rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 pr-10 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)] disabled:bg-[var(--ptg-surface-container)] disabled:text-[var(--ptg-on-surface-variant)]"
+          {...props}
+        >
+          {children}
+        </select>
+        <Icon name="chevronDown" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+      </span>
     </label>
   );
 }

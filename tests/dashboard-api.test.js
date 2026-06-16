@@ -173,6 +173,18 @@ test("dashboard machine list is available without an admin token", async (t) => 
   assert.deepEqual(response.body.machines, []);
 });
 
+test("dashboard exposes configured agent setup token for copy fields", async (t) => {
+  const server = await withServer(t, { agentToken: "configured-agent-token" });
+
+  const response = await request(server, { path: "/api/agent-setup" });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body, {
+    agentTokenConfigured: true,
+    agentToken: "configured-agent-token",
+  });
+});
+
 test("dashboard can remove a machine and release its assigned secrets", async (t) => {
   const calls = [];
   const store = createDashboardStore({
@@ -259,6 +271,7 @@ test("dashboard can add and validate a server connection profile", async (t) => 
 
   assert.equal(created.status, 200);
   assert.equal(created.body.connection.machineId, null);
+  assert.equal(created.body.connection.secretType, "server_rdp_credential");
   assert.equal(created.body.connection.targetMachineId, "server-01");
   assert.equal(created.body.connection.credential.machineId, "server-01");
   assert.equal(created.body.connection.credential.protocolUrl, `rdp://127.0.0.1:${port}`);
@@ -738,4 +751,49 @@ test("dashboard secret edit route returns one decrypted credential without unred
   assert.equal(single.body.secret.secretType, "credential");
   assert.equal(JSON.parse(single.body.secret.value).password, "server-password");
   assert.equal(JSON.stringify(listed.body).includes("server-password"), false);
+});
+
+test("dashboard credential update route persists edited agent id", async (t) => {
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "credential-a",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+
+  await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "credential",
+      label: "Server 02",
+      value: JSON.stringify({
+        protocolUrl: "rdp://195.201.245.29:7777",
+        machineId: "SERVER-02",
+        username: "root",
+        password: "server-password",
+      }),
+    },
+  });
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/secrets/credential-a",
+    body: {
+      label: "Server 02",
+      status: "active",
+      value: JSON.stringify({
+        protocolUrl: "rdp://195.201.245.29:7777",
+        machineId: "SERVER-22",
+        username: "root",
+        password: "server-password",
+      }),
+    },
+  });
+  const single = await request(server, { path: "/api/secrets/credential-a" });
+
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.secret.targetMachineId, "SERVER-22");
+  assert.equal(updated.body.secret.credential.machineId, "SERVER-22");
+  assert.equal(JSON.parse(single.body.secret.value).machineId, "SERVER-22");
 });

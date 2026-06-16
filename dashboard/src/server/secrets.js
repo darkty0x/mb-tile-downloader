@@ -1,6 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
-const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", "credential"]);
+const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
+const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error"]);
 const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
 const DEFAULT_CREDENTIAL_PORTS = {
@@ -105,7 +106,7 @@ function credentialRedactedValue(metadata) {
 }
 
 function normalizeSecretValue(secretType, value) {
-  if (secretType === "credential") return normalizeCredentialValue(value);
+  if (CREDENTIAL_SECRET_TYPES.has(secretType)) return normalizeCredentialValue(value);
   const text = String(value || "").trim();
   if (!text) throw new Error("secret value is required");
   if (secretType === "proxy_txt") return text.replace(/\s+/g, "");
@@ -114,7 +115,7 @@ function normalizeSecretValue(secretType, value) {
 
 function duplicateKeyForSecret(secretType, value) {
   const normalized = normalizeSecretValue(secretType, value);
-  if (secretType !== "credential") return normalized.toLowerCase();
+  if (!CREDENTIAL_SECRET_TYPES.has(secretType)) return normalized.toLowerCase();
   const credential = parseCredentialValue(normalized);
   return `${new URL(credential.protocolUrl).href}\n${credential.username}`.toLowerCase();
 }
@@ -126,7 +127,7 @@ function secretUsage(record) {
 
 function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
   const value = decrypt(record.encryptedValue, appSecret);
-  const credential = record.secretType === "credential" ? credentialBrowserMetadata(value) : null;
+  const credential = CREDENTIAL_SECRET_TYPES.has(record.secretType) ? credentialBrowserMetadata(value) : null;
   return {
     secretId: record.secretId,
     machineId: record.machineId,
@@ -164,7 +165,7 @@ function normalizeSecretRow(row) {
 }
 
 export function splitSecretValues(secretType, value) {
-  if (secretType === "credential") return [normalizeSecretValue(secretType, value)];
+  if (CREDENTIAL_SECRET_TYPES.has(secretType)) return [normalizeSecretValue(secretType, value)];
   if (secretType === "mapbox_token" || secretType === "proxy_txt") {
     const seen = new Set();
     return String(value || "")

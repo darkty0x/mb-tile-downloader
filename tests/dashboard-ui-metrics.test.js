@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOverviewModel, buildServerOnboarding, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
+import { buildCredentialSecretValue, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -81,7 +81,7 @@ test("server onboarding defaults increment from saved connection profiles and ma
     ],
     secretPool: [
       {
-        secretType: "credential",
+        secretType: "server_rdp_credential",
         label: "Server 02",
         targetMachineId: "server-02",
         credential: { protocol: "rdp", machineId: "server-02" },
@@ -99,4 +99,37 @@ test("server onboarding defaults increment from saved connection profiles and ma
     label: "Server 08",
     machineId: "SERVER-08",
   });
+});
+
+test("credential secret value preserves editable agent id", () => {
+  const value = buildCredentialSecretValue({
+    protocolUrl: "rdp://195.201.245.29:7777",
+    machineId: " server-02 ",
+    username: "root",
+    password: "server-password",
+  });
+
+  assert.deepEqual(JSON.parse(value), {
+    protocolUrl: "rdp://195.201.245.29:7777",
+    machineId: "SERVER-02",
+    username: "root",
+    password: "server-password",
+  });
+});
+
+test("server onboarding builds Windows agent env instead of inline shell commands", () => {
+  const env = buildWindowsAgentEnv({
+    dashboardUrl: "https://ptg-dashboard.example.com",
+    agentToken: "agent-token",
+    machineId: " server-02 ",
+  });
+
+  assert.equal(env, [
+    "DASHBOARD_URL=https://ptg-dashboard.example.com",
+    "AGENT_TOKEN=agent-token",
+    "MACHINE_ID=SERVER-02",
+  ].join("\n"));
+  assert.equal(env.includes("npm run agent"), false);
+  assert.equal(env.includes("$env:"), false);
+  assert.equal(env.includes("MACHINE_ID="), true);
 });

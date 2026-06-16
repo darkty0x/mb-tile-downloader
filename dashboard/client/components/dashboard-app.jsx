@@ -2,8 +2,8 @@
 
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
-import { Notice, Rail, Header, ServerDetailModal } from "./dashboard-shell";
-import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
+import { Notice, Rail, Header } from "./dashboard-shell";
+import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
@@ -21,6 +21,8 @@ export default function DashboardApp() {
             <CredentialsDashboard state={state} actions={actions} />
           ) : state.selectedTab === "secrets" ? (
             <SecretsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "servers" && state.editor.type === "server-management" ? (
+            <ServerManagementPage state={state} actions={actions} />
           ) : state.selectedTab === "servers" ? (
             <ServersDashboard state={state} actions={actions} />
           ) : state.selectedTab === "pipelines" ? (
@@ -36,7 +38,6 @@ export default function DashboardApp() {
           )}
         </div>
       </section>
-      {state.editor.type === "server-detail" ? <ServerDetailModal state={state} actions={actions} /> : null}
       <EditorDrawer state={state} actions={actions} />
     </main>
   );
