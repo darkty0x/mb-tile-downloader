@@ -174,7 +174,7 @@ function proxyMode(env = process.env) {
   const configured = resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_MODE", "PROXY_MODE"]).toLowerCase();
   if (["always", "force", "proxy"].includes(configured)) return "always";
   if (["fallback", "auto", "direct-first", "direct_first"].includes(configured)) return "fallback";
-  return "always";
+  return "fallback";
 }
 
 function shouldFallbackToProxy(response) {
