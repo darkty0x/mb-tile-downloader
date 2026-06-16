@@ -153,7 +153,7 @@ test("configureNetworking rotates HTTPS requests across env proxy list", async (
   assert.equal(second[PROXY_INFO_SYMBOL].proxy, "http://proxy-b.example:8080");
 });
 
-test("configureNetworking defaults to direct fetch before proxy", async () => {
+test("configureNetworking defaults configured paid proxies to proxy-first", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
 
@@ -169,10 +169,31 @@ test("configureNetworking defaults to direct fetch before proxy", async () => {
 
   assert.equal(await response.text(), "ok");
   assert.equal(undici.state.fetchCalls.length, 1);
-  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "proxy");
+  assert.equal(response[PROXY_INFO_SYMBOL].proxy, "http://proxy.example:8080");
 });
 
-test("configureNetworking falls back to paid proxy when direct Esri access is blocked", async () => {
+test("configureNetworking reuses proxy dispatchers for connection pooling", async () => {
+  const undici = createFakeUndici();
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  await configureNetworking(
+    profile(),
+    {
+      TILE_DOWNLOADER_PROXY_LIST: "http://proxy.example:8080",
+    },
+    { undici, targetGlobal }
+  );
+
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+  await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/services");
+
+  assert.equal(undici.state.fetchCalls.length, 2);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "proxy");
+  assert.equal(undici.state.fetchCalls[0].dispatcher, undici.state.fetchCalls[1].dispatcher);
+});
+
+test("configureNetworking falls back to paid proxy when explicit direct-first mode is blocked", async () => {
   const undici = createFakeUndici(async (input, init) => {
     if (init.dispatcher.kind === "direct") {
       return new Response("blocked", { status: 403 });
@@ -185,6 +206,7 @@ test("configureNetworking falls back to paid proxy when direct Esri access is bl
     profile(),
     {
       TILE_DOWNLOADER_PROXY_LIST: "http://proxy.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "fallback",
     },
     { undici, targetGlobal }
   );

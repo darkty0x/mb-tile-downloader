@@ -174,7 +174,7 @@ function proxyMode(env = process.env) {
   const configured = resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_MODE", "PROXY_MODE"]).toLowerCase();
   if (["always", "force", "proxy"].includes(configured)) return "always";
   if (["fallback", "auto", "direct-first", "direct_first"].includes(configured)) return "fallback";
-  return "fallback";
+  return "always";
 }
 
 function shouldFallbackToProxy(response) {
@@ -324,6 +324,19 @@ function buildProxyDispatcher(undici, proxyUrl, agentOptions, proxyEnv, protocol
     ...proxyOption,
     noProxy: proxyEnv.noProxy || undefined,
   });
+}
+
+function createProxyDispatcherCache(undici, agentOptions, proxyEnv) {
+  const dispatchers = new Map();
+  return function proxyDispatcher(proxyUrl, protocol) {
+    const key = `${protocolKey(protocol) || "all"}\0${proxyUrl}`;
+    let dispatcher = dispatchers.get(key);
+    if (!dispatcher) {
+      dispatcher = buildProxyDispatcher(undici, proxyUrl, agentOptions, proxyEnv, protocol);
+      dispatchers.set(key, dispatcher);
+    }
+    return dispatcher;
+  };
 }
 
 function attachProxyInfo(target, info) {
@@ -509,6 +522,7 @@ export async function configureNetworking(profile, env = process.env, runtime = 
     }
 
     const proxyRotation = createProxyRotationState(proxyEnv, env);
+    const proxyDispatcherFor = createProxyDispatcherCache(undici, agentOptions, proxyEnv);
     targetGlobal[ORIGINAL_FETCH] = baseFetch;
     targetGlobal.fetch = async (input, init = {}) => {
       const isRequest = typeof Request !== "undefined" && input instanceof Request;
@@ -535,7 +549,7 @@ export async function configureNetworking(profile, env = process.env, runtime = 
             if (lastError) throw lastError;
             throw new NoHealthyProxyError();
           }
-          const dispatcher = buildProxyDispatcher(undici, proxy, agentOptions, proxyEnv, protocol);
+          const dispatcher = proxyDispatcherFor(proxy, protocol);
           try {
             const response = await undici.fetch(input, {
               ...init,
