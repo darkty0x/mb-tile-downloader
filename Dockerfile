@@ -10,7 +10,7 @@ RUN npm --prefix dashboard ci --omit=dev
 
 COPY dashboard ./dashboard
 COPY src ./src
-COPY configs ./configs
+RUN mkdir -p configs
 
 RUN npm --prefix dashboard run build
 
