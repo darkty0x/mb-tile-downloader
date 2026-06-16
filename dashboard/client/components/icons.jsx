@@ -5,6 +5,8 @@ const paths = {
     <path key="c" d="M4 13h7v7H4z" />,
     <path key="d" d="M13 13h7v7h-7z" />,
   ],
+  alerts: [<path key="a" d="M6 8a6 6 0 0 1 12 0c0 7 3 7 3 9H3c0-2 3-2 3-9Z" />, <path key="b" d="M10 21h4" />],
+  pipelines: [<path key="a" d="M5 7h4v4H5zM15 13h4v4h-4z" />, <path key="b" d="M9 9h3a3 3 0 0 1 3 3v1M15 15h-3a3 3 0 0 1-3-3v-1" />],
   servers: [
     <rect key="a" x="4" y="4" width="16" height="6" rx="2" />,
     <rect key="b" x="4" y="14" width="16" height="6" rx="2" />,
@@ -25,6 +27,9 @@ const paths = {
   secrets: [<rect key="a" x="5" y="10" width="14" height="10" rx="2" />, <path key="b" d="M8 10V7a4 4 0 0 1 8 0v3" />],
   credentials: [<rect key="a" x="4" y="5" width="16" height="14" rx="2.5" />, <path key="b" d="M8 10h5M8 14h3" />, <circle key="c" cx="16.5" cy="13.5" r="1.5" />, <path key="d" d="m18 15 2 2M20 17l-1.5 1.5" />],
   console: [<path key="a" d="m5 7 5 5-5 5" />, <path key="b" d="M12 17h7" />],
+  bell: [<path key="a" d="M6 8a6 6 0 0 1 12 0v4.5l2 3.5H4l2-3.5Z" />, <path key="b" d="M10 20h4" />],
+  command: [<path key="a" d="M8 8H6a3 3 0 1 1 3-3v2h6V5a3 3 0 1 1 3 3h-2v8h2a3 3 0 1 1-3 3v-2H9v2a3 3 0 1 1-3-3h2z" />],
+  logout: [<path key="a" d="M14 8V5a2 2 0 0 0-2-2H5v18h7a2 2 0 0 0 2-2v-3" />, <path key="b" d="M10 12h11m-3-3 3 3-3 3" />],
   play: [<path key="a" d="M8 5v14l11-7Z" />],
   pause: [<path key="a" d="M7 5h4v14H7zM15 5h4v14h-4z" />],
   stop: [<rect key="a" x="7" y="7" width="10" height="10" rx="1.5" />],
@@ -62,29 +67,29 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-11 w-12 shrink-0 overflow-visible" viewBox="0 0 112 82">
+    <svg aria-hidden="true" className="h-9 w-12 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 120 72">
       <defs>
-        <linearGradient id="ptg-mark-blue" x1="5" x2="92" y1="12" y2="70" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#0b73d9" />
-          <stop offset="1" stopColor="#064da8" />
+        <linearGradient id="ptg-mark-blue" x1="16" x2="88" y1="16" y2="52" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#2fc6ff" />
+          <stop offset="0.58" stopColor="#0986f4" />
+          <stop offset="1" stopColor="#0056cb" />
         </linearGradient>
-        <linearGradient id="ptg-mark-violet" x1="39" x2="87" y1="28" y2="54" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#bbc3ff" />
-          <stop offset="1" stopColor="#7f8fea" />
+        <linearGradient id="ptg-mark-red" x1="16" x2="112" y1="30" y2="41" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#ff4d4d" />
+          <stop offset="1" stopColor="#e9062d" />
         </linearGradient>
       </defs>
       <path
-        d="M91.6 12.6C69.4 1 35.6 4.4 15.7 23.3-8.8 46.6 8.3 72 42.8 76.3c18.7 2.3 36.4-1.7 49.2-10.4-17.1 3.6-39.7 2.4-57-4.4C8.2 50.9 9.9 30.1 31.2 18.7c15-8 39.4-10.7 60.4-6.1Z"
+        className="brand-orbit-blue"
+        d="M63.8 9.8c26.8 0 49 10.9 49 24.2 0 13.2-22.2 24.2-49 24.2-27 0-49.1-11-49.1-24.2 0-13.3 22.1-24.2 49.1-24.2Zm0 9.9c-20.5 0-37.5 6.5-37.5 14.3s17 14.2 37.5 14.2 37.4-6.4 37.4-14.2-16.9-14.3-37.4-14.3Z"
         fill="url(#ptg-mark-blue)"
       />
       <path
-        d="M78.5 23.3C62 13.7 38.7 16 26.4 29.1 12.9 43.1 25.6 60 49.4 60.3c15.3.2 29.4-5.3 39.2-14.1-11.1 3.8-26.2 3.3-39.5-1.9-16.7-6.5-20.7-19.1-8.6-25.1 10-4.9 25.7-3.7 38 4.1Z"
-        fill="url(#ptg-mark-blue)"
+        className="brand-orbit-red"
+        d="M110.2 29.7c-4.5-9.2-24.3-16-48.5-16-27.1 0-49.1 8.5-49.1 19 0 7.1 10 13.2 24.9 16.4C19 47.8 4.9 40.6 4.9 32c0-12 25.7-21.8 57.4-21.8 26.9 0 49.5 7.1 55.7 16.6Z"
+        fill="url(#ptg-mark-red)"
       />
-      <path
-        d="M39.1 51.2c12.7 8.7 32.5 8.5 42.9-.8 9.9-8.9 4-23.7-13.6-32.3 9.3 7.5 11.4 16.7 4.9 23.1-7.6 7.5-22.1 10.2-34.2 10Z"
-        fill="url(#ptg-mark-violet)"
-      />
+      <text x="33" y="43" fill="#37c7ff" fontFamily="Manrope, Inter, Arial, sans-serif" fontSize="24" fontWeight="800" letterSpacing="-1.5">PTG</text>
     </svg>
   );
 }

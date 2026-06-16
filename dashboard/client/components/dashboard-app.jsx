@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
+import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextArea, TextInput, UsageBar } from "./ui";
 
@@ -20,12 +21,29 @@ const TABS = [
   ["secrets", "Secrets", "secrets"],
   ["credentials", "Credentials", "credentials"],
   ["settings", "Settings", "settings"],
+  ["pipelines", "Pipelines", "pipelines"],
+  ["configs", "Configs", "config"],
+  ["events", "Events", "console"],
+  ["alerts", "Alerts", "alerts"],
 ];
+
+const PAGE_META = {
+  overview: ["Overview", "Distributed tile pipeline command center"],
+  servers: ["Servers", "Monitor and manage the server fleet"],
+  secrets: ["Secrets", "Manage Mapbox and proxy resource pools"],
+  credentials: ["Credentials", "Manage protocol credentials and access"],
+  settings: ["Settings", "Configure system behavior and preferences"],
+  pipelines: ["Pipelines", "Track active range workflow stages"],
+  configs: ["Configs", "Create and assign downloader configuration"],
+  events: ["Events", "Inspect live dashboard and agent events"],
+  alerts: ["Alerts", "Review capacity and failure conditions"],
+};
 
 const SERVER_TABS = [
   ["control", "Control", "control"],
   ["configs", "Config", "config"],
   ["env", "Env", "env"],
+  ["secrets", "Secrets", "secrets"],
   ["console", "Console", "console"],
 ];
 
@@ -103,15 +121,25 @@ function Notice({ notice }) {
   return <div className={`screen-enter mt-3 rounded-lg border px-3 py-2 text-[13px] ${kind}`}>{notice.message}</div>;
 }
 
+function fleetState(state) {
+  return {
+    ...state,
+    configs: state.globalConfigs?.length ? state.globalConfigs : state.configs,
+    events: state.globalEvents?.length ? state.globalEvents : state.events,
+  };
+}
+
 function useDashboardState() {
   const [machineSearch, setMachineSearch] = useState("");
   const [machines, setMachines] = useState([]);
   const [configs, setConfigs] = useState([]);
+  const [globalConfigs, setGlobalConfigs] = useState([]);
   const [configTemplates, setConfigTemplates] = useState([]);
   const [envProfiles, setEnvProfiles] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [secretPool, setSecretPool] = useState([]);
   const [events, setEvents] = useState([]);
+  const [globalEvents, setGlobalEvents] = useState([]);
   const [settings, setSettings] = useState(DEFAULT_DASHBOARD_SETTINGS);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
   const [selectedTab, setSelectedTab] = useState("overview");
@@ -174,11 +202,20 @@ function useDashboardState() {
   async function refreshAll() {
     setLoading(true);
     try {
-      const [{ machines: nextMachines }, { secrets: nextSecretPool }, { settings: nextSettings }, { templates: nextConfigTemplates }] = await Promise.all([
+      const [
+        { machines: nextMachines },
+        { secrets: nextSecretPool },
+        { settings: nextSettings },
+        { templates: nextConfigTemplates },
+        { configs: nextGlobalConfigs },
+        { events: nextGlobalEvents },
+      ] = await Promise.all([
         api("/api/machines"),
         api("/api/secrets"),
         api("/api/settings"),
         api("/api/config-templates"),
+        api("/api/configs"),
+        api("/api/events"),
       ]);
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
@@ -187,6 +224,8 @@ function useDashboardState() {
       setSecretPool(nextSecretPool);
       setSettings(mergeDashboardSettings(nextSettings));
       setConfigTemplates(nextConfigTemplates);
+      setGlobalConfigs(nextGlobalConfigs);
+      setGlobalEvents(nextGlobalEvents);
       setSelectedMachineId(nextSelected);
       await refreshMachineData(nextSelected);
     } finally {
@@ -210,11 +249,13 @@ function useDashboardState() {
       machineSearch,
       machines,
       configs,
+      globalConfigs,
       configTemplates,
       envProfiles,
       secrets,
       secretPool,
       events,
+      globalEvents,
       settings,
       selectedMachineId,
       selectedMachine,
@@ -367,79 +408,131 @@ function useDashboardState() {
 }
 
 function Rail({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  const navCount = (tab) => {
+    if (tab === "servers") return state.machines.length;
+    if (tab === "secrets") return state.secretPool.filter((secret) => secret.secretType !== "credential").length;
+    if (tab === "credentials") return state.secretPool.filter((secret) => secret.secretType === "credential").length;
+    if (tab === "alerts") return overview.resourceAlerts.length + Number(overview.kpis.failedJobs.value || 0);
+    if (tab === "events") return state.globalEvents.length || state.events.length;
+    if (tab === "configs") return state.configTemplates.length || state.globalConfigs.length || state.configs.length;
+    return null;
+  };
+  const primaryTabs = TABS.slice(0, 5);
+  const secondaryTabs = TABS.slice(5);
   return (
-    <aside className="ptg-scrollbar sticky top-0 flex h-screen flex-col gap-6 overflow-auto border-r border-[var(--ptg-rail-outline)] bg-[var(--ptg-rail)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
-      <section className="flex items-center gap-3 px-0.5 pb-1">
+    <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 flex h-screen flex-col gap-6 overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
+      <section className="flex items-center gap-3 px-0.5 pb-2">
         <LogoMark />
         <div className="min-w-0">
-          <h1 className="truncate text-[14px] font-[800] leading-tight tracking-[-0.01em]">PTG Dashboard</h1>
-          <p className="mt-1 text-[11px] font-[500] leading-[1.15] text-[var(--ptg-rail-muted)]">Management Console</p>
+          <h1 className="truncate text-[15px] font-[800] leading-tight">PTG</h1>
+          <p className="mt-0.5 text-[11px] font-[600] leading-[1.2] text-[var(--ptg-rail-muted)]">Management Dashboard</p>
         </div>
       </section>
 
       <nav className="grid gap-1.5" aria-label="Dashboard sections">
-        {TABS.map(([tab, label, icon]) => {
-          const count = tab === "servers"
-            ? state.machines.length
-            : tab === "secrets"
-              ? state.secretPool.filter((secret) => secret.secretType !== "credential").length
-              : tab === "credentials"
-                ? state.secretPool.filter((secret) => secret.secretType === "credential").length
-                : null;
+        {primaryTabs.map(([tab, label, icon]) => {
+          const count = navCount(tab);
           return (
             <button
               key={tab}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-3 text-left text-[12.5px] font-[700] ${
+              className={`state-layer grid min-h-11 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-3 text-left text-[13px] font-[760] ${
                 state.selectedTab === tab
-                  ? "border-[#2b4774] bg-[var(--ptg-rail-active)] text-[var(--ptg-rail-text)] shadow-[inset_3px_0_0_#4f8cff]"
+                  ? "border-[#1e75ff] bg-[linear-gradient(90deg,#063b7d_0%,#0d2748_100%)] text-white shadow-[inset_3px_0_0_#1491ff,0_10px_24px_rgba(3,10,26,0.24)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-[var(--ptg-rail-text)]"
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#7db1ff]" : ""}`} />
+                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#70c7ff]" : ""}`} />
                 <span className="truncate">{label}</span>
               </span>
-              {count === null ? null : <strong className="rounded-full bg-[#223354] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
+              {count === null ? null : <strong className="rounded-full bg-[#17345c] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
+            </button>
+          );
+        })}
+        <div className="my-3 h-px bg-[#19304e]" />
+        {secondaryTabs.map(([tab, label, icon]) => {
+          const count = navCount(tab);
+          return (
+            <button
+              key={tab}
+              type="button"
+              onClick={() => actions.setSelectedTab(tab)}
+              className={`state-layer grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border px-3 text-left text-[12px] font-[720] ${
+                state.selectedTab === tab
+                  ? "border-[#1e75ff] bg-[var(--ptg-rail-active)] text-white"
+                  : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
+              }`}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <Icon name={icon} className="h-4 w-4" />
+                <span className="truncate">{label}</span>
+              </span>
+              {count === null ? null : <strong className="rounded-full bg-[#17345c] px-2 py-0.5 text-[10px] text-[#dce8f7]">{count}</strong>}
             </button>
           );
         })}
       </nav>
 
-      <form className="mt-auto" onSubmit={(event) => {
-        event.preventDefault();
-        actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
-      }}>
-        <button
-          type="submit"
-          className="state-layer inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#2c3f60] bg-[#111d33] text-[12px] font-[750] text-[var(--ptg-rail-text)]"
-          title="Refresh"
-        >
-          <Icon name="sync" className="h-4 w-4" />
-          Refresh
-        </button>
-      </form>
+      <section className="mt-auto rounded-lg border border-[#1d365b] bg-[#0c1d36]/80 p-3">
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-[11px] font-[760] text-white">System Status</span>
+          <Icon name="control" className="h-4 w-4 text-[var(--ptg-success)]" />
+        </div>
+        <p className="mt-2 flex items-center gap-1.5 text-[11px] font-[600] text-[var(--ptg-rail-muted)]">
+          <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)]" />
+          {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Attention required" : "All systems operational"}
+        </p>
+      </section>
     </aside>
   );
 }
 
-function Header({ state }) {
+function Header({ state, actions }) {
   const online = state.machines.filter((machine) => machine.status === "online").length;
+  const [title, subtitle] = PAGE_META[state.selectedTab] || PAGE_META.overview;
+  const alerts = buildOverviewModel(fleetState(state)).resourceAlerts.length;
   return (
-    <header className="border-b border-[var(--ptg-outline)] pb-4">
-      <div className="flex flex-wrap items-center gap-2.5">
-        <h2 className="min-w-0 text-[22px] font-[800] leading-tight tracking-[-0.02em]">PTG Management Dashboard</h2>
-        <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
-      </div>
-      <div className="mt-2.5 flex flex-wrap gap-2 text-[11.5px] font-[500] text-[var(--ptg-on-surface-variant)]">
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">{state.machines.length} servers connected</span>
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">
-          {state.selectedMachine ? `Selected ${state.selectedMachine.displayName || state.selectedMachine.machineId}` : "No server selected"}
-        </span>
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">
-          {state.selectedMachine ? `Last seen ${shortDate(state.selectedMachine.lastSeenAt)}` : "Waiting for agent"}
-        </span>
+    <header className="sticky top-0 z-10 -mx-5 -mt-5 border-b border-[var(--ptg-outline)] bg-white/82 px-5 py-4 backdrop-blur-xl max-md:-mx-4 max-md:-mt-4 max-md:px-4">
+      <div className="grid grid-cols-[minmax(180px,1fr)_minmax(260px,420px)_auto] items-center gap-4 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h2 className="truncate text-[20px] font-[800] leading-tight tracking-[-0.01em]">{title}</h2>
+            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
+          </div>
+          <p className="mt-1 text-[12px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
+        </div>
+        <label className="relative block max-xl:hidden">
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+          <input
+            type="search"
+            placeholder="Search servers, configs, events..."
+            className="h-10 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-12 text-[12.5px] font-[650] shadow-[0_1px_2px_rgba(15,23,42,0.03)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(6,109,234,0.12)]"
+          />
+          <kbd className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-background)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘K</kbd>
+        </label>
+        <div className="flex items-center justify-end gap-2 max-md:justify-between">
+          <IconButton icon="command" label="Command palette" />
+          <span className="relative">
+            <IconButton icon="bell" label="Notifications" />
+            {alerts ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--ptg-primary)] px-1 text-[9px] font-[800] text-white">{alerts}</span> : null}
+          </span>
+          <IconButton
+            icon="sync"
+            label="Refresh dashboard"
+            onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+          />
+          <button type="button" className="state-layer ml-1 grid h-10 grid-cols-[28px_minmax(0,1fr)_12px] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white px-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+            <span className="ptg-admin-avatar h-7 w-7 rounded-full" />
+            <span className="min-w-0 max-md:hidden">
+              <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
+              <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
+            </span>
+            <Icon name="close" className="h-3 w-3 rotate-45 text-[var(--ptg-on-surface-variant)]" />
+          </button>
+        </div>
       </div>
     </header>
   );
@@ -455,6 +548,409 @@ function Stats({ state }) {
       <MetricCard icon="speed" label="Selected Server" value={state.selectedMachine?.displayName || state.selectedMachine?.machineId || "None"} />
       <MetricCard icon="layers" label="Active Config" value={state.activeConfig?.name || "None"} />
       <MetricCard icon={failures ? "warning" : "control"} label="Latest Event" value={latest?.severity || (failures ? `${failures} errors` : "Idle")} />
+    </section>
+  );
+}
+
+const KPI_CARDS = [
+  ["serversOnline", "servers"],
+  ["activeJobs", "pipelines"],
+  ["throughput", "speed"],
+  ["storagePressure", "disk"],
+  ["failedJobs", "warning"],
+  ["resourceAlerts", "alerts"],
+];
+
+const STEP_ICONS = {
+  download: "play",
+  validate: "check",
+  zip: "config",
+  upload: "sync",
+};
+
+function kpiTone(key, metric) {
+  if (key === "failedJobs" && Number(metric.value) > 0) return "danger";
+  if (key === "resourceAlerts" && Number(metric.value) > 0) return "warn";
+  if (key === "storagePressure" && Number.parseInt(metric.value, 10) >= 85) return "warn";
+  if (key === "serversOnline" && String(metric.value).startsWith("0")) return "muted";
+  return "primary";
+}
+
+function diskPeakForMachine(machine) {
+  return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+}
+
+function pipelineTone(status) {
+  if (status === "complete") return "success";
+  if (status === "running") return "primary";
+  if (status === "error") return "danger";
+  return "muted";
+}
+
+function InsightCard({ icon, label, value, detail, tone = "primary" }) {
+  return (
+    <Surface className={`ptg-metric-tile min-h-[116px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+      <div className="flex items-start justify-between gap-3">
+        <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg">
+          <Icon name={icon} className="h-5 w-5" />
+        </span>
+        <span className="rounded-full border border-white/70 bg-white/72 px-2 py-1 text-[10px] font-[800] uppercase text-[var(--ptg-on-surface-variant)] shadow-[0_1px_1px_rgba(15,23,42,0.04)]">
+          Live
+        </span>
+      </div>
+      <span className="mt-4 block text-[11px] font-[800] uppercase leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
+      <strong className="mt-2 block truncate text-[27px] font-[850] leading-none tracking-[-0.02em] text-[var(--ptg-on-surface)]">{value}</strong>
+      <p className="mt-2 truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{detail}</p>
+    </Surface>
+  );
+}
+
+function OverviewHero({ state, overview, actions }) {
+  const latest = overview.recentEvents[0];
+  return (
+    <Surface className="ptg-hero-panel overflow-hidden p-0">
+      <div className="grid grid-cols-[minmax(0,1.1fr)_minmax(300px,0.9fr)] gap-4 p-5 max-xl:grid-cols-1">
+        <div className="min-w-0">
+          <span className="inline-flex items-center gap-2 rounded-full bg-white/82 px-3 py-1 text-[11px] font-[820] text-[var(--ptg-primary-dark)] shadow-[0_1px_2px_rgba(15,23,42,0.06)]">
+            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)]" />
+            PTG distributed downloader
+          </span>
+          <h3 className="mt-4 max-w-[780px] text-[25px] font-[850] leading-[1.08] tracking-[-0.03em] text-[var(--ptg-on-surface)]">
+            Coordinate range downloads, validation, zip, and Storj upload from one console.
+          </h3>
+          <p className="mt-3 max-w-[660px] text-[13px] font-[620] leading-6 text-[var(--ptg-on-surface-variant)]">
+            {state.machines.length
+              ? `${state.machines.length} registered server${state.machines.length === 1 ? "" : "s"} with ${overview.resourceAlerts.length} active pool alert${overview.resourceAlerts.length === 1 ? "" : "s"}.`
+              : "Waiting for local agents to register with the dashboard."}
+          </p>
+          <div className="mt-5 flex flex-wrap gap-2">
+            <AppButton variant="filled" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Fleet</AppButton>
+            <AppButton icon="config" onClick={() => actions.setSelectedTab("configs")}>Manage Configs</AppButton>
+            <AppButton icon="alerts" onClick={() => actions.setSelectedTab("alerts")}>Review Alerts</AppButton>
+          </div>
+        </div>
+        <div className="grid gap-3 rounded-xl border border-white/72 bg-white/72 p-4 shadow-[0_12px_36px_rgba(15,23,42,0.08)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <span className="block text-[11px] font-[820] uppercase text-[var(--ptg-on-surface-variant)]">Latest Signal</span>
+              <strong className="mt-1 block truncate text-[16px] font-[850]">{latest?.type || "No events yet"}</strong>
+            </div>
+            <span className={`ptg-event-dot ${latest?.severity === "error" ? "bg-[var(--ptg-error)]" : latest?.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
+          </div>
+          <p className="min-h-11 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">{latest?.message || "Dashboard event stream will appear here once agents start reporting work."}</p>
+          <div className="grid grid-cols-3 gap-2">
+            <MiniMetric label="Disk Peak" value={`${overview.diskPressure}%`} />
+            <MiniMetric label="Ranges" value={overview.activeRanges.length} />
+            <MiniMetric label="Events" value={state.globalEvents?.length || state.events.length} />
+          </div>
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function MiniMetric({ label, value }) {
+  return (
+    <span className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2">
+      <small className="block truncate text-[10.5px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">{label}</small>
+      <strong className="mt-1 block truncate text-[16px] font-[850] leading-none">{value}</strong>
+    </span>
+  );
+}
+
+function PipelineOverview({ overview }) {
+  return (
+    <Surface className="min-h-[278px] p-4">
+      <SectionTitle title="Workflow Timeline" meta="Download -> Validate -> Zip -> Storj upload" />
+      <div className="grid gap-3">
+        {overview.pipeline.map((step, index) => {
+          const tone = pipelineTone(step.status);
+          return (
+            <div key={step.key} className="grid grid-cols-[34px_minmax(0,1fr)_58px] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${tone === "success" ? "bg-[#e7f8f1] text-[var(--ptg-success)]" : tone === "danger" ? "bg-[#fff0f3] text-[var(--ptg-error)]" : tone === "primary" ? "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]" : "bg-[var(--ptg-surface-container)] text-[var(--ptg-on-surface-variant)]"}`}>
+                <Icon name={STEP_ICONS[step.key] || "pipelines"} className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 items-center justify-between gap-3">
+                  <strong className="truncate text-[13px] font-[820]">{index + 1}. {step.label}</strong>
+                  <StatusPill status={tone === "primary" ? "busy" : tone}>{step.status}</StatusPill>
+                </div>
+                <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--ptg-surface-container-high)]">
+                  <span className={`block h-full rounded-full ${tone === "success" ? "bg-[var(--ptg-success)]" : tone === "danger" ? "bg-[var(--ptg-error)]" : "bg-[var(--ptg-primary)]"}`} style={{ width: `${step.progress}%` }} />
+                </span>
+              </div>
+              <strong className="text-right text-[12px] font-[820] text-[var(--ptg-on-surface-variant)]">{step.progress}%</strong>
+            </div>
+          );
+        })}
+      </div>
+    </Surface>
+  );
+}
+
+function FleetHealthCard({ overview }) {
+  const total = Object.values(overview.health).reduce((sum, value) => sum + value, 0);
+  const healthy = total ? Math.round((overview.health.healthy / total) * 100) : 0;
+  const warning = total ? Math.round((overview.health.warning / total) * 100) : 0;
+  const critical = total ? Math.round((overview.health.critical / total) * 100) : 0;
+  const healthyStop = healthy * 3.6;
+  const warningStop = healthyStop + warning * 3.6;
+  const criticalStop = warningStop + critical * 3.6;
+  const ring = total
+    ? `conic-gradient(var(--ptg-success) 0 ${healthyStop}deg, var(--ptg-warning) ${healthyStop}deg ${warningStop}deg, var(--ptg-error) ${warningStop}deg ${criticalStop}deg, #9aa8bd ${criticalStop}deg 360deg)`
+    : "conic-gradient(#dbe5f2 0 360deg)";
+  return (
+    <Surface className="min-h-[278px] p-4">
+      <SectionTitle title="Fleet Health" meta={total ? `${total} servers registered` : "Waiting for server heartbeat"} />
+      <div className="grid grid-cols-[132px_minmax(0,1fr)] items-center gap-5 max-sm:grid-cols-1">
+        <div className="relative mx-auto h-32 w-32 rounded-full p-3" style={{ background: ring }}>
+          <div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-[inset_0_0_0_1px_var(--ptg-outline)]">
+            <span>
+              <strong className="block text-[25px] font-[850] leading-none">{healthy}%</strong>
+              <small className="mt-1 block text-[10.5px] font-[800] uppercase text-[var(--ptg-on-surface-variant)]">Healthy</small>
+            </span>
+          </div>
+        </div>
+        <div className="grid gap-2">
+          {[
+            ["healthy", "Healthy", overview.health.healthy, "success"],
+            ["warning", "Watch", overview.health.warning, "warn"],
+            ["critical", "Critical", overview.health.critical, "error"],
+            ["offline", "Offline", overview.health.offline, "neutral"],
+          ].map(([key, label, value, status]) => (
+            <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2">
+              <span className="flex min-w-0 items-center gap-2">
+                <StatusPill status={status}>{label}</StatusPill>
+                <span className="truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{key}</span>
+              </span>
+              <strong className="text-[14px] font-[850]">{value}</strong>
+            </div>
+          ))}
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function DiskCapacityCard({ state }) {
+  const rows = state.machines
+    .map((machine) => ({ machine, peak: diskPeakForMachine(machine), disk: [...(machine.disk || [])].sort((a, b) => (Number(b.percentUsed) || 0) - (Number(a.percentUsed) || 0))[0] }))
+    .sort((a, b) => b.peak - a.peak)
+    .slice(0, 5);
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Disk Capacity" meta="Highest used drive per server" />
+      <div className="grid gap-2">
+        {rows.length ? rows.map(({ machine, peak, disk }) => (
+          <div key={machine.machineId} className="grid grid-cols-[minmax(0,1fr)_92px_44px] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <div className="min-w-0">
+              <strong className="block truncate text-[12.5px] font-[820]">{machine.displayName || machine.machineId}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{disk?.mount || disk?.name || "drive"} | {formatBytes(disk?.freeBytes)} free</small>
+            </div>
+            <UsageBar percent={peak} className="w-[92px]" />
+            <strong className="text-right text-[12px] font-[850]">{peak}%</strong>
+          </div>
+        )) : <EmptyLine>No disk snapshots yet</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function ActiveRangesCard({ overview }) {
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Active Ranges" meta="Largest queued or active downloader ranges" />
+      <div className="grid gap-2">
+        {overview.activeRanges.length ? overview.activeRanges.map((range, index) => (
+          <div key={`${range.name}-${index}`} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <span className="ptg-icon-well inline-flex h-8 w-8 items-center justify-center rounded-lg">
+              <Icon name="layers" className="h-4 w-4" />
+            </span>
+            <div className="min-w-0">
+              <strong className="block truncate text-[12.5px] font-[820]">{range.name}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">z={range.z} | {range.tiles.toLocaleString()} tiles</small>
+            </div>
+            <StatusPill status={range.status === "queued" ? "busy" : "neutral"}>{range.status}</StatusPill>
+          </div>
+        )) : <EmptyLine>No active range selected</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function ResourceAlertsCard({ overview, actions }) {
+  return (
+    <Surface className="p-4">
+      <SectionTitle
+        title="Resource Alerts"
+        meta="Uses thresholds from Settings"
+        action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>Thresholds</AppButton>}
+      />
+      <div className="grid gap-2">
+        {overview.resourceAlerts.length ? overview.resourceAlerts.map((alert) => (
+          <div key={alert.type} className="rounded-lg border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5">
+            <div className="flex items-center justify-between gap-3">
+              <strong className="text-[12.5px] font-[850]">{alert.label}</strong>
+              <StatusPill status="warn">low</StatusPill>
+            </div>
+            <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+              {alert.available} available, threshold {alert.threshold}
+            </p>
+          </div>
+        )) : (
+          <div className="rounded-lg border border-[rgba(11,155,114,0.18)] bg-[#edfbf6] px-3 py-3">
+            <StatusPill status="success">clear</StatusPill>
+            <p className="mt-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">Mapbox and proxy pools are above their alert lines.</p>
+          </div>
+        )}
+      </div>
+    </Surface>
+  );
+}
+
+function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
+  const visible = events.slice(0, limit);
+  return (
+    <Surface className="p-4">
+      <SectionTitle title={title} meta={`${events.length} events loaded`} />
+      <div className="grid gap-2">
+        {visible.length ? visible.map((event, index) => (
+          <div key={`${event.createdAt}-${event.type}-${index}`} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
+            <span className={`mt-1 h-2.5 w-2.5 rounded-full ${event.severity === "error" ? "bg-[var(--ptg-error)]" : event.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
+            <span className="min-w-0">
+              <strong className="block truncate text-[12px] font-[820]">{event.type}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{event.message}</small>
+            </span>
+            <time className="text-[10.5px] font-[700] text-[var(--ptg-on-surface-variant)]">{shortDate(event.createdAt)}</time>
+          </div>
+        )) : <EmptyLine>No events yet</EmptyLine>}
+      </div>
+    </Surface>
+  );
+}
+
+function OverviewDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <OverviewHero state={state} overview={overview} actions={actions} />
+      <section className="ptg-card-grid gap-3">
+        {KPI_CARDS.map(([key, icon]) => {
+          const metric = overview.kpis[key];
+          return (
+            <InsightCard
+              key={key}
+              icon={icon}
+              label={metric.label}
+              value={metric.value}
+              detail={metric.detail}
+              tone={kpiTone(key, metric)}
+            />
+          );
+        })}
+      </section>
+      <section className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+        <PipelineOverview overview={overview} />
+        <FleetHealthCard overview={overview} />
+      </section>
+      <section className="grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+        <DiskCapacityCard state={state} />
+        <ResourceAlertsCard overview={overview} actions={actions} />
+      </section>
+      <section className="grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+        <ActiveRangesCard overview={overview} />
+        <EventStreamCard events={overview.recentEvents} />
+      </section>
+    </section>
+  );
+}
+
+function ServersDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <section className="ptg-card-grid gap-3">
+        <InsightCard icon="servers" label="Registered Servers" value={state.machines.length} detail={`${overview.health.healthy} healthy, ${overview.health.critical} critical`} />
+        <InsightCard icon="disk" label="Disk Pressure" value={`${overview.diskPressure}%`} detail="Highest observed drive usage" tone={overview.diskPressure >= 85 ? "warn" : "primary"} />
+        <InsightCard icon="control" label="Selected Server" value={state.selectedMachine?.displayName || "None"} detail={state.selectedMachine?.machineId || "Pick a server to control"} />
+      </section>
+      <ServersTable state={state} actions={actions} />
+    </section>
+  );
+}
+
+function PipelinesDashboard({ state }) {
+  const overview = buildOverviewModel(fleetState(state));
+  return (
+    <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+      <PipelineOverview overview={overview} />
+      <EventStreamCard events={overview.recentEvents} title="Pipeline Events" limit={8} />
+      <ActiveRangesCard overview={overview} />
+      <DiskCapacityCard state={state} />
+    </section>
+  );
+}
+
+function ConfigsDashboard({ state, actions }) {
+  const templates = state.configTemplates || [];
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <Surface className="p-4">
+        <SectionTitle
+          title="Config Library"
+          meta={`${templates.length} root config type${templates.length === 1 ? "" : "s"} available for assignment`}
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Create Config</AppButton>}
+        />
+        <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
+          {templates.length ? templates.map((template) => (
+            <div key={template.id} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
+              <span className="ptg-icon-well inline-flex h-9 w-9 items-center justify-center rounded-lg">
+                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4.5 w-4.5" />
+              </span>
+              <strong className="mt-3 block truncate text-[13px] font-[850]">{template.label}</strong>
+              <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+              </p>
+            </div>
+          )) : <EmptyLine>No root configs discovered</EmptyLine>}
+        </div>
+      </Surface>
+      <ServersTable state={state} actions={actions} />
+    </section>
+  );
+}
+
+function EventsDashboard({ state }) {
+  const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
+  return (
+    <section className="screen-enter mt-4 grid gap-4">
+      <EventStreamCard events={events} title="Dashboard Console" limit={20} />
+      <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
+        {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "No events yet"}
+      </pre>
+    </section>
+  );
+}
+
+function AlertsDashboard({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
+  const failed = overview.recentEvents.filter((event) => event.severity === "error" || event.type === "range.failed");
+  return (
+    <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
+      <ResourceAlertsCard overview={overview} actions={actions} />
+      <Surface className="p-4">
+        <SectionTitle title="Failures" meta={`${failed.length} recent failure event${failed.length === 1 ? "" : "s"}`} />
+        <div className="grid gap-2">
+          {failed.length ? failed.map((event, index) => (
+            <div key={`${event.createdAt}-${index}`} className="rounded-lg border border-[rgba(226,58,77,0.20)] bg-[#fff5f7] px-3 py-2.5">
+              <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-error)]">{event.type}</strong>
+              <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{event.message}</p>
+            </div>
+          )) : <EmptyLine>No failure events loaded</EmptyLine>}
+        </div>
+      </Surface>
+      <DiskCapacityCard state={state} />
+      <FleetHealthCard overview={overview} />
     </section>
   );
 }
@@ -875,13 +1371,16 @@ function ServerPanel({ state, actions }) {
   const machine = state.selectedMachine;
   if (!machine) {
     return (
-      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
-        <Surface className="grid min-h-56 place-items-center border-dashed bg-[#fbfdff] text-center text-[var(--ptg-on-surface-variant)]">
-          <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
-            <Icon name="servers" className="h-6 w-6" />
-          </span>
-          <h3 className="mt-3 text-[14px] font-[800] text-[var(--ptg-on-surface)]">Select a server</h3>
-          <p className="mt-1 max-w-[260px] text-[12px] font-[500] leading-relaxed">Choose a server to manage config, env, secrets, console, and commands.</p>
+      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+        <Surface className="grid min-h-[300px] place-items-center overflow-hidden bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-5 text-center text-[var(--ptg-on-surface-variant)]">
+          <div>
+            <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ptg-primary)] shadow-[0_14px_36px_rgba(6,109,234,0.14)]">
+              <Icon name="servers" className="h-7 w-7" />
+            </span>
+            <h3 className="mt-5 text-[16px] font-[850] tracking-[-0.02em] text-[var(--ptg-on-surface)]">Select a server</h3>
+            <p className="mx-auto mt-2 max-w-[270px] text-[12.5px] font-[620] leading-5">Choose a row from Servers to control jobs, env, secrets, configs, and the live console.</p>
+            <AppButton className="mt-5" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Servers</AppButton>
+          </div>
         </Surface>
       </aside>
     );
@@ -893,16 +1392,22 @@ function ServerPanel({ state, actions }) {
     console: state.events.length,
   };
   return (
-    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
-      <header className="flex items-start justify-between gap-3 border-b border-[var(--ptg-outline)] pb-3">
-        <div className="min-w-0">
-          <h2 className="truncate text-[17px] font-[760] leading-tight">{machine.displayName || machine.machineId}</h2>
-          <p className="mt-0.5 truncate text-[11.5px] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
+    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/94 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+      <header className="overflow-hidden rounded-xl border border-[var(--ptg-outline)] bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-4 shadow-[var(--ptg-shadow-1)]">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0">
+            <h2 className="truncate text-[17px] font-[850] leading-tight tracking-[-0.02em]">{machine.displayName || machine.machineId}</h2>
+            <p className="mt-0.5 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
+          </div>
+          <StatusPill status={statusKind(machine.status)}>{machine.status}</StatusPill>
         </div>
-        <StatusPill status={statusKind(machine.status)}>{machine.status}</StatusPill>
+        <div className="mt-4 grid grid-cols-2 gap-2">
+          <MiniMetric label="Platform" value={machine.platform || "unknown"} />
+          <MiniMetric label="Disk Peak" value={`${diskPeakForMachine(machine)}%`} />
+        </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-2 py-3">
+      <div className="grid grid-cols-2 gap-2 py-4">
         {COMMANDS.map(([type, label, icon]) => (
           <AppButton
             key={type}
@@ -916,13 +1421,13 @@ function ServerPanel({ state, actions }) {
         ))}
       </div>
 
-      <nav className="grid grid-cols-4 gap-1 rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
+      <nav className="grid grid-cols-5 gap-1 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
         {SERVER_TABS.map(([tab, label, icon]) => (
           <button
             key={tab}
             type="button"
             onClick={() => actions.setSelectedServerTab(tab)}
-            className={`state-layer flex min-h-8 items-center justify-center gap-1 rounded-full px-1 text-[10.5px] font-[700] ${
+            className={`state-layer flex min-h-8 items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-[760] ${
               state.selectedServerTab === tab ? "bg-white text-[var(--ptg-on-surface)] shadow-[0_1px_3px_rgba(20,31,37,0.12)]" : "text-[var(--ptg-on-surface-variant)]"
             }`}
           >
@@ -1373,10 +1878,10 @@ function SecretForm({ record, editor, actions }) {
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
   return (
-    <main className={`grid min-h-screen grid-cols-[248px_minmax(0,1fr)_368px] bg-[var(--ptg-background)] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`grid min-h-screen grid-cols-[248px_minmax(0,1fr)_372px] bg-[var(--ptg-background)] max-xl:grid-cols-[238px_minmax(0,1fr)_348px] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
       <section className="min-w-0 overflow-hidden p-5 max-md:p-4">
-        <Header state={state} />
+        <Header state={state} actions={actions} />
         <Notice notice={state.notice} />
         {state.selectedTab === "settings" ? (
           <SettingsDashboard state={state} actions={actions} />
@@ -1384,11 +1889,18 @@ export default function DashboardApp() {
           <CredentialsDashboard state={state} actions={actions} />
         ) : state.selectedTab === "secrets" ? (
           <SecretsDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "servers" ? (
+          <ServersDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "pipelines" ? (
+          <PipelinesDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "configs" ? (
+          <ConfigsDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "events" ? (
+          <EventsDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "alerts" ? (
+          <AlertsDashboard state={state} actions={actions} />
         ) : (
-          <section className="screen-enter mt-3 grid gap-2.5">
-            <Stats state={state} />
-            <ServersTable state={state} actions={actions} />
-          </section>
+          <OverviewDashboard state={state} actions={actions} />
         )}
       </section>
       <ServerPanel state={state} actions={actions} />
