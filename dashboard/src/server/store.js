@@ -505,5 +505,16 @@ export function createDashboardStore({
         .map(normalizeJob)
         .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)) || a.jobId.localeCompare(b.jobId));
     },
+
+    getSnapshot() {
+      return {
+        machines: this.listMachines(),
+        jobs: this.listJobs(),
+        events: this.listEvents(),
+        configs: this.listConfigs(),
+        envProfiles: this.listEnvProfiles(),
+        settings: this.getSettings(),
+      };
+    },
   };
 }

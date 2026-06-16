@@ -316,6 +316,17 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/snapshot") {
+          const snapshot = await store.getSnapshot();
+          json(res, 200, {
+            snapshot: {
+              ...snapshot,
+              secretPool: secretVault ? await secretVault.listSecretsForBrowser() : [],
+            },
+          });
+          return;
+        }
+
         if (req.method === "GET" && url.pathname === "/api/settings") {
           json(res, 200, { settings: await store.getSettings() });
           return;

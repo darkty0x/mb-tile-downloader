@@ -138,6 +138,8 @@ function useDashboardState() {
   const [envProfiles, setEnvProfiles] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [secretPool, setSecretPool] = useState([]);
+  const [jobs, setJobs] = useState([]);
+  const [globalJobs, setGlobalJobs] = useState([]);
   const [events, setEvents] = useState([]);
   const [globalEvents, setGlobalEvents] = useState([]);
   const [serverValidationResults, setServerValidationResults] = useState({});
@@ -174,19 +176,22 @@ function useDashboardState() {
       setConfigs([]);
       setEnvProfiles([]);
       setSecrets([]);
+      setJobs([]);
       setEvents([]);
       return;
     }
     const query = `machineId=${encodeURIComponent(machineId)}`;
-    const [{ configs: nextConfigs }, { envProfiles: nextEnvProfiles }, { secrets: nextSecrets }, { events: nextEvents }] = await Promise.all([
+    const [{ configs: nextConfigs }, { envProfiles: nextEnvProfiles }, { secrets: nextSecrets }, { jobs: nextJobs }, { events: nextEvents }] = await Promise.all([
       api(`/api/configs?${query}`),
       api(`/api/env-profiles?${query}`),
       api(`/api/secrets?${query}`),
+      api(`/api/jobs?${query}`),
       api(`/api/events?${query}`),
     ]);
     setConfigs(nextConfigs);
     setEnvProfiles(nextEnvProfiles);
     setSecrets(nextSecrets);
+    setJobs(nextJobs);
     setEvents(nextEvents);
   }
 
@@ -204,29 +209,23 @@ function useDashboardState() {
     setLoading(true);
     try {
       const [
-        { machines: nextMachines },
-        { secrets: nextSecretPool },
-        { settings: nextSettings },
+        { snapshot },
         { templates: nextConfigTemplates },
-        { configs: nextGlobalConfigs },
-        { events: nextGlobalEvents },
       ] = await Promise.all([
-        api("/api/machines"),
-        api("/api/secrets"),
-        api("/api/settings"),
+        api("/api/snapshot"),
         api("/api/config-templates"),
-        api("/api/configs"),
-        api("/api/events"),
       ]);
+      const nextMachines = snapshot.machines || [];
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
         : null;
       setMachines(nextMachines);
-      setSecretPool(nextSecretPool);
-      setSettings(mergeDashboardSettings(nextSettings));
+      setSecretPool(snapshot.secretPool || []);
+      setSettings(mergeDashboardSettings(snapshot.settings));
       setConfigTemplates(nextConfigTemplates);
-      setGlobalConfigs(nextGlobalConfigs);
-      setGlobalEvents(nextGlobalEvents);
+      setGlobalConfigs(snapshot.configs || []);
+      setGlobalJobs(snapshot.jobs || []);
+      setGlobalEvents(snapshot.events || []);
       setSelectedMachineId(nextSelected);
       await refreshMachineData(nextSelected);
     } finally {
@@ -255,6 +254,8 @@ function useDashboardState() {
       envProfiles,
       secrets,
       secretPool,
+      jobs,
+      globalJobs,
       events,
       globalEvents,
       serverValidationResults,

@@ -564,5 +564,17 @@ export function createPostgresDashboardStore({
         : await db.query("SELECT * FROM machine_jobs WHERE machine_id=$1 ORDER BY started_at DESC, job_id ASC", [machineId]);
       return result.rows.map(jobFromRow);
     },
+
+    async getSnapshot() {
+      const [machines, jobs, events, configs, envProfiles, settings] = await Promise.all([
+        this.listMachines(),
+        this.listJobs(),
+        this.listEvents(),
+        this.listConfigs(),
+        this.listEnvProfiles(),
+        this.getSettings(),
+      ]);
+      return { machines, jobs, events, configs, envProfiles, settings };
+    },
   };
 }
