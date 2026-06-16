@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile } from "node:fs/promises";
+import net from "node:net";
 import os from "node:os";
 import path from "node:path";
 
@@ -68,6 +69,13 @@ async function writeConfigTemplate(dir, fileName, overrides = {}) {
       2
     )
   );
+}
+
+async function withTcpServer(t) {
+  const server = net.createServer((socket) => socket.end());
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+  return server;
 }
 
 test("health endpoint does not require authentication", async (t) => {
@@ -209,6 +217,57 @@ test("dashboard can remove a machine and release its assigned secrets", async (t
     ["secret-a", { machineId: null }],
     ["secret-b", { machineId: null }],
   ]);
+});
+
+test("dashboard can add and validate a server connection profile", async (t) => {
+  const tcpServer = await withTcpServer(t);
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-1",
+    displayName: "Server 01",
+  });
+  const server = await withServer(t, {
+    store,
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "credential-rdp",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+  const port = tcpServer.address().port;
+
+  const created = await request(server, {
+    method: "POST",
+    path: "/api/server-connections",
+    body: {
+      label: "Server 01 RDP",
+      machineId: "server-01",
+      protocol: "rdp",
+      host: "127.0.0.1",
+      port,
+      username: "root",
+      password: "server-password",
+    },
+  });
+  const validated = await request(server, {
+    method: "POST",
+    path: "/api/server-connections/credential-rdp/validate",
+  });
+
+  assert.equal(created.status, 200);
+  assert.equal(created.body.connection.machineId, null);
+  assert.equal(created.body.connection.targetMachineId, "server-01");
+  assert.equal(created.body.connection.credential.machineId, "server-01");
+  assert.equal(created.body.connection.credential.protocolUrl, `rdp://127.0.0.1:${port}`);
+  assert.equal(JSON.stringify(created.body).includes("server-password"), false);
+  assert.equal(validated.status, 200);
+  assert.equal(validated.body.valid, true);
+  assert.equal(validated.body.network.ok, true);
+  assert.equal(validated.body.agent.ok, true);
+  assert.equal(validated.body.controlPath, "agent");
 });
 
 test("dashboard settings expose and persist alert thresholds", async (t) => {
@@ -639,6 +698,9 @@ test("dashboard secret route stores credentials with redacted browser metadata",
   assert.equal(saved.body.secret.secretType, "credential");
   assert.deepEqual(saved.body.secret.credential, {
     protocolUrl: "https://ap1.storj.io",
+    protocol: "https",
+    host: "ap1.storj.io",
+    port: 443,
     username: "operator@example.com",
     hasPassword: true,
   });

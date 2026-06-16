@@ -140,6 +140,7 @@ function useDashboardState() {
   const [secretPool, setSecretPool] = useState([]);
   const [events, setEvents] = useState([]);
   const [globalEvents, setGlobalEvents] = useState([]);
+  const [serverValidationResults, setServerValidationResults] = useState({});
   const [settings, setSettings] = useState(DEFAULT_DASHBOARD_SETTINGS);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
   const [selectedTab, setSelectedTab] = useState("overview");
@@ -256,6 +257,7 @@ function useDashboardState() {
       secretPool,
       events,
       globalEvents,
+      serverValidationResults,
       settings,
       selectedMachineId,
       selectedMachine,
@@ -308,6 +310,30 @@ function useDashboardState() {
         }
         setNotice({ message: `${machineId} removed`, kind: "success" });
         await refreshAll();
+      },
+      async saveServerConnection(formData) {
+        const payload = {
+          label: formData.get("label"),
+          machineId: formData.get("machineId"),
+          protocol: formData.get("protocol"),
+          host: formData.get("host"),
+          port: Number(formData.get("port")),
+          username: formData.get("username"),
+          password: formData.get("password"),
+        };
+        const { connection } = await api("/api/server-connections", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setNotice({ message: `${connection.label} saved`, kind: "success" });
+        await refreshSecretPool();
+        return connection;
+      },
+      async validateServerConnection(secretId) {
+        const result = await api(`/api/server-connections/${encodeURIComponent(secretId)}/validate`, { method: "POST" });
+        setServerValidationResults((current) => ({ ...current, [secretId]: result }));
+        setNotice({ message: result.message, kind: result.valid ? "success" : "error" });
+        return result;
       },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
@@ -839,6 +865,16 @@ function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
   );
 }
 
+function isServerConnection(secret) {
+  return secret.secretType === "credential" && ["rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol);
+}
+
+function machineNameForId(state, machineId) {
+  if (!machineId) return "No agent id";
+  const machine = state.machines.find((item) => item.machineId === machineId);
+  return machine?.displayName || machineId;
+}
+
 function OverviewDashboard({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
   return (
@@ -884,8 +920,63 @@ function ServersDashboard({ state, actions }) {
         <InsightCard icon="disk" label="Disk Pressure" value={`${overview.diskPressure}%`} detail="Highest observed drive usage" tone={overview.diskPressure >= 85 ? "warn" : "primary"} />
         <InsightCard icon="control" label="Selected Server" value={state.selectedMachine?.displayName || "None"} detail={state.selectedMachine?.machineId || "Pick a server to control"} />
       </section>
+      <ServerConnectionsSection state={state} actions={actions} />
       <ServersTable state={state} actions={actions} />
     </section>
+  );
+}
+
+function ServerConnectionsSection({ state, actions }) {
+  const connections = state.secretPool.filter(isServerConnection);
+  return (
+    <Surface className="p-4">
+      <SectionTitle
+        title="Connection Profiles"
+        meta={`${connections.length} saved remote login${connections.length === 1 ? "" : "s"} | validation uses network reachability plus online agent status`}
+        action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>}
+      />
+      <div className="grid gap-2">
+        {connections.length ? connections.map((connection) => {
+          const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+          const validation = state.serverValidationResults[connection.secretId];
+          const endpoint = `${connection.credential.protocol}://${connection.credential.host}:${connection.credential.port}`;
+          return (
+            <div key={connection.secretId} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3 max-lg:grid-cols-[34px_minmax(0,1fr)]">
+              <span className="ptg-icon-well inline-flex h-8 w-8 items-center justify-center rounded-lg">
+                <Icon name="credentials" className="h-4 w-4" />
+              </span>
+              <div className="min-w-0">
+                <div className="flex min-w-0 flex-wrap items-center gap-2">
+                  <strong className="truncate text-[13px] font-[850]">{connection.label}</strong>
+                  <StatusPill status={validation?.valid ? "success" : validation ? "error" : "neutral"}>
+                    {validation?.valid ? "valid" : validation ? "not ready" : connection.credential.protocol}
+                  </StatusPill>
+                </div>
+                <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                  {endpoint} | {connection.credential.username} | {machineNameForId(state, targetMachineId)}
+                </p>
+                {validation ? (
+                  <p className="mt-1 truncate text-[11px] font-[620] text-[var(--ptg-on-surface-variant)]">
+                    network {validation.network.ok ? "reachable" : "blocked"} | agent {validation.agent.status}
+                  </p>
+                ) : null}
+              </div>
+              <div className="flex justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
+                <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Validate</AppButton>
+                <IconButton
+                  icon="trash"
+                  label={`Remove ${connection.label}`}
+                  className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
+                  onClick={() => actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                />
+              </div>
+            </div>
+          );
+        }) : (
+          <EmptyLine>No saved connection profiles. Add one with IP, port, username, and password.</EmptyLine>
+        )}
+      </div>
+    </Surface>
   );
 }
 
@@ -1607,9 +1698,10 @@ function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
 }
 
-function ServerOnboardingForm({ state }) {
+function ServerOnboardingForm({ state, actions }) {
   const defaultServerNumber = String(state.machines.length + 1).padStart(2, "0");
   const [machineId, setMachineId] = useState(`server-${defaultServerNumber}`);
+  const [protocol, setProtocol] = useState("rdp");
   const [dashboardUrl, setDashboardUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
   const onboarding = buildServerOnboarding({ machineId, dashboardUrl });
   const powershellCommand = [
@@ -1626,16 +1718,41 @@ function ServerOnboardingForm({ state }) {
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
-        <h4 className="mt-3 text-[15px] font-[850] tracking-[-0.02em]">Servers are added by agents</h4>
+        <h4 className="mt-3 text-[15px] font-[850] tracking-[-0.02em]">Server control uses the local agent</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
-          Run the agent on the new machine with a unique `MACHINE_ID`. When it registers successfully, it appears in this Servers table.
+          Save the remote login for inventory and reachability checks. Dashboard operations start after the same machine ID is online through `npm run agent`.
         </p>
       </div>
 
-      <div className="grid gap-3">
-        <TextInput label="Machine ID" value={machineId} onChange={(event) => setMachineId(event.target.value)} />
-        <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
-      </div>
+      <form
+        className="grid gap-3 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          actions.saveServerConnection(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+        }}
+      >
+        <div>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Connection Profile</h4>
+          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored encrypted in the dashboard secret vault.</p>
+        </div>
+        <TextInput label="Machine ID" name="machineId" value={machineId} onChange={(event) => setMachineId(event.target.value)} required />
+        <TextInput label="Label" name="label" defaultValue={`Server ${defaultServerNumber}`} required />
+        <div className="grid grid-cols-[1fr_96px] gap-2">
+          <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
+            <option value="rdp">RDP</option>
+            <option value="ssh">SSH</option>
+            <option value="winrm">WinRM</option>
+            <option value="winrms">WinRM TLS</option>
+          </SelectInput>
+          <TextInput label="Port" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+        </div>
+        <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
+        <TextInput label="Username" name="username" placeholder="root" autoComplete="username" required />
+        <TextInput label="Password" name="password" type="password" autoComplete="new-password" required />
+        <AppButton variant="filled" icon="check" type="submit">Save Connection</AppButton>
+      </form>
+
+      <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
 
       <section className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
@@ -1673,7 +1790,7 @@ function EditorDrawer({ state, actions }) {
           </div>
           <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
         </div>
-        <ServerOnboardingForm state={state} />
+        <ServerOnboardingForm state={state} actions={actions} />
       </aside>
     );
   }

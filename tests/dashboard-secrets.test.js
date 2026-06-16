@@ -61,12 +61,68 @@ test("credential secrets expose browser metadata without the password", () => {
   assert.equal(browserSecrets[0].secretType, "credential");
   assert.deepEqual(browserSecrets[0].credential, {
     protocolUrl: "https://ap1.storj.io",
+    protocol: "https",
+    host: "ap1.storj.io",
+    port: 443,
     username: "operator@example.com",
     hasPassword: true,
   });
   assert.equal(browserSecrets[0].redactedValue, "operator@example.com @ ap1.storj.io");
   assert.equal(JSON.stringify(browserSecrets).includes("very-secret-password"), false);
   assert.equal(agentSecrets[0].value, value);
+});
+
+test("credential secrets support server connection protocols", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "credential-rdp",
+  });
+
+  vault.createSecret({
+    machineId: "server-01",
+    secretType: "credential",
+    label: "Server 01 RDP",
+    value: JSON.stringify({
+      protocolUrl: "rdp://203.0.113.10:7777",
+      username: "root",
+      password: "server-password",
+    }),
+  });
+
+  const [credential] = vault.listSecretsForBrowser({ machineId: "server-01" });
+
+  assert.equal(credential.secretId, "credential-rdp");
+  assert.deepEqual(credential.credential, {
+    protocolUrl: "rdp://203.0.113.10:7777",
+    protocol: "rdp",
+    host: "203.0.113.10",
+    port: 7777,
+    username: "root",
+    hasPassword: true,
+  });
+  assert.equal(JSON.stringify(credential).includes("server-password"), false);
+});
+
+test("dashboard can read an encrypted credential for server validation", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "credential-rdp",
+  });
+  vault.createSecret({
+    machineId: "server-01",
+    secretType: "credential",
+    label: "Server 01 RDP",
+    value: JSON.stringify({
+      protocolUrl: "rdp://203.0.113.10:7777",
+      username: "root",
+      password: "server-password",
+    }),
+  });
+
+  const credential = vault.getSecretForDashboard("credential-rdp");
+
+  assert.equal(credential.machineId, "server-01");
+  assert.equal(JSON.parse(credential.value).password, "server-password");
 });
 
 test("secret pool assigns mapbox keys and proxy items to only one machine", () => {

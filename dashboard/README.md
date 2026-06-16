@@ -74,6 +74,8 @@ node src/agent/agent.js --once
 
 Servers are not manually created in the dashboard. To add a server, run the local agent on that machine with a unique `MACHINE_ID`, the Railway `DASHBOARD_URL`, and the shared `AGENT_TOKEN`. The dashboard shows it after the agent registers and heartbeats.
 
+The Servers page can also store a remote connection profile with protocol, IP/host, port, username, and password. Connection passwords are encrypted in the secret vault and are not committed to the repo. The Validate action checks whether the endpoint is reachable from the dashboard and whether the matching `MACHINE_ID` has an online agent. RDP reachability alone does not allow dashboard control; command execution goes through the agent.
+
 To remove a server, use the remove action in the Servers table. Removal deletes the machine registry entry, server-scoped configs/env profiles/events/queued commands, and releases assigned Mapbox/proxy secrets back to the global pool.
 
 ## Machine Conflicts

@@ -1,4 +1,5 @@
 import http from "node:http";
+import net from "node:net";
 import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -37,6 +38,13 @@ const MIME = new Map([
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
 ]);
+const SERVER_CONNECTION_PROTOCOLS = new Set(["rdp", "ssh", "winrm", "winrms"]);
+const SERVER_CONNECTION_DEFAULT_PORTS = {
+  rdp: 3389,
+  ssh: 22,
+  winrm: 5985,
+  winrms: 5986,
+};
 
 function json(res, status, body) {
   const payload = JSON.stringify(body);
@@ -70,6 +78,73 @@ function handleError(res, err) {
     return;
   }
   json(res, 400, { error: err.message });
+}
+
+function normalizeServerConnectionInput(body = {}) {
+  const protocol = String(body.protocol || "rdp").trim().toLowerCase().replace(/:$/, "");
+  if (!SERVER_CONNECTION_PROTOCOLS.has(protocol)) {
+    throw new Error("server protocol must be one of: rdp, ssh, winrm, winrms");
+  }
+  const host = String(body.host || "").trim();
+  if (!host) throw new Error("server host is required");
+  const port = body.port === undefined || body.port === ""
+    ? SERVER_CONNECTION_DEFAULT_PORTS[protocol]
+    : Number.parseInt(body.port, 10);
+  if (!Number.isInteger(port) || port < 1 || port > 65535) {
+    throw new Error("server port must be between 1 and 65535");
+  }
+  const username = String(body.username || "").trim();
+  if (!username) throw new Error("server username is required");
+  const password = String(body.password || "");
+  if (!password.trim()) throw new Error("server password is required");
+  const machineId = String(body.machineId || "").trim() || null;
+  return {
+    machineId,
+    label: String(body.label || machineId || `${host}:${port}`).trim(),
+    protocol,
+    host,
+    port,
+    username,
+    password,
+    protocolUrl: `${protocol}://${host}:${port}`,
+  };
+}
+
+function endpointFromCredentialValue(value) {
+  const credential = JSON.parse(value);
+  const url = new URL(credential.protocolUrl);
+  const protocol = url.protocol.slice(0, -1);
+  return {
+    protocol,
+    host: url.hostname,
+    port: url.port ? Number.parseInt(url.port, 10) : SERVER_CONNECTION_DEFAULT_PORTS[protocol],
+    machineId: String(credential.machineId || "").trim() || null,
+    username: credential.username,
+  };
+}
+
+function checkTcpEndpoint({ host, port, timeoutMs = 3000 }) {
+  return new Promise((resolve) => {
+    const startedAt = Date.now();
+    const socket = net.createConnection({ host, port });
+    let settled = false;
+    const finish = (ok, error = null) => {
+      if (settled) return;
+      settled = true;
+      socket.destroy();
+      resolve({
+        ok,
+        host,
+        port,
+        latencyMs: Date.now() - startedAt,
+        ...(error ? { error } : {}),
+      });
+    };
+    socket.setTimeout(timeoutMs);
+    socket.once("connect", () => finish(true));
+    socket.once("timeout", () => finish(false, "connection timed out"));
+    socket.once("error", (err) => finish(false, err.message));
+  });
 }
 
 async function serveClient(req, res, clientDir) {
@@ -225,6 +300,56 @@ export function createDashboardApp({
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           const body = await readJson(req);
           json(res, 200, { settings: await store.updateSettings(body) });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/server-connections") {
+          if (!secretVault) throw new Error("secret vault is not configured");
+          const connection = normalizeServerConnectionInput(await readJson(req));
+          const secret = await secretVault.createSecret({
+            machineId: null,
+            secretType: "credential",
+            label: connection.label,
+            status: "active",
+            value: JSON.stringify({
+              protocolUrl: connection.protocolUrl,
+              machineId: connection.machineId,
+              username: connection.username,
+              password: connection.password,
+            }),
+          });
+          const browserConnection = (await secretVault.listSecretsForBrowser())
+            .find((item) => item.secretId === secret.secretId);
+          json(res, 200, { connection: browserConnection });
+          return;
+        }
+
+        const serverConnectionValidateMatch = /^\/api\/server-connections\/([^/]+)\/validate$/.exec(url.pathname);
+        if (req.method === "POST" && serverConnectionValidateMatch) {
+          if (!secretVault?.getSecretForDashboard) throw new Error("secret vault is not configured");
+          const secretId = decodeURIComponent(serverConnectionValidateMatch[1]);
+          const connection = await secretVault.getSecretForDashboard(secretId);
+          if (connection.secretType !== "credential") throw new Error("server connection must be a credential secret");
+          const endpoint = endpointFromCredentialValue(connection.value);
+          const network = await checkTcpEndpoint(endpoint);
+          const targetMachineId = endpoint.machineId || connection.machineId;
+          const machine = targetMachineId ? await store.getMachine(targetMachineId) : null;
+          const agent = {
+            ok: Boolean(machine && machine.status !== "offline"),
+            machineId: targetMachineId || null,
+            status: machine?.status || "missing",
+            lastSeenAt: machine?.lastSeenAt || null,
+          };
+          const valid = Boolean(network.ok && agent.ok);
+          json(res, 200, {
+            valid,
+            controlPath: "agent",
+            network,
+            agent,
+            message: valid
+              ? "Endpoint is reachable and the downloader agent is online."
+              : "Endpoint was checked, but dashboard operation requires the downloader agent to be online for this machine id.",
+          });
           return;
         }
 

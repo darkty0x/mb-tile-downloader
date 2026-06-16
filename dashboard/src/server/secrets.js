@@ -2,6 +2,15 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", "credential"]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error"]);
+const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
+const DEFAULT_CREDENTIAL_PORTS = {
+  "http:": 80,
+  "https:": 443,
+  "rdp:": 3389,
+  "ssh:": 22,
+  "winrm:": 5985,
+  "winrms:": 5986,
+};
 export const SECRET_POOL_TARGETS = {
   mapbox_token: 1,
   proxy_txt: 50,
@@ -48,15 +57,20 @@ function parseCredentialValue(value) {
   const protocolUrl = String(payload.protocolUrl || "").trim();
   const username = String(payload.username || "").trim();
   const password = String(payload.password ?? "");
+  const machineId = String(payload.machineId || "").trim() || null;
   if (!protocolUrl) throw new Error("credential protocol URL is required");
   if (!username) throw new Error("credential username is required");
   if (!password.trim()) throw new Error("credential password is required");
   const parsedUrl = new URL(protocolUrl);
-  if (!/^https?:$/.test(parsedUrl.protocol)) {
-    throw new Error("credential protocol URL must use http or https");
+  if (!VALID_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol)) {
+    throw new Error("credential protocol URL must use http, https, rdp, ssh, winrm, or winrms");
   }
   return {
     protocolUrl,
+    protocol: parsedUrl.protocol.slice(0, -1),
+    host: parsedUrl.hostname,
+    port: parsedUrl.port ? Number.parseInt(parsedUrl.port, 10) : DEFAULT_CREDENTIAL_PORTS[parsedUrl.protocol],
+    machineId,
     username,
     password,
   };
@@ -66,6 +80,7 @@ function normalizeCredentialValue(value) {
   const credential = parseCredentialValue(value);
   return JSON.stringify({
     protocolUrl: credential.protocolUrl,
+    ...(credential.machineId ? { machineId: credential.machineId } : {}),
     username: credential.username,
     password: credential.password,
   });
@@ -75,6 +90,10 @@ function credentialBrowserMetadata(value) {
   const credential = parseCredentialValue(value);
   return {
     protocolUrl: credential.protocolUrl,
+    protocol: credential.protocol,
+    host: credential.host,
+    port: credential.port,
+    ...(credential.machineId ? { machineId: credential.machineId } : {}),
     username: credential.username,
     hasPassword: Boolean(credential.password),
   };
@@ -116,6 +135,7 @@ function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
     label: record.label,
     status: record.status,
     usage: secretUsage(record),
+    ...(credential?.machineId ? { targetMachineId: credential.machineId } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
     ...(includeValue ? { value } : {
@@ -241,6 +261,12 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
       if (!existing) throw new Error(`secret "${secretId}" not found`);
       records.delete(secretId);
       return { ...existing };
+    },
+
+    getSecretForDashboard(secretId) {
+      const existing = records.get(secretId);
+      if (!existing) throw new Error(`secret "${secretId}" not found`);
+      return normalizeSecret(existing, { includeValue: true, appSecret });
     },
 
     listSecretsForBrowser({ machineId } = {}) {
@@ -379,6 +405,12 @@ export function createPostgresSecretVault({
       const result = await db.query("DELETE FROM secrets WHERE secret_id=$1 RETURNING *", [secretId]);
       if (!result.rows[0]) throw new Error(`secret "${secretId}" not found`);
       return normalizeSecretRow(result.rows[0]);
+    },
+
+    async getSecretForDashboard(secretId) {
+      const result = await db.query("SELECT * FROM secrets WHERE secret_id=$1", [secretId]);
+      if (!result.rows[0]) throw new Error(`secret "${secretId}" not found`);
+      return normalizeSecret(normalizeSecretRow(result.rows[0]), { includeValue: true, appSecret });
     },
 
     async listSecretsForBrowser({ machineId } = {}) {
