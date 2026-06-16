@@ -33,7 +33,7 @@
 - [ ] The right-side "select server" style panel should be removed from the final layout.
 - [ ] Server add/remove/onboarding needs a complete operator flow with generated agent install/run commands.
 - [ ] Storj upload readiness still needs a machine-level preflight and dashboard-visible diagnostics.
-- [ ] Client-to-dashboard communication contract needs canonical endpoint names, retry/backoff policy, command leases, and protocol versioning.
+- [ ] Client-to-dashboard communication contract still needs retry/backoff policy; canonical endpoint names, command leases, and protocol versioning are implemented.
 - [ ] Live dashboard sync needs predictable polling intervals for 9 to 100+ servers.
 - [ ] Telegram and web console notifications need a consistent event policy and deduping.
 
@@ -123,7 +123,7 @@ Steady-state agent cycle:
 6. Agent executes only allowlisted local commands.
 
 7. POST /api/agents/commands/{commandId}/ack
-   Agent marks command completed or failed with the exact error.
+   Agent marks command completed or failed with the exact error and the claimedAt timestamp it received.
 
 8. POST /api/agents/events
    Agent reports operator-visible event stream items.
@@ -169,7 +169,7 @@ queued -> claimed -> failed
 queued -> claimed -> expired -> queued
 ```
 
-Commands must have a claim lease. If an agent dies after claiming a command, Railway requeues the command after the claim lease expires unless the command is marked non-retryable. Stop commands are idempotent.
+Commands must have a claim lease. If an agent dies after claiming a command, Railway requeues the command after the claim lease expires unless the command is marked non-retryable. New agents acknowledge the claimedAt timestamp returned by the dashboard, and stale acknowledgements from an expired/reclaimed claim are rejected. Stop commands are idempotent.
 
 Connectivity failure behavior:
 

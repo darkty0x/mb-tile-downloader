@@ -4,6 +4,7 @@ import { normalizeRanges } from "../../../src/config/config-loader.js";
 import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
+const DEFAULT_COMMAND_LEASE_MS = 120_000;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL)/;
 const EVENT_SEVERITIES = new Set(["debug", "info", "warn", "error", "success"]);
@@ -120,6 +121,9 @@ function normalizeEvent(record) {
 }
 
 function normalizeCommand(record) {
+  const claimedExpiresAt = record.claimedAt
+    ? iso(addMs(new Date(record.claimedAt), record.commandLeaseMs || DEFAULT_COMMAND_LEASE_MS))
+    : null;
   return {
     id: record.id,
     machineId: record.machineId,
@@ -129,6 +133,7 @@ function normalizeCommand(record) {
     requestedBy: record.requestedBy,
     requestedAt: record.requestedAt,
     claimedAt: record.claimedAt,
+    claimedExpiresAt,
     completedAt: record.completedAt,
     error: record.error,
   };
@@ -152,6 +157,7 @@ function normalizeJob(record) {
 export function createDashboardStore({
   now = () => new Date(),
   leaseMs = DEFAULT_LEASE_MS,
+  commandLeaseMs = DEFAULT_COMMAND_LEASE_MS,
   idGenerator = randomUUID,
 } = {}) {
   const machines = new Map();
@@ -440,6 +446,7 @@ export function createDashboardStore({
         requestedBy: input.requestedBy || null,
         requestedAt: at,
         claimedAt: null,
+        commandLeaseMs,
         completedAt: null,
         error: null,
       };
@@ -448,21 +455,38 @@ export function createDashboardStore({
     },
 
     claimCommands({ machineId, limit = 10 }) {
-      const at = iso(now());
+      const atDate = now();
+      const at = iso(atDate);
       const claimed = [];
+      for (const record of commands.values()) {
+        if (
+          record.machineId === machineId
+          && record.status === "claimed"
+          && record.completedAt === null
+          && record.claimedAt
+          && addMs(new Date(record.claimedAt), commandLeaseMs).getTime() <= atDate.getTime()
+        ) {
+          record.status = "queued";
+          record.claimedAt = null;
+        }
+      }
       for (const record of commands.values()) {
         if (claimed.length >= limit) break;
         if (record.machineId !== machineId || record.status !== "queued") continue;
         record.status = "claimed";
         record.claimedAt = at;
+        record.commandLeaseMs = commandLeaseMs;
         claimed.push(normalizeCommand(record));
       }
       return claimed;
     },
 
-    completeCommand({ commandId, error = null }) {
+    completeCommand({ commandId, error = null, claimedAt = null }) {
       const record = commands.get(commandId);
       if (!record) throw new Error(`command "${commandId}" not found`);
+      if (claimedAt && record.claimedAt !== claimedAt) {
+        throw new Error(`command "${commandId}" claim expired or was reclaimed`);
+      }
       record.status = error ? "failed" : "completed";
       record.completedAt = iso(now());
       record.error = error;

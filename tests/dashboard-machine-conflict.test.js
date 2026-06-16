@@ -145,3 +145,62 @@ test("deletes a machine and its machine-owned dashboard state", () => {
   assert.deepEqual(store.listEvents({ machineId: "worker-a" }), []);
   assert.deepEqual(store.claimCommands({ machineId: "worker-a" }), []);
 });
+
+test("requeues claimed commands after command lease expiry", () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const store = createDashboardStore({
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  store.queueCommand({
+    machineId: "worker-a",
+    commandType: "run_preflight",
+    requestedBy: "dashboard",
+  });
+
+  const firstClaim = store.claimCommands({ machineId: "worker-a" });
+  const activeLeaseClaim = store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  const expiredLeaseClaim = store.claimCommands({ machineId: "worker-a" });
+
+  assert.equal(firstClaim.length, 1);
+  assert.equal(firstClaim[0].status, "claimed");
+  assert.equal(firstClaim[0].claimedExpiresAt, "2026-06-16T00:01:00.000Z");
+  assert.deepEqual(activeLeaseClaim, []);
+  assert.equal(expiredLeaseClaim.length, 1);
+  assert.equal(expiredLeaseClaim[0].id, firstClaim[0].id);
+  assert.equal(expiredLeaseClaim[0].claimedAt, "2026-06-16T00:01:01.000Z");
+  assert.equal(expiredLeaseClaim[0].claimedExpiresAt, "2026-06-16T00:02:01.000Z");
+});
+
+test("rejects stale command acknowledgement after lease is reclaimed", () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const store = createDashboardStore({
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queued = store.queueCommand({
+    machineId: "worker-a",
+    commandType: "run_preflight",
+  });
+  const [firstClaim] = store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  const [secondClaim] = store.claimCommands({ machineId: "worker-a" });
+
+  assert.notEqual(secondClaim.claimedAt, firstClaim.claimedAt);
+  assert.throws(
+    () => store.completeCommand({ commandId: queued.id, claimedAt: firstClaim.claimedAt }),
+    /claim expired/
+  );
+
+  const completed = store.completeCommand({
+    commandId: queued.id,
+    claimedAt: secondClaim.claimedAt,
+  });
+
+  assert.equal(completed.status, "completed");
+});

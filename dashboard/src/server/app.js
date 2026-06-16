@@ -291,7 +291,11 @@ export function createDashboardApp({
           const body = await readJson(req);
           const commandId = decodeURIComponent(commandAckMatch[1]);
           json(res, 200, {
-            command: await store.completeCommand({ commandId, error: body.error || null }),
+            command: await store.completeCommand({
+              commandId,
+              error: body.error || null,
+              claimedAt: body.claimedAt || null,
+            }),
           });
           return;
         }

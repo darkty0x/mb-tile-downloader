@@ -137,3 +137,38 @@ test("control client uses canonical plural agent job routes", async () => {
     ["/api/agents/jobs/job-1", "PUT"],
   ]);
 });
+
+test("control client includes claimedAt when acknowledging a command", async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({
+      path: new URL(String(url)).pathname,
+      method: options.method,
+      body: JSON.parse(options.body || "{}"),
+    });
+    return new Response(JSON.stringify({ command: { id: "cmd-1", status: "completed" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const client = createControlClient({
+    baseUrl: "https://dashboard.example.com",
+    agentToken: "agent-token",
+    fetchImpl,
+  });
+
+  await client.ackCommand("cmd-1", {
+    claimedAt: "2026-06-16T00:00:00.000Z",
+  });
+
+  assert.deepEqual(calls, [
+    {
+      path: "/api/agents/commands/cmd-1/ack",
+      method: "POST",
+      body: {
+        error: null,
+        claimedAt: "2026-06-16T00:00:00.000Z",
+      },
+    },
+  ]);
+});

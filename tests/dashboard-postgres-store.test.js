@@ -119,11 +119,36 @@ function createFakePgDb() {
             .slice(0, limit)
         );
       }
+      if (/UPDATE machine_commands\s+SET status='queued'/.test(sql)) {
+        const [machineId, expiredBefore] = params;
+        for (const row of tables.machine_commands.values()) {
+          if (
+            row.machine_id === machineId
+            && row.status === "claimed"
+            && new Date(row.claimed_at).getTime() <= new Date(expiredBefore).getTime()
+            && row.completed_at === null
+          ) {
+            row.status = "queued";
+            row.claimed_at = null;
+          }
+        }
+        return rows([]);
+      }
       if (/UPDATE machine_commands SET status='claimed'/.test(sql)) {
         const [claimed_at, id] = params;
         const row = tables.machine_commands.get(String(id));
+        if (!row || row.status !== "queued") return rows([]);
         row.status = "claimed";
         row.claimed_at = claimed_at;
+        return rows([{ ...row }]);
+      }
+      if (/UPDATE machine_commands SET status=\$1.*claimed_at=\$5/s.test(sql)) {
+        const [status, completed_at, error, id, claimed_at] = params;
+        const row = tables.machine_commands.get(String(id));
+        if (!row || row.claimed_at !== claimed_at) return rows([]);
+        row.status = status;
+        row.completed_at = completed_at;
+        row.error = error;
         return rows([{ ...row }]);
       }
       if (/UPDATE machine_commands SET status=\$1/.test(sql)) {
@@ -286,6 +311,67 @@ test("postgres store persists events and command lifecycle", async () => {
   assert.equal(event.type, "pipeline.completed");
   assert.equal((await store.listEvents({ machineId: "worker-a" }))[0].id, event.id);
   assert.equal(claimed[0].status, "claimed");
+  assert.equal(completed.status, "completed");
+});
+
+test("postgres store requeues claimed commands after command lease expiry", async () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queued = await store.queueCommand({
+    machineId: "worker-a",
+    commandType: "run_preflight",
+  });
+  const firstClaim = await store.claimCommands({ machineId: "worker-a" });
+  const activeLeaseClaim = await store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  const expiredLeaseClaim = await store.claimCommands({ machineId: "worker-a" });
+
+  assert.equal(firstClaim.length, 1);
+  assert.equal(firstClaim[0].id, queued.id);
+  assert.equal(firstClaim[0].claimedExpiresAt, "2026-06-16T00:01:00.000Z");
+  assert.deepEqual(activeLeaseClaim, []);
+  assert.equal(expiredLeaseClaim.length, 1);
+  assert.equal(expiredLeaseClaim[0].id, queued.id);
+  assert.equal(expiredLeaseClaim[0].claimedAt, "2026-06-16T00:01:01.000Z");
+  assert.equal(expiredLeaseClaim[0].claimedExpiresAt, "2026-06-16T00:02:01.000Z");
+});
+
+test("postgres store rejects stale command acknowledgement after lease is reclaimed", async () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queued = await store.queueCommand({
+    machineId: "worker-a",
+    commandType: "run_preflight",
+  });
+  const [firstClaim] = await store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  const [secondClaim] = await store.claimCommands({ machineId: "worker-a" });
+
+  assert.notEqual(secondClaim.claimedAt, firstClaim.claimedAt);
+  await assert.rejects(
+    () => store.completeCommand({ commandId: queued.id, claimedAt: firstClaim.claimedAt }),
+    /claim expired/
+  );
+
+  const completed = await store.completeCommand({
+    commandId: queued.id,
+    claimedAt: secondClaim.claimedAt,
+  });
+
   assert.equal(completed.status, "completed");
 });
 

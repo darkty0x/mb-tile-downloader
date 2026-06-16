@@ -43,7 +43,7 @@ async function runCommand(command, { client, runner, machineId }) {
     } else {
       await runner.run(commandSpec);
     }
-    await client.ackCommand(command.id);
+    await client.ackCommand(command.id, { claimedAt: command.claimedAt });
   } catch (err) {
     await client.postEvent({
       machineId,
@@ -52,7 +52,7 @@ async function runCommand(command, { client, runner, machineId }) {
       message: err.message,
       data: { commandId: command.id, commandType: command.commandType },
     });
-    await client.ackCommand(command.id, { error: err.message });
+    await client.ackCommand(command.id, { error: err.message, claimedAt: command.claimedAt });
   }
 }
 

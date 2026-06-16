@@ -70,8 +70,8 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
       return get(`/api/agents/${encodeURIComponent(machineId)}/commands/poll`);
     },
 
-    ackCommand(commandId, { error = null } = {}) {
-      return request(`/api/agents/commands/${encodeURIComponent(commandId)}/ack`, { error });
+    ackCommand(commandId, { error = null, claimedAt = null } = {}) {
+      return request(`/api/agents/commands/${encodeURIComponent(commandId)}/ack`, { error, claimedAt });
     },
 
     postJob(payload) {

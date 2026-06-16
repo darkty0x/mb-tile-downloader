@@ -4,6 +4,7 @@ import { normalizeRanges } from "../../../src/config/config-loader.js";
 import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
+const DEFAULT_COMMAND_LEASE_MS = 120_000;
 const SETTINGS_KEY = "dashboard";
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL)/;
@@ -98,7 +99,11 @@ function eventFromRow(row) {
   };
 }
 
-function commandFromRow(row) {
+function commandFromRow(row, { commandLeaseMs = DEFAULT_COMMAND_LEASE_MS } = {}) {
+  const claimedAt = iso(row.claimed_at);
+  const claimedExpiresAt = claimedAt
+    ? new Date(new Date(claimedAt).getTime() + commandLeaseMs).toISOString()
+    : null;
   return {
     id: String(row.id),
     machineId: row.machine_id,
@@ -107,7 +112,8 @@ function commandFromRow(row) {
     status: row.status,
     requestedBy: row.requested_by,
     requestedAt: iso(row.requested_at),
-    claimedAt: iso(row.claimed_at),
+    claimedAt,
+    claimedExpiresAt,
     completedAt: iso(row.completed_at),
     error: row.error,
   };
@@ -163,6 +169,7 @@ export function createPostgresDashboardStore({
   db,
   now = () => new Date(),
   leaseMs = DEFAULT_LEASE_MS,
+  commandLeaseMs = DEFAULT_COMMAND_LEASE_MS,
   idGenerator = randomUUID,
 } = {}) {
   if (!db?.query) throw new Error("db.query is required");
@@ -483,10 +490,21 @@ export function createPostgresDashboardStore({
           now().toISOString(),
         ]
       );
-      return commandFromRow(row);
+      return commandFromRow(row, { commandLeaseMs });
     },
 
     async claimCommands({ machineId, limit = 10 }) {
+      const at = now();
+      const expiredBefore = new Date(at.getTime() - commandLeaseMs).toISOString();
+      await db.query(
+        `UPDATE machine_commands
+        SET status='queued', claimed_at=NULL
+        WHERE machine_id=$1
+          AND status='claimed'
+          AND completed_at IS NULL
+          AND claimed_at <= $2`,
+        [machineId, expiredBefore]
+      );
       const queued = await db.query(
         "SELECT * FROM machine_commands WHERE machine_id=$1 AND status='queued' ORDER BY requested_at ASC LIMIT $2",
         [machineId, limit]
@@ -495,22 +513,31 @@ export function createPostgresDashboardStore({
       for (const row of queued.rows) {
         const updated = await firstRow(
           db,
-          "UPDATE machine_commands SET status='claimed', claimed_at=$1 WHERE id=$2 RETURNING *",
-          [now().toISOString(), row.id]
+          "UPDATE machine_commands SET status='claimed', claimed_at=$1 WHERE id=$2 AND status='queued' RETURNING *",
+          [at.toISOString(), row.id]
         );
-        if (updated) claimed.push(commandFromRow(updated));
+        if (updated) claimed.push(commandFromRow(updated, { commandLeaseMs }));
       }
       return claimed;
     },
 
-    async completeCommand({ commandId, error = null }) {
-      const row = await firstRow(
-        db,
-        "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 RETURNING *",
-        [error ? "failed" : "completed", now().toISOString(), error, commandId]
-      );
-      if (!row) throw new Error(`command "${commandId}" not found`);
-      return commandFromRow(row);
+    async completeCommand({ commandId, error = null, claimedAt = null }) {
+      const row = claimedAt
+        ? await firstRow(
+            db,
+            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 AND claimed_at=$5 RETURNING *",
+            [error ? "failed" : "completed", now().toISOString(), error, commandId, claimedAt]
+          )
+        : await firstRow(
+            db,
+            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 RETURNING *",
+            [error ? "failed" : "completed", now().toISOString(), error, commandId]
+          );
+      if (!row) {
+        if (claimedAt) throw new Error(`command "${commandId}" claim expired or was reclaimed`);
+        throw new Error(`command "${commandId}" not found`);
+      }
+      return commandFromRow(row, { commandLeaseMs });
     },
 
     async upsertJob(input) {
