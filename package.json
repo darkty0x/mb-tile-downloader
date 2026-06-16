@@ -10,12 +10,13 @@
   "scripts": {
     "test": "node --test --test-concurrency=1 tests/*.test.js",
     "test:smoke": "node --test --test-concurrency=1 tests/cli-smoke.test.js",
-    "download": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js",
-    "validate": "node --env-file-if-exists=.env downloader.js --validate",
-    "download:mapbox-pbf": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-pbf.config.json",
-    "download:esri-satellite": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/esri-satellite.config.json",
-    "download:mapbox-satellite": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-satellite.config.json",
-    "download:mapbox-dem": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-dem.config.json",
+    "sync:dashboard-secrets": "node --env-file-if-exists=.env scripts/sync-dashboard-secrets.js",
+    "download": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js",
+    "validate": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env downloader.js --validate",
+    "download:mapbox-pbf": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-pbf.config.json",
+    "download:esri-satellite": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/esri-satellite.config.json",
+    "download:mapbox-satellite": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-satellite.config.json",
+    "download:mapbox-dem": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-dem.config.json",
     "split": "node --env-file-if-exists=.env downloader.js split",
     "zip": "node --env-file-if-exists=.env scripts/watchdog.js -- node zip-maker.js",
     "upload": "node --env-file-if-exists=.env scripts/install-storj-uplink.js --if-missing && node --env-file-if-exists=.env scripts/watchdog.js -- node storj-uploader.js",
@@ -27,7 +28,7 @@
     "delete-unavailable": "node --env-file-if-exists=.env downloader.js delete-unavailable",
     "upload:install-uplink": "node --env-file-if-exists=.env scripts/install-storj-uplink.js",
     "make-directories": "node --env-file-if-exists=.env directory-maker.js",
-    "download:mapbox-pbf-splits": "node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-pbf-cig.config.json configs/mapbox-pbf-cmi.config.json configs/mapbox-pbf-kuh.config.json configs/mapbox-pbf-kyj.config.json configs/mapbox-pbf-mcs.config.json configs/mapbox-pbf-rhc.config.json",
+    "download:mapbox-pbf-splits": "npm run sync:dashboard-secrets && node --env-file-if-exists=.env scripts/watchdog.js -- node downloader.js configs/mapbox-pbf-cig.config.json configs/mapbox-pbf-cmi.config.json configs/mapbox-pbf-kuh.config.json configs/mapbox-pbf-kyj.config.json configs/mapbox-pbf-mcs.config.json configs/mapbox-pbf-rhc.config.json",
     "clear-token-state": "node --env-file-if-exists=.env downloader.js clear-token-state"
   },
   "keywords": [

@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { runAgent, syncManagedState } from "../src/agent/agent.js";
+import { syncDashboardSecretsIfConfigured } from "../src/agent/dashboard-secrets-sync.js";
 
 test("agent sync materializes active dashboard config env and secrets", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-sync-"));
@@ -57,6 +58,50 @@ test("agent sync materializes active dashboard config env and secrets", async ()
   assert.equal(synced.secretEnv.MAPBOX_ACCESS_TOKENS, "pk.secret-token");
   assert.match(await readFile(synced.configPath, "utf8"), /"provider": "esri"/);
   assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "http://proxy-a:8080\nhttp://proxy-b:8080\n");
+});
+
+test("direct downloader dashboard secret sync materializes server-assigned proxies", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-secret-sync-"));
+  const env = {
+    DASHBOARD_URL: "https://dashboard.example.com",
+    AGENT_TOKEN: "agent-token",
+    MACHINE_ID: "worker-a",
+  };
+  const logs = [];
+
+  const result = await syncDashboardSecretsIfConfigured({
+    env,
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    log: (message) => logs.push(message),
+    createClient: () => ({
+      async listSecrets(machineId) {
+        assert.equal(machineId, "worker-a");
+        return {
+          secrets: [
+            { secretType: "mapbox_token", value: "pk.secret-token" },
+            { secretType: "proxy_txt", value: "proxy-a.example:8080,proxy-b.example:8080" },
+          ],
+        };
+      },
+    }),
+  });
+
+  assert.equal(result.synced, true);
+  assert.equal(env.MAPBOX_ACCESS_TOKENS, "pk.secret-token");
+  assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "proxy-a.example:8080\nproxy-b.example:8080\n");
+  assert.deepEqual(logs, ["Dashboard secrets synced: mapbox=1 proxies=1"]);
+});
+
+test("direct downloader dashboard secret sync skips when dashboard env is incomplete", async () => {
+  const result = await syncDashboardSecretsIfConfigured({
+    env: { DASHBOARD_URL: "https://dashboard.example.com" },
+    createClient: () => {
+      throw new Error("client should not be created");
+    },
+  });
+
+  assert.equal(result.synced, false);
 });
 
 test("agent register and heartbeat include protocol version", async () => {
