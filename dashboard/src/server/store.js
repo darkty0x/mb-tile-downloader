@@ -134,6 +134,21 @@ function normalizeCommand(record) {
   };
 }
 
+function normalizeJob(record) {
+  return {
+    jobId: record.jobId,
+    machineId: record.machineId,
+    configId: record.configId,
+    rangeId: record.rangeId,
+    status: record.status,
+    stage: record.stage,
+    progress: structuredClone(record.progress || {}),
+    startedAt: record.startedAt,
+    finishedAt: record.finishedAt,
+    error: record.error,
+  };
+}
+
 export function createDashboardStore({
   now = () => new Date(),
   leaseMs = DEFAULT_LEASE_MS,
@@ -144,6 +159,7 @@ export function createDashboardStore({
   const envProfiles = new Map();
   const events = [];
   const commands = new Map();
+  const jobs = new Map();
   let settings = normalizeDashboardSettings();
 
   return {
@@ -255,6 +271,9 @@ export function createDashboardStore({
       }
       for (const [commandId, command] of commands.entries()) {
         if (command.machineId === machineId) commands.delete(commandId);
+      }
+      for (const [jobId, job] of jobs.entries()) {
+        if (job.machineId === machineId) jobs.delete(jobId);
       }
       return normalizeMachine(existing, { now: now() });
     },
@@ -448,6 +467,43 @@ export function createDashboardStore({
       record.completedAt = iso(now());
       record.error = error;
       return normalizeCommand(record);
+    },
+
+    upsertJob(input) {
+      const jobId = requireNonEmpty(input.jobId, "jobId");
+      const existing = jobs.get(jobId);
+      const at = iso(now());
+      const status = requireNonEmpty(input.status, "status");
+      const finishedAt = input.finishedAt
+        || (["completed", "failed"].includes(status) ? at : null);
+      const record = {
+        jobId,
+        machineId: requireNonEmpty(input.machineId ?? existing?.machineId, "machineId"),
+        configId: requireNonEmpty(input.configId ?? existing?.configId, "configId"),
+        rangeId: input.rangeId ?? existing?.rangeId ?? null,
+        status,
+        stage: requireNonEmpty(input.stage, "stage"),
+        progress: input.progress && typeof input.progress === "object"
+          ? structuredClone(input.progress)
+          : {},
+        startedAt: existing?.startedAt || input.startedAt || at,
+        finishedAt,
+        error: input.error || null,
+      };
+      jobs.set(jobId, record);
+      const machine = machines.get(record.machineId);
+      if (machine) {
+        machine.currentJobId = ["completed", "failed"].includes(record.status) ? null : record.jobId;
+        machine.updatedAt = at;
+      }
+      return normalizeJob(record);
+    },
+
+    listJobs({ machineId } = {}) {
+      return [...jobs.values()]
+        .filter((job) => machineId === undefined || job.machineId === machineId)
+        .map(normalizeJob)
+        .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)) || a.jobId.localeCompare(b.jobId));
     },
   };
 }

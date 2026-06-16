@@ -139,6 +139,21 @@ function envProfileFromRow(row) {
   };
 }
 
+function jobFromRow(row) {
+  return {
+    jobId: row.job_id,
+    machineId: row.machine_id,
+    configId: row.config_id,
+    rangeId: row.range_id,
+    status: row.status,
+    stage: row.stage,
+    progress: jsonValue(row.progress_json, {}),
+    startedAt: iso(row.started_at),
+    finishedAt: iso(row.finished_at),
+    error: row.error,
+  };
+}
+
 async function firstRow(db, sql, params) {
   const result = await db.query(sql, params);
   return result.rows[0] || null;
@@ -496,6 +511,58 @@ export function createPostgresDashboardStore({
       );
       if (!row) throw new Error(`command "${commandId}" not found`);
       return commandFromRow(row);
+    },
+
+    async upsertJob(input) {
+      const jobId = requireNonEmpty(input.jobId, "jobId");
+      const existing = await firstRow(db, "SELECT * FROM machine_jobs WHERE job_id=$1", [jobId]);
+      const at = now().toISOString();
+      const status = requireNonEmpty(input.status, "status");
+      const finishedAt = input.finishedAt
+        || (["completed", "failed"].includes(status) ? at : null);
+      const machineId = requireNonEmpty(input.machineId ?? existing?.machine_id, "machineId");
+      const row = await firstRow(
+        db,
+        `INSERT INTO machine_jobs (
+          job_id, machine_id, config_id, range_id, status, stage, progress_json,
+          started_at, finished_at, error
+        )
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        ON CONFLICT (job_id) DO UPDATE SET
+          machine_id=excluded.machine_id,
+          config_id=excluded.config_id,
+          range_id=excluded.range_id,
+          status=excluded.status,
+          stage=excluded.stage,
+          progress_json=excluded.progress_json,
+          finished_at=excluded.finished_at,
+          error=excluded.error
+        RETURNING *`,
+        [
+          jobId,
+          machineId,
+          requireNonEmpty(input.configId ?? existing?.config_id, "configId"),
+          input.rangeId ?? existing?.range_id ?? null,
+          status,
+          requireNonEmpty(input.stage, "stage"),
+          input.progress && typeof input.progress === "object" ? input.progress : {},
+          input.startedAt || iso(existing?.started_at) || at,
+          finishedAt,
+          input.error || null,
+        ]
+      );
+      await db.query(
+        "UPDATE machines SET current_job_id=$1, updated_at=$2 WHERE machine_id=$3",
+        [["completed", "failed"].includes(status) ? null : jobId, at, machineId]
+      );
+      return jobFromRow(row);
+    },
+
+    async listJobs({ machineId } = {}) {
+      const result = machineId === undefined
+        ? await db.query("SELECT * FROM machine_jobs ORDER BY started_at DESC, job_id ASC", [])
+        : await db.query("SELECT * FROM machine_jobs WHERE machine_id=$1 ORDER BY started_at DESC, job_id ASC", [machineId]);
+      return result.rows.map(jobFromRow);
     },
   };
 }

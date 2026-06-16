@@ -217,6 +217,30 @@ export function createDashboardApp({
         return;
       }
 
+      if (url.pathname.startsWith("/api/agent/")) {
+        if (!requireToken(req, agentToken)) {
+          json(res, 401, { error: "unauthorized" });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/agent/jobs") {
+          const body = await readJson(req);
+          json(res, 200, { job: await store.upsertJob(body) });
+          return;
+        }
+
+        const agentJobMatch = /^\/api\/agent\/jobs\/([^/]+)$/.exec(url.pathname);
+        if (req.method === "PUT" && agentJobMatch) {
+          const body = await readJson(req);
+          const jobId = decodeURIComponent(agentJobMatch[1]);
+          json(res, 200, { job: await store.upsertJob({ ...body, jobId }) });
+          return;
+        }
+
+        json(res, 404, { error: "not found" });
+        return;
+      }
+
       if (url.pathname.startsWith("/api/agents/")) {
         if (!requireToken(req, agentToken)) {
           json(res, 401, { error: "unauthorized" });
@@ -356,6 +380,12 @@ export function createDashboardApp({
         if (req.method === "GET" && url.pathname === "/api/events") {
           const machineId = url.searchParams.get("machineId") || undefined;
           json(res, 200, { events: await store.listEvents({ machineId }) });
+          return;
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/jobs") {
+          const machineId = url.searchParams.get("machineId") || undefined;
+          json(res, 200, { jobs: await store.listJobs({ machineId }) });
           return;
         }
 
