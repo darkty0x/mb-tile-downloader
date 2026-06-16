@@ -16,9 +16,9 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
   if (!agentToken) throw new Error("AGENT_TOKEN is required");
   const root = trimRightSlash(baseUrl);
 
-  async function request(path, body) {
+  async function request(path, body, method = "POST") {
     const response = await fetchImpl(`${root}${path}`, {
-      method: "POST",
+      method,
       headers: {
         authorization: `Bearer ${agentToken}`,
         "content-type": "application/json",
@@ -72,6 +72,14 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
 
     ackCommand(commandId, { error = null } = {}) {
       return request(`/api/agents/commands/${encodeURIComponent(commandId)}/ack`, { error });
+    },
+
+    postJob(payload) {
+      return request("/api/agent/jobs", payload);
+    },
+
+    updateJob(jobId, payload) {
+      return request(`/api/agent/jobs/${encodeURIComponent(jobId)}`, payload, "PUT");
     },
 
     listSecrets(machineId) {

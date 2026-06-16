@@ -1,7 +1,11 @@
 import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
+import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 import { loadConfig } from "../config/config-loader.js";
+import { createControlClient } from "./control-client.js";
+import { createJobReporter } from "./job-reporter.js";
 
 const STAGES = ["download", "validate", "zip", "upload"];
 
@@ -27,6 +31,36 @@ function runNode(args, { env = process.env, cwd = process.cwd() } = {}) {
   });
 }
 
+function configIdFromPath(configPath) {
+  const name = path.basename(String(configPath || ""), path.extname(String(configPath || "")));
+  return name || "dashboard-config";
+}
+
+function rangeIdFor(range, rangeIndex) {
+  return String(range?.rangeId || range?.id || range?.label || `range-${rangeIndex}`);
+}
+
+export function createCliJobReporterFactory({
+  env = process.env,
+  configPath,
+  client = null,
+  idGenerator = randomUUID,
+} = {}) {
+  if (!env.DASHBOARD_URL || !env.AGENT_TOKEN || !env.MACHINE_ID) return null;
+  const controlClient = client || createControlClient({
+    baseUrl: env.DASHBOARD_URL,
+    agentToken: env.AGENT_TOKEN,
+  });
+  const configId = env.DASHBOARD_CONFIG_ID || configIdFromPath(configPath);
+  return ({ rangeIndex, range }) => createJobReporter({
+    client: controlClient,
+    machineId: env.MACHINE_ID,
+    configId,
+    rangeId: rangeIdFor(range, rangeIndex),
+    jobId: `${configId}:range-${rangeIndex}:${idGenerator()}`,
+  });
+}
+
 export function stageArgs(stage, { configPath, rangeIndex }) {
   const rangeArg = `--range-index=${rangeIndex}`;
   switch (stage) {
@@ -48,6 +82,7 @@ export async function runRangePipeline({
   configPath,
   runStage = defaultStageRunner,
   emitEvent = defaultEventEmitter,
+  createJobReporter = null,
 } = {}) {
   if (!config || !Array.isArray(config.ranges)) throw new Error("config.ranges is required");
   emitEvent({
@@ -59,7 +94,23 @@ export async function runRangePipeline({
 
   for (let rangeIndex = 0; rangeIndex < config.ranges.length; rangeIndex++) {
     const range = config.ranges[rangeIndex];
-    for (const stage of STAGES) {
+    const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex, range }) : null;
+    for (const [stageIndex, stage] of STAGES.entries()) {
+      const progress = {
+        configPath,
+        rangeIndex,
+        rangeCount: config.ranges.length,
+        stageIndex,
+        stageCount: STAGES.length,
+        percent: Math.round((stageIndex / STAGES.length) * 100),
+      };
+      if (reporter) {
+        if (stageIndex === 0) {
+          await reporter.start({ stage, progress });
+        } else {
+          await reporter.stage({ stage, progress });
+        }
+      }
       emitEvent({
         severity: "info",
         type: `range.${stage}.started`,
@@ -69,19 +120,40 @@ export async function runRangePipeline({
       const result = await runStage(stage, { configPath, rangeIndex, range });
       if (!result || result.ok !== true) {
         const error = result?.error || `${stage} failed`;
+        const errorObject = new Error(error);
+        emitEvent({
+          severity: "error",
+          type: `range.${stage}.failed`,
+          message: error,
+          data: { configPath, rangeIndex, stage },
+        });
         emitEvent({
           severity: "error",
           type: "range.failed",
           message: error,
           data: { configPath, rangeIndex, stage },
         });
-        throw new Error(error);
+        if (reporter) await reporter.fail({ stage, error: errorObject, progress });
+        throw errorObject;
       }
       emitEvent({
         severity: "success",
         type: `range.${stage}.completed`,
         message: `${stage} completed`,
         data: { configPath, rangeIndex, label: range.label || null },
+      });
+    }
+    if (reporter) {
+      await reporter.complete({
+        stage: STAGES.at(-1),
+        progress: {
+          configPath,
+          rangeIndex,
+          rangeCount: config.ranges.length,
+          stageIndex: STAGES.length,
+          stageCount: STAGES.length,
+          percent: 100,
+        },
       });
     }
   }
@@ -104,6 +176,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   runRangePipeline({
     config,
     configPath,
+    createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
     runStage: (stage, context) => runNode(stageArgs(stage, context)),
   }).catch((err) => {
     console.error(`Fatal: ${err.message}`);

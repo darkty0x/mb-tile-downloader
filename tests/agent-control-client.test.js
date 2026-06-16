@@ -76,3 +76,29 @@ test("control client fetches dashboard-managed configs and env profiles", async 
   assert.equal(configs.configs[0].name, "ukraine");
   assert.equal(envProfiles.envProfiles[0].env.TILE_DOWNLOADER_MAX_CONCURRENCY, 16);
 });
+
+test("control client posts and updates dashboard jobs", async (t) => {
+  const { baseUrl } = await withServer(t);
+  const client = createControlClient({ baseUrl, agentToken: "agent-token" });
+
+  const created = await client.postJob({
+    jobId: "job-1",
+    machineId: "worker-a",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 10 },
+  });
+  const updated = await client.updateJob("job-1", {
+    machineId: "worker-a",
+    configId: "cfg-1",
+    status: "completed",
+    stage: "upload",
+    progress: { percent: 100 },
+  });
+
+  assert.equal(created.job.stage, "download");
+  assert.equal(updated.job.status, "completed");
+  assert.equal(updated.job.progress.percent, 100);
+});

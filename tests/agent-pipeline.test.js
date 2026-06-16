@@ -112,3 +112,62 @@ test("range pipeline stops before zip and upload when download fails", async () 
 
   assert.deepEqual(calls, ["download"]);
 });
+
+test("range pipeline reports durable job stages", async () => {
+  const reports = [];
+
+  await runRangePipeline({
+    config: { ranges: [{ label: "r1" }] },
+    configPath: "configs/a.json",
+    createJobReporter: ({ rangeIndex, range }) => {
+      assert.equal(rangeIndex, 0);
+      assert.equal(range.label, "r1");
+      return {
+        start: async ({ stage }) => reports.push(`start:${stage}`),
+        stage: async ({ stage }) => reports.push(`stage:${stage}`),
+        complete: async ({ stage }) => reports.push(`complete:${stage}`),
+        fail: async ({ stage, error }) => reports.push(`fail:${stage}:${error.message}`),
+      };
+    },
+    runStage: async () => ({ ok: true }),
+    emitEvent: () => {},
+  });
+
+  assert.deepEqual(reports, [
+    "start:download",
+    "stage:validate",
+    "stage:zip",
+    "stage:upload",
+    "complete:upload",
+  ]);
+});
+
+test("range pipeline reports failed stage before throwing", async () => {
+  const reports = [];
+
+  await assert.rejects(
+    () =>
+      runRangePipeline({
+        config: { ranges: [{ label: "r1" }] },
+        configPath: "configs/a.json",
+        createJobReporter: () => ({
+          start: async ({ stage }) => reports.push(`start:${stage}`),
+          stage: async ({ stage }) => reports.push(`stage:${stage}`),
+          complete: async ({ stage }) => reports.push(`complete:${stage}`),
+          fail: async ({ stage, error }) => reports.push(`fail:${stage}:${error.message}`),
+        }),
+        runStage: async (stage) => {
+          if (stage === "validate") return { ok: false, error: "validate failed" };
+          return { ok: true };
+        },
+        emitEvent: () => {},
+      }),
+    /validate failed/
+  );
+
+  assert.deepEqual(reports, [
+    "start:download",
+    "stage:validate",
+    "fail:validate:validate failed",
+  ]);
+});
