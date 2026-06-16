@@ -240,6 +240,25 @@ export function createDashboardStore({
       return record ? normalizeMachine(record, { now: now() }) : null;
     },
 
+    deleteMachine(machineId) {
+      const existing = machines.get(machineId);
+      if (!existing) throw new Error(`machine "${machineId}" not found`);
+      machines.delete(machineId);
+      for (const [configId, record] of configs.entries()) {
+        if (record.machineId === machineId) configs.delete(configId);
+      }
+      for (const [envProfileId, profile] of envProfiles.entries()) {
+        if (profile.machineId === machineId) envProfiles.delete(envProfileId);
+      }
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        if (events[index].machineId === machineId) events.splice(index, 1);
+      }
+      for (const [commandId, command] of commands.entries()) {
+        if (command.machineId === machineId) commands.delete(commandId);
+      }
+      return normalizeMachine(existing, { now: now() });
+    },
+
     createConfig(input) {
       const machineId = input.machineId ? input.machineId.trim() : null;
       const name = requireNonEmpty(input.name, "name");

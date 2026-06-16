@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildOverviewModel } from "../dashboard/client/lib/overview-model.js";
+import { buildOverviewModel, buildServerOnboarding } from "../dashboard/client/lib/overview-model.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -59,4 +59,16 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.pipeline[1].status, "complete");
   assert.equal(model.resourceAlerts.length, 2);
   assert.equal(model.activeRanges[0].name, "ukraine-range-01");
+});
+
+test("server onboarding explains agent registration instead of manual dashboard rows", () => {
+  const onboarding = buildServerOnboarding({
+    dashboardUrl: "https://ptg-dashboard.example.com",
+    machineId: "server-10",
+  });
+
+  assert.equal(onboarding.machineId, "server-10");
+  assert.match(onboarding.command, /MACHINE_ID=server-10/);
+  assert.match(onboarding.command, /DASHBOARD_URL=https:\/\/ptg-dashboard.example.com/);
+  assert.match(onboarding.command, /npm run agent/);
 });

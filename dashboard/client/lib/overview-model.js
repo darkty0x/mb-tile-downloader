@@ -5,6 +5,27 @@ const PIPELINE_STEPS = [
   ["upload", "Upload"],
 ];
 
+function shellQuote(value) {
+  const text = String(value || "");
+  if (/^[A-Za-z0-9_./:=@-]+$/.test(text)) return text;
+  return `'${text.replaceAll("'", "'\\''")}'`;
+}
+
+export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}) {
+  const normalizedMachineId = String(machineId || "server-01").trim() || "server-01";
+  const normalizedDashboardUrl = String(dashboardUrl || "https://your-railway-app.up.railway.app").trim() || "https://your-railway-app.up.railway.app";
+  return {
+    machineId: normalizedMachineId,
+    dashboardUrl: normalizedDashboardUrl,
+    command: [
+      `MACHINE_ID=${shellQuote(normalizedMachineId)}`,
+      `DASHBOARD_URL=${shellQuote(normalizedDashboardUrl)}`,
+      "AGENT_TOKEN=your-agent-token",
+      "npm run agent",
+    ].join(" \\\n"),
+  };
+}
+
 function thresholdValue(settings, name, fallback) {
   const value = Number(settings?.alertThresholds?.[name]);
   return Number.isInteger(value) && value >= 0 ? value : fallback;

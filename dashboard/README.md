@@ -70,6 +70,12 @@ AGENT_TOKEN=dev \
 node src/agent/agent.js --once
 ```
 
+## Add Or Remove Servers
+
+Servers are not manually created in the dashboard. To add a server, run the local agent on that machine with a unique `MACHINE_ID`, the Railway `DASHBOARD_URL`, and the shared `AGENT_TOKEN`. The dashboard shows it after the agent registers and heartbeats.
+
+To remove a server, use the remove action in the Servers table. Removal deletes the machine registry entry, server-scoped configs/env profiles/events/queued commands, and releases assigned Mapbox/proxy secrets back to the global pool.
+
 ## Machine Conflicts
 
 The agent writes a persistent local instance id to `.tile-state/agent-id.json`.

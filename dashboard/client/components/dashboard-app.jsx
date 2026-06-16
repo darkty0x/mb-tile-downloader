@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 
-import { buildOverviewModel } from "../lib/overview-model";
+import { buildOverviewModel, buildServerOnboarding } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextArea, TextInput, UsageBar } from "./ui";
 
@@ -219,7 +219,7 @@ function useDashboardState() {
       ]);
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
-        : nextMachines[0]?.machineId || null;
+        : null;
       setMachines(nextMachines);
       setSecretPool(nextSecretPool);
       setSettings(mergeDashboardSettings(nextSettings));
@@ -298,6 +298,16 @@ function useDashboardState() {
         });
         setNotice({ message: `${commandType.replaceAll("_", " ")} queued`, kind: "success" });
         await refreshMachineData(machine.machineId);
+      },
+      async deleteMachine(machineId) {
+        await api(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" });
+        if (selectedMachineId === machineId) {
+          setSelectedMachineId(null);
+          setSelectedServerTab("control");
+          setEditor({ type: "summary" });
+        }
+        setNotice({ message: `${machineId} removed`, kind: "success" });
+        await refreshAll();
       },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
@@ -1278,16 +1288,19 @@ function ServersTable({ state, actions }) {
         title="Servers"
         meta={`${online}/${state.machines.length} online`}
         action={
-          <label className="relative block w-[min(320px,42vw)] max-sm:w-full">
-            <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
-            <input
-              value={state.machineSearch}
-              onChange={(event) => actions.setMachineSearch(event.target.value)}
-              type="search"
-              placeholder="Search servers"
-              className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(18,103,216,0.12)]"
-            />
-          </label>
+          <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full">
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>
+            <label className="relative block w-[min(320px,42vw)] max-sm:w-full">
+              <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+              <input
+                value={state.machineSearch}
+                onChange={(event) => actions.setMachineSearch(event.target.value)}
+                type="search"
+                placeholder="Search servers"
+                className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(18,103,216,0.12)]"
+              />
+            </label>
+          </div>
         }
       />
       <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
@@ -1319,15 +1332,27 @@ function ServersTable({ state, actions }) {
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{machine.platform || "unknown"}</td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{shortDate(machine.lastSeenAt)}</td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 text-right max-sm:px-1.5">
-                    <button
-                      type="button"
-                      aria-label={`Select ${machine.displayName || machine.machineId}`}
-                      onClick={() => actions.selectMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
-                      className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm sm:w-auto sm:px-3"
-                    >
-                      <Icon name="check" className="h-3.5 w-3.5 sm:hidden" />
-                      <span className="hidden sm:inline">Select</span>
-                    </button>
+                    <div className="flex justify-end gap-1.5">
+                      <button
+                        type="button"
+                        aria-label={`Select ${machine.displayName || machine.machineId}`}
+                        onClick={() => actions.selectMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                        className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm sm:w-auto sm:px-3"
+                      >
+                        <Icon name="check" className="h-3.5 w-3.5 sm:hidden" />
+                        <span className="hidden sm:inline">Select</span>
+                      </button>
+                      <IconButton
+                        icon="trash"
+                        label={`Remove ${machine.displayName || machine.machineId}`}
+                        className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
+                        onClick={() => {
+                          const ok = globalThis.confirm?.(`Remove server "${machine.displayName || machine.machineId}" from the dashboard? This releases assigned secrets and deletes server-scoped config/env records.`);
+                          if (!ok) return;
+                          actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        }}
+                      />
+                    </div>
                   </td>
                 </tr>
               );
@@ -1582,9 +1607,76 @@ function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
 }
 
+function ServerOnboardingForm({ state }) {
+  const defaultServerNumber = String(state.machines.length + 1).padStart(2, "0");
+  const [machineId, setMachineId] = useState(`server-${defaultServerNumber}`);
+  const [dashboardUrl, setDashboardUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const onboarding = buildServerOnboarding({ machineId, dashboardUrl });
+  const powershellCommand = [
+    `$env:MACHINE_ID="${onboarding.machineId.replaceAll('"', '`"')}"`,
+    `$env:DASHBOARD_URL="${onboarding.dashboardUrl.replaceAll('"', '`"')}"`,
+    '$env:AGENT_TOKEN="your-agent-token"',
+    "npm run agent",
+  ].join("\n");
+  const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+
+  return (
+    <section className="grid gap-4">
+      <div className="rounded-xl border border-[var(--ptg-outline)] bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-4">
+        <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
+          <Icon name="servers" className="h-5 w-5" />
+        </span>
+        <h4 className="mt-3 text-[15px] font-[850] tracking-[-0.02em]">Servers are added by agents</h4>
+        <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
+          Run the agent on the new machine with a unique `MACHINE_ID`. When it registers successfully, it appears in this Servers table.
+        </p>
+      </div>
+
+      <div className="grid gap-3">
+        <TextInput label="Machine ID" value={machineId} onChange={(event) => setMachineId(event.target.value)} />
+        <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
+      </div>
+
+      <section className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">macOS / Linux</h4>
+          <AppButton icon="copy" onClick={() => copy(onboarding.command)}>Copy</AppButton>
+        </div>
+        <pre className="ptg-scrollbar overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{onboarding.command}</pre>
+      </section>
+
+      <section className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows PowerShell</h4>
+          <AppButton icon="copy" onClick={() => copy(powershellCommand)}>Copy</AppButton>
+        </div>
+        <pre className="ptg-scrollbar overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{powershellCommand}</pre>
+      </section>
+
+      <div className="rounded-lg border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
+        If a machine ID is reused while another live agent owns it, registration is rejected as a conflict.
+      </div>
+    </section>
+  );
+}
+
 function EditorDrawer({ state, actions }) {
   const { editor } = state;
   if (editor.type === "summary") return null;
+  if (editor.type === "server-onboarding") {
+    return (
+      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[17px] font-[760]">Add Server</h3>
+            <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">Register a real local downloader agent</p>
+          </div>
+          <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
+        </div>
+        <ServerOnboardingForm state={state} />
+      </aside>
+    );
+  }
   const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
   const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
@@ -1609,6 +1701,7 @@ function editorTitle(type, record, editor = {}) {
   if (type === "new-config") return "Add Config";
   if (type === "new-env") return "Add Env";
   if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "Add Credential";
+  if (type === "server-onboarding") return "Add Server";
   if (type === "new-secret") return "Add Secret";
   if (type === "config") return record?.configId ? "Edit Config" : "Duplicate Config";
   if (type === "env") return record?.envProfileId ? "Edit Env" : "Duplicate Env";
@@ -1877,8 +1970,9 @@ function SecretForm({ record, editor, actions }) {
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
+  const hasServerPanel = Boolean(state.selectedMachine);
   return (
-    <main className={`grid min-h-screen grid-cols-[248px_minmax(0,1fr)_372px] bg-[var(--ptg-background)] max-xl:grid-cols-[238px_minmax(0,1fr)_348px] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`grid min-h-screen ${hasServerPanel ? "grid-cols-[248px_minmax(0,1fr)_372px] max-xl:grid-cols-[238px_minmax(0,1fr)_348px]" : "grid-cols-[248px_minmax(0,1fr)] max-xl:grid-cols-[238px_minmax(0,1fr)]"} bg-[var(--ptg-background)] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
       <section className="min-w-0 overflow-hidden p-5 max-md:p-4">
         <Header state={state} actions={actions} />
@@ -1903,7 +1997,7 @@ export default function DashboardApp() {
           <OverviewDashboard state={state} actions={actions} />
         )}
       </section>
-      <ServerPanel state={state} actions={actions} />
+      {hasServerPanel ? <ServerPanel state={state} actions={actions} /> : null}
       <EditorDrawer state={state} actions={actions} />
     </main>
   );

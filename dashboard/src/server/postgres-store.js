@@ -283,6 +283,18 @@ export function createPostgresDashboardStore({
       return row ? machineFromRow(row, { now: now() }) : null;
     },
 
+    async deleteMachine(machineId) {
+      const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [machineId]);
+      if (!row) throw new Error(`machine "${machineId}" not found`);
+      await db.query("DELETE FROM machine_commands WHERE machine_id=$1", [machineId]);
+      await db.query("DELETE FROM machine_events WHERE machine_id=$1", [machineId]);
+      await db.query("DELETE FROM machine_jobs WHERE machine_id=$1", [machineId]);
+      await db.query("DELETE FROM configs WHERE machine_id=$1", [machineId]);
+      await db.query("DELETE FROM env_profiles WHERE machine_id=$1", [machineId]);
+      await db.query("DELETE FROM machines WHERE machine_id=$1", [machineId]);
+      return machineFromRow(row, { now: now() });
+    },
+
     async createConfig(input) {
       const machineId = input.machineId ? input.machineId.trim() : null;
       const name = requireNonEmpty(input.name, "name");

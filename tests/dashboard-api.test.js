@@ -165,6 +165,52 @@ test("dashboard machine list is available without an admin token", async (t) => 
   assert.deepEqual(response.body.machines, []);
 });
 
+test("dashboard can remove a machine and release its assigned secrets", async (t) => {
+  const calls = [];
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({
+    machineId: "worker-a",
+    agentInstanceId: "agent-1",
+  });
+  const server = await withServer(t, {
+    store,
+    secretVault: {
+      async listSecretsForBrowser({ machineId } = {}) {
+        if (machineId === "worker-a") {
+          return [
+            { secretId: "secret-a", machineId: "worker-a", secretType: "mapbox_token", status: "active" },
+            { secretId: "secret-b", machineId: "worker-a", secretType: "proxy_txt", status: "active" },
+          ];
+        }
+        return [];
+      },
+      async updateSecret(secretId, input) {
+        calls.push([secretId, input]);
+        return { secretId, ...input };
+      },
+      async listSecretsForAgent() {
+        return [];
+      },
+    },
+  });
+
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: "/api/machines/worker-a",
+  });
+  const listed = await request(server, { path: "/api/machines" });
+
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.machine.machineId, "worker-a");
+  assert.deepEqual(listed.body.machines, []);
+  assert.deepEqual(calls, [
+    ["secret-a", { machineId: null }],
+    ["secret-b", { machineId: null }],
+  ]);
+});
+
 test("dashboard settings expose and persist alert thresholds", async (t) => {
   const server = await withServer(t);
 

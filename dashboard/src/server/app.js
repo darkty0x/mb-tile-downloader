@@ -414,6 +414,17 @@ export function createDashboardApp({
           json(res, 200, { machine });
           return;
         }
+        if (req.method === "DELETE" && machineMatch) {
+          const machineId = decodeURIComponent(machineMatch[1]);
+          if (secretVault) {
+            const assignedSecrets = await secretVault.listSecretsForBrowser({ machineId });
+            await Promise.all(
+              assignedSecrets.map((secret) => secretVault.updateSecret(secret.secretId, { machineId: null }))
+            );
+          }
+          json(res, 200, { machine: await store.deleteMachine(machineId) });
+          return;
+        }
 
         const commandMatch = /^\/api\/machines\/([^/]+)\/commands$/.exec(url.pathname);
         if (req.method === "POST" && commandMatch) {

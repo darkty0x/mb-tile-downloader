@@ -102,3 +102,46 @@ test("lists machines as offline after heartbeat lease expires", () => {
   assert.equal(store.listMachines()[0].status, "offline");
   assert.equal(store.getMachine("worker-a").status, "offline");
 });
+
+test("deletes a machine and its machine-owned dashboard state", () => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  store.registerMachine({
+    machineId: "worker-a",
+    agentInstanceId: "agent-1",
+  });
+  store.createConfig({
+    machineId: "worker-a",
+    name: "worker config",
+    active: true,
+    config: { provider: "esri", layer: "satellite", ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }] },
+  });
+  store.createEnvProfile({
+    machineId: "worker-a",
+    name: "worker env",
+    active: true,
+    env: { TILE_DOWNLOADER_MAX_CONCURRENCY: 64 },
+  });
+  store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "range.started",
+    message: "started",
+  });
+  store.queueCommand({
+    machineId: "worker-a",
+    commandType: "run_preflight",
+    requestedBy: "dashboard",
+  });
+
+  const deleted = store.deleteMachine("worker-a");
+
+  assert.equal(deleted.machineId, "worker-a");
+  assert.deepEqual(store.listMachines(), []);
+  assert.deepEqual(store.listConfigs({ machineId: "worker-a" }), []);
+  assert.deepEqual(store.listEnvProfiles({ machineId: "worker-a" }), []);
+  assert.deepEqual(store.listEvents({ machineId: "worker-a" }), []);
+  assert.deepEqual(store.claimCommands({ machineId: "worker-a" }), []);
+});
