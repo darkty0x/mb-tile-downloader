@@ -51,6 +51,25 @@ async function withServer(t, options = {}) {
   return app;
 }
 
+async function writeConfigTemplate(dir, fileName, overrides = {}) {
+  const id = fileName.replace(/\.config\.json$/, "");
+  await writeFile(
+    path.join(dir, fileName),
+    JSON.stringify(
+      {
+        jobName: id,
+        provider: id.startsWith("esri") ? "esri" : "mapbox",
+        layer: id.includes("satellite") ? "satellite" : "vector",
+        format: id.includes("satellite") ? "jpg" : "pbf",
+        ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+        ...overrides,
+      },
+      null,
+      2
+    )
+  );
+}
+
 test("health endpoint does not require authentication", async (t) => {
   const server = await withServer(t);
 
@@ -172,6 +191,73 @@ test("dashboard settings expose and persist alert thresholds", async (t) => {
     mapboxTokensPerServer: 4,
     proxiesPerServer: 125,
   });
+});
+
+test("dashboard exposes reusable config type templates from root config files", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");
+  await writeConfigTemplate(templatesDir, "esri-satellite.config.json", {
+    provider: "esri",
+    layer: "esri-satellite",
+    format: "jpg",
+  });
+  await writeConfigTemplate(templatesDir, "1-ukraine-mapbox-pbf-cmi.config.json");
+  const server = await withServer(t, { configTemplatesDir: templatesDir });
+
+  const response = await request(server, { path: "/api/config-templates" });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.body.templates.map((template) => template.id),
+    ["esri-satellite", "mapbox-pbf"]
+  );
+  assert.deepEqual(
+    response.body.templates.map((template) => template.sourcePath),
+    ["configs/esri-satellite.config.json", "configs/mapbox-pbf.config.json"]
+  );
+});
+
+test("dashboard batch config creation creates one runnable config per selected type", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");
+  await writeConfigTemplate(templatesDir, "esri-satellite.config.json", {
+    provider: "esri",
+    layer: "esri-satellite",
+    format: "jpg",
+  });
+  let id = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => `cfg-${++id}`,
+    }),
+  });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      machineId: "worker-a",
+      name: "Ukraine Range 01",
+      active: true,
+      templateIds: ["mapbox-pbf", "esri-satellite"],
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.body.configs.map((config) => config.name),
+    ["Ukraine Range 01 - mapbox-pbf", "Ukraine Range 01 - esri-satellite"]
+  );
+  assert.deepEqual(
+    response.body.configs.map((config) => config.config.jobName),
+    ["ukraine-range-01-mapbox-pbf", "ukraine-range-01-esri-satellite"]
+  );
+  assert.deepEqual(
+    response.body.configs.map((config) => config.active),
+    [true, false]
+  );
 });
 
 test("dashboard settings reject invalid alert thresholds", async (t) => {

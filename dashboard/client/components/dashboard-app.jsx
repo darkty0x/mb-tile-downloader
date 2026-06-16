@@ -105,6 +105,7 @@ function useDashboardState() {
   const [machineSearch, setMachineSearch] = useState("");
   const [machines, setMachines] = useState([]);
   const [configs, setConfigs] = useState([]);
+  const [configTemplates, setConfigTemplates] = useState([]);
   const [envProfiles, setEnvProfiles] = useState([]);
   const [secrets, setSecrets] = useState([]);
   const [secretPool, setSecretPool] = useState([]);
@@ -171,10 +172,11 @@ function useDashboardState() {
   async function refreshAll() {
     setLoading(true);
     try {
-      const [{ machines: nextMachines }, { secrets: nextSecretPool }, { settings: nextSettings }] = await Promise.all([
+      const [{ machines: nextMachines }, { secrets: nextSecretPool }, { settings: nextSettings }, { templates: nextConfigTemplates }] = await Promise.all([
         api("/api/machines"),
         api("/api/secrets"),
         api("/api/settings"),
+        api("/api/config-templates"),
       ]);
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
@@ -182,6 +184,7 @@ function useDashboardState() {
       setMachines(nextMachines);
       setSecretPool(nextSecretPool);
       setSettings(mergeDashboardSettings(nextSettings));
+      setConfigTemplates(nextConfigTemplates);
       setSelectedMachineId(nextSelected);
       await refreshMachineData(nextSelected);
     } finally {
@@ -205,6 +208,7 @@ function useDashboardState() {
       machineSearch,
       machines,
       configs,
+      configTemplates,
       envProfiles,
       secrets,
       secretPool,
@@ -253,6 +257,22 @@ function useDashboardState() {
         await refreshMachineData(machine.machineId);
       },
       async saveConfig(formData, id) {
+        const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
+        if (!id && templateIds.length > 0) {
+          const { configs: created } = await api("/api/configs/batch", {
+            method: "POST",
+            body: JSON.stringify({
+              machineId: selectedMachineId,
+              name: formData.get("name"),
+              active: formData.get("active") === "on",
+              templateIds,
+            }),
+          });
+          setEditor({ type: "summary" });
+          setNotice({ message: `${created.length} config${created.length === 1 ? "" : "s"} created`, kind: "success" });
+          await refreshMachineData();
+          return;
+        }
         const body = {
           machineId: selectedMachineId,
           name: formData.get("name"),
@@ -907,7 +927,9 @@ function ServerConfigs({ state, actions }) {
         <Surface key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 shadow-none hover:shadow-sm">
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{config.name}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{config.config.provider || "unknown"} | {config.config.ranges?.length || 0} ranges | v{config.version}</small>
+            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+              {config.config.provider || "unknown"} | {config.config.layer || "layer"} | {config.config.format || config.config.tile?.extension || "format"} | {config.config.ranges?.length || 0} ranges | v{config.version}
+            </small>
           </div>
           <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "active" : "inactive"}</StatusPill>
           <TableActions type="config" id={config.configId} duplicate actions={actions} />
@@ -985,7 +1007,7 @@ function EditorDrawer({ state, actions }) {
         </div>
         <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
       </div>
-      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} actions={actions} /> : null}
+      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
       {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
     </aside>
@@ -1002,19 +1024,91 @@ function editorTitle(type, record) {
   return "Editor";
 }
 
-function ConfigForm({ record, actions }) {
+function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
+  const selected = new Set(selectedTemplateIds);
+  return (
+    <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Config Types</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length} templates from root configs</p>
+        </div>
+        <div className="flex gap-1.5">
+          <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>All</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onChange([])}>Clear</AppButton>
+        </div>
+      </div>
+      <div className="ptg-scrollbar grid max-h-72 gap-2 overflow-auto pr-1">
+        {templates.map((template) => {
+          const checked = selected.has(template.id);
+          return (
+            <label
+              key={template.id}
+              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-white p-2.5 ${
+                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
+              }`}
+            >
+              <input
+                checked={checked}
+                className="sr-only"
+                name="templateIds"
+                onChange={(event) => {
+                  const next = event.target.checked
+                    ? [...selectedTemplateIds, template.id]
+                    : selectedTemplateIds.filter((id) => id !== template.id);
+                  onChange(next);
+                }}
+                type="checkbox"
+                value={template.id}
+              />
+              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[12.5px] font-[780]">{template.label}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                  {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+                </small>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ConfigForm({ record, state, actions }) {
   const config = record?.config || SAMPLE_CONFIG;
   const id = record?.configId || "";
+  const canUseTemplates = !id && !record?.config;
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const templates = state.configTemplates || [];
+  const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
+  const defaultActive = record?.active ?? !id;
   return (
     <form className="grid gap-3" onSubmit={(event) => {
       event.preventDefault();
       actions.saveConfig(new FormData(event.currentTarget), id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
-      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={record?.active || !id} /> Active</label>
-      <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
+      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={defaultActive} /> Active</label>
+      {canUseTemplates && templates.length ? (
+        <ConfigTemplatePicker
+          templates={templates}
+          selectedTemplateIds={selectedTemplateIds}
+          onChange={setSelectedTemplateIds}
+        />
+      ) : null}
+      {templateMode ? (
+        <div className="rounded-lg border border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
+          {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs.
+        </div>
+      ) : (
+        <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
+      )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit">Save Config</AppButton>
+        <AppButton variant="filled" icon="check" type="submit">{templateMode ? `Create ${selectedTemplateIds.length}` : "Save Config"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
       </div>
     </form>

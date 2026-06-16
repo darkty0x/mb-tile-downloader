@@ -5,6 +5,13 @@ import { fileURLToPath } from "node:url";
 
 import { createPgDb } from "./db.js";
 import { loadServerConfig } from "./config.js";
+import {
+  DEFAULT_CONFIG_TEMPLATES_DIR,
+  configJobNameForTemplate,
+  configNameForTemplate,
+  listConfigTemplates,
+  selectConfigTemplates,
+} from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
@@ -91,6 +98,7 @@ export function createDashboardApp({
   telegramNotifier = null,
   agentToken = "",
   clientDir = DEFAULT_CLIENT_DIR,
+  configTemplatesDir = DEFAULT_CONFIG_TEMPLATES_DIR,
 } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -205,9 +213,44 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/config-templates") {
+          json(res, 200, {
+            templates: await listConfigTemplates({ templatesDir: configTemplatesDir }),
+          });
+          return;
+        }
+
         if (req.method === "POST" && url.pathname === "/api/configs") {
           const body = await readJson(req);
           json(res, 200, { config: await store.createConfig(body) });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/configs/batch") {
+          const body = await readJson(req);
+          const templates = await selectConfigTemplates(body.templateIds, {
+            templatesDir: configTemplatesDir,
+          });
+          const multiple = templates.length > 1;
+          const configs = [];
+          for (const [index, template] of templates.entries()) {
+            const name = configNameForTemplate({
+              baseName: body.name,
+              template,
+              multiple,
+            });
+            const config = structuredClone(template.config);
+            config.jobName = configJobNameForTemplate({ name, template });
+            configs.push(
+              await store.createConfig({
+                machineId: body.machineId,
+                name,
+                active: Boolean(body.active) && index === 0,
+                config,
+              })
+            );
+          }
+          json(res, 200, { configs });
           return;
         }
 
