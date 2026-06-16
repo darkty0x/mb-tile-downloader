@@ -75,11 +75,11 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
     },
 
     postJob(payload) {
-      return request("/api/agent/jobs", payload);
+      return request("/api/agents/jobs", payload);
     },
 
     updateJob(jobId, payload) {
-      return request(`/api/agent/jobs/${encodeURIComponent(jobId)}`, payload, "PUT");
+      return request(`/api/agents/jobs/${encodeURIComponent(jobId)}`, payload, "PUT");
     },
 
     listSecrets(machineId) {

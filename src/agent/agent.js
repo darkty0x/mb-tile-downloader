@@ -10,14 +10,15 @@ import { createProgressEventForwarder } from "./progress-events.js";
 import { materializeSecrets } from "./secret-materializer.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
+export const AGENT_PROTOCOL_VERSION = 1;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function safeDiskSnapshot() {
+async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo) {
   try {
-    return await collectDiskInfo();
+    return await collectDiskInfoImpl();
   } catch (err) {
     return [
       {
@@ -89,9 +90,12 @@ export async function runAgent({
   argv = process.argv.slice(2),
   stateDir = ".tile-state",
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
+  createClient = createControlClient,
+  collectDiskInfoImpl = collectDiskInfo,
+  projectDir = process.cwd(),
 } = {}) {
   const identity = await loadAgentIdentity({ stateDir, machineId: env.MACHINE_ID });
-  const client = createControlClient({
+  const client = createClient({
     baseUrl: env.DASHBOARD_URL,
     agentToken: env.AGENT_TOKEN,
   });
@@ -115,22 +119,24 @@ export async function runAgent({
     displayName: env.MACHINE_DISPLAY_NAME || identity.machineId,
     platform: process.platform,
     version: env.npm_package_version || "unknown",
+    agentProtocolVersion: AGENT_PROTOCOL_VERSION,
   });
 
   async function tick() {
-    const disk = await safeDiskSnapshot();
+    const disk = await safeDiskSnapshot(collectDiskInfoImpl);
     await client.heartbeat({
       ...identity,
       status: "online",
       platform: process.platform,
       hostname: os.hostname(),
       disk,
+      agentProtocolVersion: AGENT_PROTOCOL_VERSION,
     });
     const synced = await syncManagedState({
       client,
       machineId: identity.machineId,
       stateDir,
-      projectDir: process.cwd(),
+      projectDir,
     });
     for (const key of Object.keys(managedEnv)) delete managedEnv[key];
     Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {});

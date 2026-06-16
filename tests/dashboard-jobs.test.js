@@ -60,7 +60,7 @@ test("dashboard store persists job lifecycle updates", async () => {
   assert.equal(jobs[0].progress.tilesDone, 100);
 });
 
-test("agent job routes require token and expose dashboard job list", async (t) => {
+test("canonical agent job routes require token and expose dashboard job list", async (t) => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),
   });
@@ -69,7 +69,7 @@ test("agent job routes require token and expose dashboard job list", async (t) =
 
   const rejected = await request(server, {
     method: "POST",
-    path: "/api/agent/jobs",
+    path: "/api/agents/jobs",
     body: {
       jobId: "job-1",
       machineId: "server-01",
@@ -80,7 +80,7 @@ test("agent job routes require token and expose dashboard job list", async (t) =
   });
   const created = await request(server, {
     method: "POST",
-    path: "/api/agent/jobs",
+    path: "/api/agents/jobs",
     headers,
     body: {
       jobId: "job-1",
@@ -94,7 +94,7 @@ test("agent job routes require token and expose dashboard job list", async (t) =
   });
   const updated = await request(server, {
     method: "PUT",
-    path: "/api/agent/jobs/job-1",
+    path: "/api/agents/jobs/job-1",
     headers,
     body: {
       status: "completed",
@@ -112,4 +112,38 @@ test("agent job routes require token and expose dashboard job list", async (t) =
   assert.equal(listed.status, 200);
   assert.equal(listed.body.jobs.length, 1);
   assert.equal(listed.body.jobs[0].progress.percent, 100);
+});
+
+test("legacy singular agent job routes remain compatibility aliases", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  const server = await withServer(t, store);
+  const headers = { authorization: "Bearer agent-token" };
+
+  const created = await request(server, {
+    method: "POST",
+    path: "/api/agent/jobs",
+    headers,
+    body: {
+      jobId: "job-legacy",
+      machineId: "server-01",
+      configId: "cfg-1",
+      status: "running",
+      stage: "download",
+    },
+  });
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/agent/jobs/job-legacy",
+    headers,
+    body: {
+      status: "completed",
+      stage: "upload",
+    },
+  });
+
+  assert.equal(created.status, 200);
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.job.status, "completed");
 });

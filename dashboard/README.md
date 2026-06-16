@@ -71,6 +71,16 @@ AGENT_TOKEN=dev \
 node src/agent/agent.js --once
 ```
 
+## Agent Communication Contract
+
+Each downloader machine runs `npm run agent` locally. The agent is the only process that touches local tile files, starts downloader work, validates ranges, zips output, and uploads results.
+
+The Railway dashboard is the control plane. Agents connect outbound to `DASHBOARD_URL` over HTTPS with `AGENT_TOKEN`, register their `MACHINE_ID`, heartbeat disk/status, pull assigned config/env/secrets, claim queued commands, and post events/job progress.
+
+The dashboard never starts work by RDP, SSH, WinRM, or arbitrary shell execution. Remote connection records are for inventory and reachability validation only. Real control happens when a local agent polls the dashboard and claims an allowlisted command from Postgres.
+
+Agent job progress is reported through the canonical `/api/agents/jobs` endpoint. The older `/api/agent/jobs` endpoint is kept only as a compatibility alias for already-deployed agents.
+
 ## Add Or Remove Servers
 
 Servers are not manually created in the dashboard. To add a server, run the local agent on that machine with a unique `MACHINE_ID`, the Railway `DASHBOARD_URL`, and the shared `AGENT_TOKEN`. The dashboard shows it after the agent registers and heartbeats.

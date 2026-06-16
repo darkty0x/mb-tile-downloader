@@ -80,6 +80,24 @@ function handleError(res, err) {
   json(res, 400, { error: err.message });
 }
 
+async function handleAgentJobRoute({ req, res, url, store, basePath }) {
+  if (req.method === "POST" && url.pathname === `${basePath}/jobs`) {
+    const body = await readJson(req);
+    json(res, 200, { job: await store.upsertJob(body) });
+    return true;
+  }
+
+  const agentJobMatch = new RegExp(`^${basePath}/jobs/([^/]+)$`).exec(url.pathname);
+  if (req.method === "PUT" && agentJobMatch) {
+    const body = await readJson(req);
+    const jobId = decodeURIComponent(agentJobMatch[1]);
+    json(res, 200, { job: await store.upsertJob({ ...body, jobId }) });
+    return true;
+  }
+
+  return false;
+}
+
 function normalizeServerConnectionInput(body = {}) {
   const protocol = String(body.protocol || "rdp").trim().toLowerCase().replace(/:$/, "");
   if (!SERVER_CONNECTION_PROTOCOLS.has(protocol)) {
@@ -223,17 +241,7 @@ export function createDashboardApp({
           return;
         }
 
-        if (req.method === "POST" && url.pathname === "/api/agent/jobs") {
-          const body = await readJson(req);
-          json(res, 200, { job: await store.upsertJob(body) });
-          return;
-        }
-
-        const agentJobMatch = /^\/api\/agent\/jobs\/([^/]+)$/.exec(url.pathname);
-        if (req.method === "PUT" && agentJobMatch) {
-          const body = await readJson(req);
-          const jobId = decodeURIComponent(agentJobMatch[1]);
-          json(res, 200, { job: await store.upsertJob({ ...body, jobId }) });
+        if (await handleAgentJobRoute({ req, res, url, store, basePath: "/api/agent" })) {
           return;
         }
 
@@ -264,6 +272,10 @@ export function createDashboardApp({
           const event = await store.recordEvent(body);
           const telegram = telegramNotifier ? await telegramNotifier.notifyEvent(event) : null;
           json(res, 200, { event, telegram });
+          return;
+        }
+
+        if (await handleAgentJobRoute({ req, res, url, store, basePath: "/api/agents" })) {
           return;
         }
 

@@ -102,3 +102,38 @@ test("control client posts and updates dashboard jobs", async (t) => {
   assert.equal(updated.job.status, "completed");
   assert.equal(updated.job.progress.percent, 100);
 });
+
+test("control client uses canonical plural agent job routes", async () => {
+  const calls = [];
+  const fetchImpl = async (url, options = {}) => {
+    calls.push({ url: String(url), method: options.method });
+    return new Response(JSON.stringify({ job: { jobId: "job-1", status: "running" } }), {
+      status: 200,
+      headers: { "content-type": "application/json" },
+    });
+  };
+  const client = createControlClient({
+    baseUrl: "https://dashboard.example.com",
+    agentToken: "agent-token",
+    fetchImpl,
+  });
+
+  await client.postJob({
+    jobId: "job-1",
+    machineId: "server-01",
+    configId: "cfg-1",
+    status: "running",
+    stage: "download",
+  });
+  await client.updateJob("job-1", {
+    machineId: "server-01",
+    configId: "cfg-1",
+    status: "completed",
+    stage: "upload",
+  });
+
+  assert.deepEqual(calls.map((call) => [new URL(call.url).pathname, call.method]), [
+    ["/api/agents/jobs", "POST"],
+    ["/api/agents/jobs/job-1", "PUT"],
+  ]);
+});
