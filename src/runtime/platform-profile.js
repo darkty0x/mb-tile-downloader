@@ -162,11 +162,11 @@ function parseProxyFailureBlockMs(env = process.env) {
   );
 }
 
-function parseProxyAttemptsPerRequest(env = process.env, candidateCount = 0) {
+function parseProxyAttemptsPerRequest(env = process.env, candidateCount = 0, mode = proxyMode(env)) {
   const configured = parsePositiveInt(
     resolveAnyEnv(env, ["TILE_DOWNLOADER_PROXY_ATTEMPTS_PER_REQUEST", "PROXY_ATTEMPTS_PER_REQUEST"])
   );
-  const fallback = Math.min(Math.max(candidateCount, 1), 8);
+  const fallback = mode === "fallback" ? 1 : Math.min(Math.max(candidateCount, 1), 8);
   return Math.min(Math.max(configured || fallback, 1), Math.max(candidateCount, 1));
 }
 
@@ -527,6 +527,7 @@ export async function configureNetworking(profile, env = process.env, runtime = 
 
     const proxyRotation = createProxyRotationState(proxyEnv, env);
     const proxyDispatcherFor = createProxyDispatcherCache(undici, agentOptions, proxyEnv);
+    const configuredProxyMode = proxyMode(env);
     targetGlobal[ORIGINAL_FETCH] = baseFetch;
     targetGlobal.fetch = async (input, init = {}) => {
       const isRequest = typeof Request !== "undefined" && input instanceof Request;
@@ -544,7 +545,8 @@ export async function configureNetworking(profile, env = process.env, runtime = 
       const fetchWithProxy = async () => {
         const maxProxyAttempts = parseProxyAttemptsPerRequest(
           env,
-          proxyRotation.candidateCount?.(protocol) || 0
+          proxyRotation.candidateCount?.(protocol) || 0,
+          configuredProxyMode
         );
         let lastError = null;
         for (let attempt = 0; attempt < maxProxyAttempts; attempt++) {
@@ -570,7 +572,7 @@ export async function configureNetworking(profile, env = process.env, runtime = 
         throw lastError || new NoHealthyProxyError();
       };
 
-      if (proxyMode(env) === "always") return fetchWithProxy();
+      if (configuredProxyMode === "always") return fetchWithProxy();
 
       let directResponse;
       try {

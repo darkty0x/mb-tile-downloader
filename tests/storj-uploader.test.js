@@ -11,10 +11,9 @@ const execFileAsync = promisify(execFile);
 
 test("package upload script does not force a downloader config", async () => {
   const pkg = JSON.parse(await readFile(path.resolve("package.json"), "utf8"));
-  assert.equal(
-    pkg.scripts.upload,
-    "node scripts/install-storj-uplink.js --if-missing && node scripts/watchdog.js -- node storj-uploader.js"
-  );
+  assert.match(pkg.scripts.upload, /--env-file-if-exists=\.env/);
+  assert.match(pkg.scripts.upload, /node storj-uploader\.js$/);
+  assert.doesNotMatch(pkg.scripts.upload, /configs\//);
   assert.equal(pkg.scripts["storj-upload"], pkg.scripts.upload);
 });
 

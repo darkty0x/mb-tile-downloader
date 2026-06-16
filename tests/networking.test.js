@@ -221,6 +221,33 @@ test("configureNetworking falls back to paid proxy when explicit direct-first mo
   assert.equal(response[PROXY_INFO_SYMBOL].proxy, "http://proxy.example:8080");
 });
 
+test("direct-first fallback tries only one paid proxy by default", async () => {
+  const undici = createFakeUndici(async (input, init) => {
+    if (init.dispatcher.kind === "direct") {
+      return new Response("blocked", { status: 403 });
+    }
+    throw new Error("proxy timeout");
+  });
+  const targetGlobal = { fetch: async () => new Response("direct") };
+
+  await configureNetworking(
+    profile(),
+    {
+      TILE_DOWNLOADER_PROXY_LIST:
+        "http://proxy-a.example:8080,http://proxy-b.example:8080,http://proxy-c.example:8080",
+      TILE_DOWNLOADER_PROXY_MODE: "fallback",
+    },
+    { undici, targetGlobal }
+  );
+
+  const response = await targetGlobal.fetch("https://services.arcgisonline.com/ArcGIS/rest/info");
+
+  assert.equal(response.status, 403);
+  assert.equal(undici.state.fetchCalls.length, 2);
+  assert.equal(undici.state.fetchCalls[0].dispatcher.kind, "direct");
+  assert.equal(undici.state.fetchCalls[1].dispatcher.options.httpsProxy, "http://proxy-a.example:8080");
+});
+
 test("protocol-specific proxy lists are used for matching request protocols", async () => {
   const undici = createFakeUndici();
   const targetGlobal = { fetch: async () => new Response("direct") };
