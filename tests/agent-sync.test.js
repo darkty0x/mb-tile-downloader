@@ -62,6 +62,7 @@ test("agent sync materializes active dashboard config env and secrets", async ()
 test("agent register and heartbeat include protocol version", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-protocol-"));
   const calls = [];
+  let runnerEnv = null;
   const client = {
     async register(payload) {
       calls.push(["register", payload]);
@@ -75,7 +76,18 @@ test("agent register and heartbeat include protocol version", async () => {
       return { configs: [] };
     },
     async listEnvProfiles() {
-      return { envProfiles: [] };
+      return {
+        envProfiles: [
+          {
+            envProfileId: "env-a",
+            active: true,
+            version: 1,
+            env: {
+              DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE: "dashboard-override",
+            },
+          },
+        ],
+      };
     },
     async listSecrets() {
       return { secrets: [] };
@@ -96,6 +108,17 @@ test("agent register and heartbeat include protocol version", async () => {
     argv: ["--once"],
     stateDir: path.join(dir, ".tile-state"),
     createClient: () => client,
+    createRunner: ({ env }) => {
+      runnerEnv = env;
+      return {
+        async run() {
+          return { code: 0, signal: null };
+        },
+        stop() {
+          return false;
+        },
+      };
+    },
     collectDiskInfoImpl: async () => [
       {
         name: "C:",
@@ -114,4 +137,6 @@ test("agent register and heartbeat include protocol version", async () => {
   assert.equal(calls[1][0], "heartbeat");
   assert.equal(calls[0][1].agentProtocolVersion, 1);
   assert.equal(calls[1][1].agentProtocolVersion, 1);
+  assert.match(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, /\.tile-state\/dashboard\/control\/pause-after-range$/);
+  assert.notEqual(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, "dashboard-override");
 });

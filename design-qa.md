@@ -28,6 +28,8 @@ additional evidence:
 - `/Users/dell/Downloads/Projects/mb-tile-downloader/output/playwright/ptg-secrets-desktop.png`
 - `/Users/dell/Downloads/Projects/mb-tile-downloader/output/playwright/ptg-add-server-drawer.png`
 - `/Users/dell/Downloads/Projects/mb-tile-downloader/output/playwright/ptg-overview-mobile.png`
+- `/Users/dell/Downloads/Projects/mb-tile-downloader/output/playwright/ptg-servers-validated-browser.png`
+- `/Users/dell/Downloads/Projects/mb-tile-downloader/output/playwright/ptg-mobile-browser.png`
 
 viewport: desktop 1600 x 1000, mobile 390 x 844
 
@@ -48,5 +50,10 @@ patches made since previous QA pass:
 - Added overview right rail with Quick Actions and Live Event Console.
 - Rebuilt desktop/mobile screenshots after the final build.
 - Verified no console warnings/errors and no mobile page-level horizontal overflow.
+- Split the dashboard client into state, shell, pages, and editor modules without changing the route.
+- Fixed the Add Server flow so saving a connection closes the drawer, returns to Servers, and shows the validation row.
+- Verified the rendered Servers flow in the in-app browser: add connection, see saved profile, validate network reachable plus agent missing.
+- Fixed the agent control loop so long pipeline commands do not block heartbeat, stop, or pause polling.
+- Added a real pause-after-range control file checked by the range pipeline.
 
 final result: passed

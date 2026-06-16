@@ -2,6 +2,7 @@ import { fileURLToPath } from "node:url";
 import { spawn } from "node:child_process";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
+import { access } from "node:fs/promises";
 
 import { loadConfig } from "../config/config-loader.js";
 import { createControlClient } from "./control-client.js";
@@ -15,6 +16,16 @@ function defaultEventEmitter(event) {
 
 async function defaultStageRunner(stage) {
   throw new Error(`no stage runner configured for ${stage}`);
+}
+
+async function pauseFileExists(filePath) {
+  if (!filePath) return false;
+  try {
+    await access(filePath);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function runNode(args, { env = process.env, cwd = process.cwd() } = {}) {
@@ -83,6 +94,7 @@ export async function runRangePipeline({
   runStage = defaultStageRunner,
   emitEvent = defaultEventEmitter,
   createJobReporter = null,
+  shouldPauseAfterRange = null,
 } = {}) {
   if (!config || !Array.isArray(config.ranges)) throw new Error("config.ranges is required");
   emitEvent({
@@ -156,6 +168,15 @@ export async function runRangePipeline({
         },
       });
     }
+    if (shouldPauseAfterRange && await shouldPauseAfterRange({ config, configPath, rangeIndex, range })) {
+      emitEvent({
+        severity: "info",
+        type: "pipeline.paused",
+        message: "pipeline paused after range",
+        data: { configPath, rangeIndex, label: range.label || null },
+      });
+      return;
+    }
   }
 
   emitEvent({
@@ -178,6 +199,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     configPath,
     createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
     runStage: (stage, context) => runNode(stageArgs(stage, context)),
+    shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
   }).catch((err) => {
     console.error(`Fatal: ${err.message}`);
     process.exit(1);

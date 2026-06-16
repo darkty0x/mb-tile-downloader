@@ -1,4 +1,6 @@
 import os from "node:os";
+import path from "node:path";
+import { mkdir, rm, writeFile } from "node:fs/promises";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
 import { materializeConfig } from "./config-sync.js";
@@ -35,23 +37,103 @@ async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo) {
   }
 }
 
-async function runCommand(command, { client, runner, machineId }) {
+function commandExitError(commandType, result = {}) {
+  if (result.code === 0) return null;
+  if (result.signal) return new Error(`${commandType} exited with signal ${result.signal}`);
+  return new Error(`${commandType} exited with code ${result.code ?? "unknown"}`);
+}
+
+async function postCommandFailure({ client, machineId, command, err }) {
+  await client.postEvent({
+    machineId,
+    severity: "error",
+    type: "command.failed",
+    message: err.message,
+    data: { commandId: command.id, commandType: command.commandType },
+  });
+}
+
+function isBackgroundCommand(commandType) {
+  return commandType === "start_pipeline" || commandType === "resume_pipeline";
+}
+
+function createAgentControlFiles({ stateDir }) {
+  const controlDir = path.join(stateDir, "dashboard", "control");
+  const pauseAfterRangeFile = path.join(controlDir, "pause-after-range");
+  return {
+    pauseAfterRangeFile,
+    async prepare() {
+      await mkdir(controlDir, { recursive: true });
+    },
+    async clearPauseAfterRange() {
+      await rm(pauseAfterRangeFile, { force: true });
+    },
+    async requestPauseAfterRange() {
+      await mkdir(controlDir, { recursive: true });
+      await writeFile(pauseAfterRangeFile, new Date().toISOString(), "utf8");
+    },
+  };
+}
+
+export async function runCommand(command, { client, runner, machineId, control = null }) {
   try {
+    if (command.commandType === "pause_after_range") {
+      await control?.requestPauseAfterRange?.();
+      await client.postEvent({
+        machineId,
+        severity: "info",
+        type: "command.accepted",
+        message: "Pipeline will pause after the current range completes.",
+        data: { commandId: command.id, commandType: command.commandType },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
     const commandSpec = resolveManagedCommand(command);
     if (command.commandType === "stop_pipeline") {
-      runner.stop();
+      const stopped = runner.stop();
+      await client.postEvent({
+        machineId,
+        severity: stopped ? "warn" : "info",
+        type: "command.accepted",
+        message: stopped ? "Stop signal sent to the active managed process." : "No active managed process was running.",
+        data: { commandId: command.id, commandType: command.commandType },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
+    if (isBackgroundCommand(command.commandType)) {
+      await control?.clearPauseAfterRange?.();
+      const runPromise = runner.run(commandSpec);
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      runPromise
+        .then((result) => {
+          const err = commandExitError(command.commandType, result);
+          if (!err) return null;
+          return postCommandFailure({ client, machineId, command, err });
+        })
+        .catch((err) => postCommandFailure({ client, machineId, command, err }))
+        .catch(() => {});
+      return;
+    }
+
+    if (command.commandType === "run_preflight") {
+      await control?.clearPauseAfterRange?.();
+    }
+
+    if (commandSpec.command === "agent-internal") {
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
     } else {
-      await runner.run(commandSpec);
+      const result = await runner.run(commandSpec);
+      const err = commandExitError(command.commandType, result);
+      if (err) throw err;
     }
     await client.ackCommand(command.id, { claimedAt: command.claimedAt });
   } catch (err) {
-    await client.postEvent({
-      machineId,
-      severity: "error",
-      type: "command.failed",
-      message: err.message,
-      data: { commandId: command.id, commandType: command.commandType },
-    });
+    await postCommandFailure({ client, machineId, command, err });
     await client.ackCommand(command.id, { error: err.message, claimedAt: command.claimedAt });
   }
 }
@@ -91,6 +173,7 @@ export async function runAgent({
   stateDir = ".tile-state",
   heartbeatMs = DEFAULT_HEARTBEAT_MS,
   createClient = createControlClient,
+  createRunner = createProcessRunner,
   collectDiskInfoImpl = collectDiskInfo,
   projectDir = process.cwd(),
 } = {}) {
@@ -99,9 +182,14 @@ export async function runAgent({
     baseUrl: env.DASHBOARD_URL,
     agentToken: env.AGENT_TOKEN,
   });
+  const control = createAgentControlFiles({ stateDir });
+  await control.prepare();
   const forwarder = createProgressEventForwarder({ machineId: identity.machineId, client });
+  const agentControlEnv = {
+    DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE: control.pauseAfterRangeFile,
+  };
   const managedEnv = {};
-  const runner = createProcessRunner({
+  const runner = createRunner({
     env: managedEnv,
     onLine: async (line, stream) => {
       if (await forwarder.handleLine(line, stream)) return;
@@ -139,10 +227,10 @@ export async function runAgent({
       projectDir,
     });
     for (const key of Object.keys(managedEnv)) delete managedEnv[key];
-    Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {});
+    Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {}, agentControlEnv);
     const { commands = [] } = await client.pollCommands(identity.machineId);
     for (const command of commands) {
-      await runCommand(command, { client, runner, machineId: identity.machineId });
+      await runCommand(command, { client, runner, machineId: identity.machineId, control });
     }
   }
 

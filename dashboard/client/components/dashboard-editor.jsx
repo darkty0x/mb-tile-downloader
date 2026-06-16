@@ -1,0 +1,411 @@
+"use client";
+
+import { useState } from "react";
+
+import { buildServerOnboarding } from "../lib/overview-model";
+import { Icon } from "./icons";
+import { AppButton, IconButton, SelectInput, TextArea, TextInput } from "./ui";
+import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES } from "./dashboard-core";
+
+function EmptyLine({ children }) {
+  return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
+}
+
+function ServerOnboardingForm({ state, actions }) {
+  const defaultServerNumber = String(state.machines.length + 1).padStart(2, "0");
+  const [machineId, setMachineId] = useState(`server-${defaultServerNumber}`);
+  const [protocol, setProtocol] = useState("rdp");
+  const [dashboardUrl, setDashboardUrl] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const onboarding = buildServerOnboarding({ machineId, dashboardUrl });
+  const powershellCommand = [
+    `$env:MACHINE_ID="${onboarding.machineId.replaceAll('"', '`"')}"`,
+    `$env:DASHBOARD_URL="${onboarding.dashboardUrl.replaceAll('"', '`"')}"`,
+    '$env:AGENT_TOKEN="your-agent-token"',
+    "npm run agent",
+  ].join("\n");
+  const copy = (text) => navigator.clipboard?.writeText(text).catch(() => {});
+
+  return (
+    <section className="grid gap-4">
+      <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-4">
+        <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
+          <Icon name="servers" className="h-5 w-5" />
+        </span>
+        <h4 className="mt-3 text-[15px] font-[850]">Server control uses the local agent</h4>
+        <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
+          Save the remote login for inventory and reachability checks. Dashboard operations start after the same machine ID is online through `npm run agent`.
+        </p>
+        <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
+          {[
+            ["credentials", "1. Save login"],
+            ["console", "2. Run agent"],
+            ["control", "3. Validate"],
+          ].map(([icon, label]) => (
+            <span key={label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--ptg-outline)] bg-white px-2">
+              <Icon name={icon} className="h-3.5 w-3.5 text-[var(--ptg-primary)]" />
+              <span className="truncate">{label}</span>
+            </span>
+          ))}
+        </div>
+      </div>
+
+      <form
+        className="grid gap-3 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3"
+        onSubmit={(event) => {
+          event.preventDefault();
+          actions.saveServerConnection(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+        }}
+      >
+        <div>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Connection Profile</h4>
+          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored encrypted in the dashboard secret vault.</p>
+        </div>
+        <TextInput label="Machine ID" name="machineId" value={machineId} onChange={(event) => setMachineId(event.target.value)} required />
+        <TextInput label="Label" name="label" defaultValue={`Server ${defaultServerNumber}`} required />
+        <div className="grid grid-cols-[1fr_96px] gap-2">
+          <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
+            <option value="rdp">RDP</option>
+            <option value="ssh">SSH</option>
+            <option value="winrm">WinRM</option>
+            <option value="winrms">WinRM TLS</option>
+          </SelectInput>
+          <TextInput label="Port" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+        </div>
+        <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
+        <TextInput label="Username" name="username" placeholder="root" autoComplete="username" required />
+        <TextInput label="Password" name="password" type="password" autoComplete="new-password" required />
+        <AppButton variant="filled" icon="check" type="submit">Save Connection Profile</AppButton>
+      </form>
+
+      <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
+
+      <section className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">macOS / Linux</h4>
+          <AppButton icon="copy" onClick={() => copy(onboarding.command)}>Copy</AppButton>
+        </div>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{onboarding.command}</pre>
+      </section>
+
+      <section className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows PowerShell</h4>
+          <AppButton icon="copy" onClick={() => copy(powershellCommand)}>Copy</AppButton>
+        </div>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{powershellCommand}</pre>
+      </section>
+
+      <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
+        If a machine ID is reused while another live agent owns it, registration is rejected as a conflict.
+      </div>
+    </section>
+  );
+}
+
+export function EditorDrawer({ state, actions }) {
+  const { editor } = state;
+  if (editor.type === "summary") return null;
+  if (editor.type === "server-onboarding") {
+    return (
+      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
+        <div className="mb-4 flex items-start justify-between gap-3">
+          <div>
+            <h3 className="text-[17px] font-[760]">Add Server</h3>
+            <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">Register a real local downloader agent</p>
+          </div>
+          <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
+        </div>
+        <ServerOnboardingForm state={state} actions={actions} />
+      </aside>
+    );
+  }
+  const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
+  const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
+  const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
+  const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
+  return (
+    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record, editor)}</h3>
+          <p className="mt-0.5 text-[12px] text-[var(--ptg-on-surface-variant)]">{editor.type.includes("secret") ? "Global resource pool" : state.selectedMachine?.machineId || "No machine"}</p>
+        </div>
+        <IconButton icon="close" label="Close" onClick={() => actions.setEditor({ type: "summary" })} />
+      </div>
+      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} /> : null}
+      {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
+      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
+    </aside>
+  );
+}
+
+function editorTitle(type, record, editor = {}) {
+  if (type === "new-config") return "Add Config";
+  if (type === "new-env") return "Add Env";
+  if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "Add Credential";
+  if (type === "server-onboarding") return "Add Server";
+  if (type === "new-secret") return "Add Secret";
+  if (type === "config") return record?.configId ? "Edit Config" : "Duplicate Config";
+  if (type === "env") return record?.envProfileId ? "Edit Env" : "Duplicate Env";
+  if (type === "secret" && record?.secretType === "credential") return "Edit Credential";
+  if (type === "secret") return "Edit Secret";
+  return "Editor";
+}
+
+function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
+  const selected = new Set(selectedTemplateIds);
+  return (
+    <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Config Types</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length} templates from root configs</p>
+        </div>
+        <div className="flex gap-1.5">
+          <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>All</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onChange([])}>Clear</AppButton>
+        </div>
+      </div>
+      <div className="ptg-scrollbar grid max-h-72 gap-2 overflow-auto pr-1">
+        {templates.map((template) => {
+          const checked = selected.has(template.id);
+          return (
+            <label
+              key={template.id}
+              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-white p-2.5 ${
+                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
+              }`}
+            >
+              <input
+                checked={checked}
+                className="sr-only"
+                name="templateIds"
+                onChange={(event) => {
+                  const next = event.target.checked
+                    ? [...selectedTemplateIds, template.id]
+                    : selectedTemplateIds.filter((id) => id !== template.id);
+                  onChange(next);
+                }}
+                type="checkbox"
+                value={template.id}
+              />
+              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[12.5px] font-[780]">{template.label}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                  {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+                </small>
+              </span>
+            </label>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines, onServerChange, onSplitChange }) {
+  const selected = new Set(selectedMachineIds);
+  const splitEnabled = selectedMachineIds.length > 1;
+  return (
+    <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Servers</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{selected.size}/{machines.length} assigned</p>
+        </div>
+        <div className="flex gap-1.5">
+          <AppButton type="button" icon="servers" onClick={() => onServerChange(machines.map((machine) => machine.machineId))}>All</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onServerChange([])}>Clear</AppButton>
+        </div>
+      </div>
+      <div className="ptg-scrollbar grid max-h-44 gap-2 overflow-auto pr-1">
+        {machines.length ? machines.map((machine) => {
+          const checked = selected.has(machine.machineId);
+          return (
+            <label
+              key={machine.machineId}
+              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-[var(--ptg-background)] p-2.5 ${
+                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
+              }`}
+            >
+              <input
+                checked={checked}
+                className="sr-only"
+                name="machineIds"
+                onChange={(event) => {
+                  const next = event.target.checked
+                    ? [...selectedMachineIds, machine.machineId]
+                    : selectedMachineIds.filter((id) => id !== machine.machineId);
+                  onServerChange(next);
+                  if (next.length < 2) onSplitChange(false);
+                }}
+                type="checkbox"
+                value={machine.machineId}
+              />
+              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+                <Icon name="servers" className="h-4 w-4" />
+              </span>
+              <span className="min-w-0">
+                <strong className="block truncate text-[12.5px] font-[780]">{machine.displayName || machine.machineId}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{machine.machineId} | {machine.status}</small>
+              </span>
+            </label>
+          );
+        }) : <EmptyLine>No registered servers</EmptyLine>}
+      </div>
+      <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-[700] ${
+        splitEnabled ? "border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary-dark)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)] text-[var(--ptg-on-surface-variant)]"
+      }`}>
+        <input
+          checked={splitEnabled && splitAcrossMachines}
+          disabled={!splitEnabled}
+          name="splitAcrossMachines"
+          onChange={(event) => onSplitChange(event.target.checked)}
+          type="checkbox"
+        />
+        Split ranges across selected servers
+      </label>
+    </section>
+  );
+}
+
+function ConfigForm({ record, state, actions }) {
+  const config = record?.config || SAMPLE_CONFIG;
+  const id = record?.configId || "";
+  const canUseTemplates = !id && !record?.config;
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
+  const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
+  const templates = state.configTemplates || [];
+  const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
+  const defaultActive = record?.active ?? !id;
+  return (
+    <form className="grid gap-3" onSubmit={(event) => {
+      event.preventDefault();
+      actions.saveConfig(new FormData(event.currentTarget), id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+    }}>
+      <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
+      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={defaultActive} /> Active</label>
+      {!id ? (
+        <ConfigServerPicker
+          machines={state.machines}
+          selectedMachineIds={selectedMachineIds}
+          splitAcrossMachines={splitAcrossMachines}
+          onServerChange={setSelectedMachineIds}
+          onSplitChange={setSplitAcrossMachines}
+        />
+      ) : null}
+      {canUseTemplates && templates.length ? (
+        <ConfigTemplatePicker
+          templates={templates}
+          selectedTemplateIds={selectedTemplateIds}
+          onChange={setSelectedTemplateIds}
+        />
+      ) : null}
+      {templateMode ? (
+        <div className="rounded-lg border border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
+          {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs.
+        </div>
+      ) : (
+        <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
+      )}
+      <div className="flex flex-wrap gap-2">
+        <AppButton variant="filled" icon="check" type="submit">{templateMode ? `Create ${selectedTemplateIds.length}` : "Save Config"}</AppButton>
+        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+      </div>
+    </form>
+  );
+}
+
+function EnvForm({ record, actions }) {
+  const env = record?.env || { TILE_DOWNLOADER_MAX_CONCURRENCY: 64 };
+  const id = record?.envProfileId || "";
+  return (
+    <form className="grid gap-3" onSubmit={(event) => {
+      event.preventDefault();
+      actions.saveEnv(new FormData(event.currentTarget), id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+    }}>
+      <TextInput label="Name" name="name" defaultValue={record?.name || "default"} required />
+      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={record?.active || !id} /> Active</label>
+      <TextArea label="Env JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
+      <div className="flex flex-wrap gap-2">
+        <AppButton variant="filled" icon="check" type="submit">Save Env</AppButton>
+        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("env", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+      </div>
+    </form>
+  );
+}
+
+function SecretForm({ record, editor, actions }) {
+  const id = record?.secretId || "";
+  const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
+  const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
+  const credential = record?.credential || {};
+  const isCredential = selectedSecretType === "credential";
+  return (
+    <form className="grid gap-3" onSubmit={(event) => {
+      event.preventDefault();
+      actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+    }}>
+      <input type="hidden" name="machineId" value={record?.machineId || ""} />
+      {id ? <input type="hidden" name="secretType" value={selectedSecretType} /> : null}
+      <SelectInput
+        label="Type"
+        name="secretType"
+        value={selectedSecretType}
+        disabled={Boolean(id)}
+        onChange={(event) => setSelectedSecretType(event.target.value)}
+      >
+        {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+      </SelectInput>
+      <TextInput label={isCredential ? "Protocol Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Storj" : "primary"} />
+      <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
+        {SECRET_STATUSES.map((status) => <option key={status} value={status}>{status}</option>)}
+      </SelectInput>
+      {isCredential ? (
+        <>
+          <input type="hidden" name="existingCredentialProtocolUrl" value={credential.protocolUrl || ""} />
+          <input type="hidden" name="existingCredentialUsername" value={credential.username || ""} />
+          <TextInput
+            label="Protocol URL"
+            name="credentialProtocolUrl"
+            type="url"
+            defaultValue={credential.protocolUrl || ""}
+            placeholder="https://dashboard.example.com"
+            required
+          />
+          <TextInput
+            label="Username"
+            name="credentialUsername"
+            defaultValue={credential.username || ""}
+            placeholder="name@example.com"
+            autoComplete="username"
+            required
+          />
+          <TextInput
+            label="Password"
+            name="credentialPassword"
+            type="password"
+            autoComplete="new-password"
+            placeholder={id ? "Leave blank to keep current password" : "Password"}
+            required={!id}
+          />
+        </>
+      ) : (
+        <TextArea
+          label="Value"
+          name="value"
+          spellCheck="false"
+          placeholder={id ? "Leave blank to keep current value" : selectedSecretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
+        />
+      )}
+      <div className="flex flex-wrap gap-2">
+        <AppButton variant="filled" icon="check" type="submit">{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
+        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+      </div>
+    </form>
+  );
+}
