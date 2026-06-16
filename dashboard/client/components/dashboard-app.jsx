@@ -18,13 +18,13 @@ const COMMANDS = [
 const TABS = [
   ["overview", "Overview", "overview"],
   ["servers", "Servers", "servers"],
+  ["configs", "Configs", "config"],
+  ["pipelines", "Pipelines", "pipelines"],
   ["secrets", "Secrets", "secrets"],
   ["credentials", "Credentials", "credentials"],
-  ["settings", "Settings", "settings"],
-  ["pipelines", "Pipelines", "pipelines"],
-  ["configs", "Configs", "config"],
   ["events", "Events", "console"],
   ["alerts", "Alerts", "alerts"],
+  ["settings", "Settings", "settings"],
 ];
 
 const PAGE_META = {
@@ -455,39 +455,57 @@ function Rail({ state, actions }) {
     if (tab === "configs") return state.configTemplates.length || state.globalConfigs.length || state.configs.length;
     return null;
   };
-  const shortLabel = (label) => label.length > 7 ? label.slice(0, 4) : label;
   return (
-    <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col items-center gap-4 overflow-auto border-r border-[var(--ptg-rail-outline)] px-2 py-3 text-[var(--ptg-rail-text)] max-md:h-auto max-md:flex-row max-md:gap-2 max-md:border-b max-md:border-r-0 max-md:px-3 max-md:py-2">
-      <section className="flex min-h-12 w-full items-center justify-center border-b border-[var(--ptg-rail-outline)] pb-3 max-md:w-auto max-md:min-w-12 max-md:border-b-0 max-md:pb-0">
+    <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto max-md:flex-row max-md:items-center max-md:gap-3 max-md:overflow-x-auto max-md:border-b max-md:border-r-0 max-md:px-4 max-md:py-3">
+      <section className="flex min-h-[60px] items-center gap-3 border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[190px] max-md:border-b-0 max-md:pb-0">
         <LogoMark />
+        <div className="min-w-0">
+          <strong className="block truncate text-[18px] font-[900] leading-tight text-white">PTG</strong>
+          <span className="mt-0.5 block truncate text-[12px] font-[600] leading-tight text-[var(--ptg-rail-muted)]">Management Dashboard</span>
+        </div>
       </section>
 
-      <nav className="grid w-full gap-2 max-md:flex max-md:w-auto max-md:min-w-max max-md:gap-2" aria-label="Dashboard sections">
+      <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="Dashboard sections">
         {TABS.map(([tab, label, icon]) => {
           const count = navCount(tab);
           return (
             <button
               key={tab}
-              aria-label={label}
               title={label}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer relative flex min-h-[62px] flex-col items-center justify-center gap-1 rounded-2xl border px-1.5 text-center text-[10px] font-[760] max-md:min-h-12 max-md:w-16 ${
+              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] border px-3 text-left text-[14px] font-[760] max-md:min-w-[130px] ${
                 state.selectedTab === tab
-                  ? "border-[rgba(186,122,255,0.35)] bg-[linear-gradient(180deg,rgba(163,51,246,0.28),rgba(30,41,59,0.72))] text-white shadow-[inset_3px_0_0_#a333f6,0_14px_30px_rgba(6,10,26,0.26)]"
+                  ? "border-[rgba(30,132,255,0.58)] bg-[linear-gradient(90deg,rgba(11,115,246,0.36),rgba(11,115,246,0.12))] text-white shadow-[inset_3px_0_0_#0b73f6,0_14px_28px_rgba(0,10,24,0.28)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
               }`}
             >
-              <Icon name={icon} className={`h-[21px] w-[21px] ${state.selectedTab === tab ? "text-[#bf7fff]" : ""}`} />
-              <span className="max-w-full truncate">{shortLabel(label)}</span>
-              {count === null ? null : <strong className="absolute right-1.5 top-1.5 grid h-5 min-w-5 place-items-center rounded-full bg-[#2c374d] px-1 text-[9px] text-[#eaf1ff]">{count}</strong>}
+              <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[#7ec7ff]" : ""}`} />
+              <span className="truncate">{label}</span>
+              {count === null ? null : <strong className="grid h-6 min-w-6 place-items-center rounded-full bg-[rgba(255,255,255,0.11)] px-1.5 text-[11px] text-[#eaf1ff]">{count}</strong>}
             </button>
           );
         })}
       </nav>
 
-      <section className="mt-auto grid h-11 w-11 place-items-center rounded-2xl border border-[var(--ptg-rail-outline)] bg-[rgba(255,255,255,0.04)] max-md:mt-0 max-md:min-w-11" title={overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Attention required" : "All systems operational"}>
-        <Icon name="control" className="h-5 w-5 text-[var(--ptg-success)]" />
+      <section className="mt-auto border-t border-[var(--ptg-rail-outline)] pt-5 max-md:ml-auto max-md:mt-0 max-md:border-l max-md:border-t-0 max-md:pl-4 max-md:pt-0">
+        <div className="mb-4 rounded-[10px] border border-[var(--ptg-rail-outline)] bg-[rgba(255,255,255,0.04)] p-3 max-md:hidden">
+          <div className="flex items-center justify-between gap-3">
+            <strong className="text-[12px] font-[850] text-white">System Status</strong>
+            <Icon name="control" className={`h-5 w-5 ${overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-success)]"}`} />
+          </div>
+          <p className="mt-1 text-[11px] font-[600] text-[var(--ptg-rail-muted)]">
+            {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Needs attention" : "All systems operational"}
+          </p>
+        </div>
+        <button type="button" className="state-layer grid w-full grid-cols-[36px_minmax(0,1fr)_14px] items-center gap-3 rounded-[12px] px-2 py-2 text-left text-white hover:bg-[rgba(255,255,255,0.06)] max-md:min-w-[150px]">
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--ptg-primary)] text-[13px] font-[850]">AD</span>
+          <span className="min-w-0">
+            <strong className="block truncate text-[13px] font-[850]">Admin</strong>
+            <small className="block truncate text-[11px] font-[600] text-[var(--ptg-rail-muted)]">Administrator</small>
+          </span>
+          <Icon name="close" className="h-3.5 w-3.5 rotate-45 text-[var(--ptg-rail-muted)]" />
+        </button>
       </section>
     </aside>
   );
@@ -497,37 +515,42 @@ function Header({ state, actions }) {
   const online = state.machines.filter((machine) => machine.status === "online").length;
   const [title, subtitle] = PAGE_META[state.selectedTab] || PAGE_META.overview;
   const alerts = buildOverviewModel(fleetState(state)).resourceAlerts.length;
+  const lastSeen = state.globalEvents[0]?.createdAt || state.events[0]?.createdAt;
   return (
-    <header className="sticky top-0 z-10 -mx-6 -mt-5 border-b border-[var(--ptg-outline)] bg-[#1d2736]/96 px-6 py-3 backdrop-blur-xl max-md:-mx-4 max-md:-mt-4 max-md:px-4">
-      <div className="grid grid-cols-[minmax(280px,450px)_minmax(0,1fr)_auto] items-center gap-4 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
-        <label className="relative block">
+    <header className="sticky top-0 z-10 border-b border-[var(--ptg-outline)] bg-white/90 px-6 py-5 backdrop-blur-xl max-md:px-4">
+      <div className="grid grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_auto] items-center gap-5 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <h1 className="truncate text-[24px] font-[900] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
+            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
+          </div>
+          <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
+        </div>
+        <label className="relative block max-xl:hidden">
           <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
           <input
             type="search"
-            placeholder="Search..."
-            className="h-10 w-full rounded-[20px] border border-[rgba(255,255,255,0.10)] bg-[#111927] pl-11 pr-12 text-[13px] font-[650] text-white shadow-[inset_0_0_0_1px_rgba(255,255,255,0.02)] focus:border-[rgba(186,122,255,0.46)] focus:shadow-[0_0_0_3px_rgba(163,51,246,0.16)]"
+            placeholder="Search servers, configs, events..."
+            className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)]"
           />
-          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘K</kbd>
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
         </label>
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center justify-end gap-2 max-xl:hidden">
-            <h2 className="truncate text-[12px] font-[800] uppercase tracking-[0.08em] text-[var(--ptg-on-surface-variant)]">{title}</h2>
-            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
-          </div>
-          <p className="mt-1 truncate text-right text-[11.5px] font-[600] text-[var(--ptg-on-surface-variant)] max-xl:hidden">{subtitle}</p>
-        </div>
         <div className="flex items-center justify-end gap-2 max-md:justify-between">
+          <span className="hidden items-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex">
+            <span>Last updated:</span>
+            <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "Waiting"}</strong>
+          </span>
           <IconButton icon="command" label="Command palette" />
           <span className="relative">
             <IconButton icon="bell" label="Notifications" />
             {alerts ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--ptg-primary)] px-1 text-[9px] font-[800] text-white">{alerts}</span> : null}
           </span>
           <IconButton
-            icon="sync"
+            icon="refresh"
             label="Refresh dashboard"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
-          <button type="button" className="state-layer ml-1 grid h-11 grid-cols-[32px_minmax(0,1fr)_12px] items-center gap-2 rounded-2xl border border-[var(--ptg-outline)] bg-[rgba(20,28,42,0.76)] px-2.5 text-left shadow-[0_1px_2px_rgba(15,23,42,0.16)]">
+          <button type="button" className="state-layer ml-1 grid h-11 grid-cols-[32px_minmax(0,1fr)_12px] items-center gap-2 rounded-[12px] border border-[var(--ptg-outline)] bg-white px-2.5 text-left shadow-[0_1px_2px_rgba(10,26,51,0.05)]">
             <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
             <span className="min-w-0 max-md:hidden">
               <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
@@ -538,20 +561,6 @@ function Header({ state, actions }) {
         </div>
       </div>
     </header>
-  );
-}
-
-function Stats({ state }) {
-  const online = state.machines.filter((machine) => machine.status === "online").length;
-  const failures = state.events.filter((event) => event.severity === "error").length;
-  const latest = state.events.at(-1);
-  return (
-    <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
-      <MetricCard icon="servers" label="Servers Online" value={`${online}/${state.machines.length}`} />
-      <MetricCard icon="speed" label="Selected Server" value={state.selectedMachine?.displayName || state.selectedMachine?.machineId || "None"} />
-      <MetricCard icon="layers" label="Active Config" value={state.activeConfig?.name || "None"} />
-      <MetricCard icon={failures ? "warning" : "control"} label="Latest Event" value={latest?.severity || (failures ? `${failures} errors` : "Idle")} />
-    </section>
   );
 }
 
@@ -592,61 +601,16 @@ function pipelineTone(status) {
 
 function InsightCard({ icon, label, value, detail, tone = "primary" }) {
   return (
-    <Surface className={`ptg-metric-tile min-h-[128px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
-      <div className="flex items-start justify-between gap-3">
-        <span className="ptg-icon-well inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-2xl">
+    <Surface className={`ptg-metric-tile min-h-[112px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+      <div className="flex items-start gap-3">
+        <span className={`ptg-icon-well inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] ${tone === "danger" ? "red" : tone === "warn" ? "amber" : tone === "primary" ? "" : ""}`}>
           <Icon name={icon} className="h-5 w-5" />
         </span>
-        <span className="rounded-full border border-white/10 bg-white/5 px-2 py-1 text-[10px] font-[800] uppercase text-[var(--ptg-on-surface-variant)] shadow-[0_1px_1px_rgba(15,23,42,0.18)]">
-          Live
+        <span className="min-w-0">
+          <span className="block truncate text-[11px] font-[800] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
+          <strong className="mt-2 block truncate text-[26px] font-[900] leading-none text-[var(--ptg-on-surface)]">{value}</strong>
+          <p className={`mt-2 truncate text-[11.5px] font-[700] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
         </span>
-      </div>
-      <span className="mt-4 block text-[11px] font-[800] uppercase leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
-      <strong className="mt-2 block truncate text-[30px] font-[850] leading-none tracking-[-0.02em] text-[var(--ptg-on-surface)]">{value}</strong>
-      <p className="mt-2 truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{detail}</p>
-    </Surface>
-  );
-}
-
-function OverviewHero({ state, overview, actions }) {
-  const latest = overview.recentEvents[0];
-  return (
-    <Surface className="ptg-hero-panel overflow-hidden border-[rgba(255,255,255,0.16)] p-0 shadow-[0_22px_70px_rgba(112,32,225,0.26)]">
-      <div className="grid min-h-[286px] grid-cols-[minmax(0,1fr)_392px] gap-5 p-8 max-xl:grid-cols-1 max-sm:p-5">
-        <div className="min-w-0">
-          <span className="inline-flex items-center gap-2 rounded-full border border-white/15 bg-[#1d2736]/72 px-3 py-1 text-[11px] font-[820] text-white shadow-[0_10px_24px_rgba(5,8,18,0.18)]">
-            <span className="h-1.5 w-1.5 rounded-full bg-[var(--ptg-success)] shadow-[0_0_12px_var(--ptg-success)]" />
-            PTG distributed downloader
-          </span>
-          <h3 className="mt-5 max-w-[800px] text-[34px] font-[850] leading-[1.02] tracking-[-0.04em] text-white max-lg:text-[28px]">
-            Coordinate range downloads, validation, zip, and Storj upload from one console.
-          </h3>
-          <p className="mt-4 max-w-[680px] text-[14px] font-[600] leading-6 text-white/78">
-            {state.machines.length
-              ? `${state.machines.length} registered server${state.machines.length === 1 ? "" : "s"} with ${overview.resourceAlerts.length} active pool alert${overview.resourceAlerts.length === 1 ? "" : "s"}.`
-              : "Waiting for local agents to register with the dashboard."}
-          </p>
-          <div className="mt-6 flex flex-wrap gap-3">
-            <AppButton variant="filled" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Fleet</AppButton>
-            <AppButton icon="config" onClick={() => actions.setSelectedTab("configs")}>Manage Configs</AppButton>
-            <AppButton icon="alerts" onClick={() => actions.setSelectedTab("alerts")}>Review Alerts</AppButton>
-          </div>
-        </div>
-        <div className="grid gap-3 self-start rounded-[20px] border border-white/12 bg-[#202838]/86 p-4 shadow-[0_18px_50px_rgba(5,8,18,0.24)]">
-          <div className="flex items-center justify-between gap-3">
-            <div>
-              <span className="block text-[11px] font-[820] uppercase text-white/55">Latest Signal</span>
-              <strong className="mt-1 block truncate text-[18px] font-[850] text-white">{latest?.type || "No events yet"}</strong>
-            </div>
-            <span className={`ptg-event-dot ${latest?.severity === "error" ? "bg-[var(--ptg-error)]" : latest?.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
-          </div>
-          <p className="min-h-11 text-[12.5px] font-[620] leading-5 text-white/68">{latest?.message || "Dashboard event stream will appear here once agents start reporting work."}</p>
-          <div className="grid grid-cols-3 gap-2">
-            <MiniMetric label="Disk Peak" value={`${overview.diskPressure}%`} />
-            <MiniMetric label="Ranges" value={overview.activeRanges.length} />
-            <MiniMetric label="Events" value={state.globalEvents?.length || state.events.length} />
-          </div>
-        </div>
       </div>
     </Surface>
   );
@@ -654,8 +618,8 @@ function OverviewHero({ state, overview, actions }) {
 
 function MiniMetric({ label, value }) {
   return (
-    <span className="rounded-2xl border border-white/10 bg-white/5 px-3 py-2">
-      <small className="block truncate text-[10.5px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">{label}</small>
+    <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2">
+      <small className="block truncate text-[10.5px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</small>
       <strong className="mt-1 block truncate text-[16px] font-[850] leading-none">{value}</strong>
     </span>
   );
@@ -663,26 +627,26 @@ function MiniMetric({ label, value }) {
 
 function PipelineOverview({ overview }) {
   return (
-    <Surface className="min-h-[278px] p-4">
-      <SectionTitle title="Workflow Timeline" meta="Download -> Validate -> Zip -> Storj upload" />
-      <div className="grid gap-3">
+    <Surface className="p-4">
+      <SectionTitle title="Live Pipeline Progress" meta="All active ranges" />
+      <div className="grid grid-cols-4 gap-5 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {overview.pipeline.map((step, index) => {
           const tone = pipelineTone(step.status);
           return (
-            <div key={step.key} className="grid grid-cols-[34px_minmax(0,1fr)_58px] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
-              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-lg ${tone === "success" ? "bg-[#e7f8f1] text-[var(--ptg-success)]" : tone === "danger" ? "bg-[#fff0f3] text-[var(--ptg-error)]" : tone === "primary" ? "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]" : "bg-[var(--ptg-surface-container)] text-[var(--ptg-on-surface-variant)]"}`}>
+            <div key={step.key} className="relative min-w-0">
+              <div className="flex items-center gap-3">
+                <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${tone === "success" ? "bg-[var(--ptg-success)] text-white" : tone === "danger" ? "bg-[var(--ptg-error)] text-white" : tone === "primary" ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-surface-container-high)] text-[var(--ptg-on-surface-variant)]"}`}>
                 <Icon name={STEP_ICONS[step.key] || "pipelines"} className="h-4 w-4" />
               </span>
-              <div className="min-w-0">
-                <div className="flex min-w-0 items-center justify-between gap-3">
-                  <strong className="truncate text-[13px] font-[820]">{index + 1}. {step.label}</strong>
-                  <StatusPill status={tone === "primary" ? "busy" : tone}>{step.status}</StatusPill>
-                </div>
-                <span className="mt-2 block h-1.5 overflow-hidden rounded-full bg-[var(--ptg-surface-container-high)]">
+                <span className="h-[3px] flex-1 rounded-full bg-[#d9e3f0]">
                   <span className={`block h-full rounded-full ${tone === "success" ? "bg-[var(--ptg-success)]" : tone === "danger" ? "bg-[var(--ptg-error)]" : "bg-[var(--ptg-primary)]"}`} style={{ width: `${step.progress}%` }} />
                 </span>
               </div>
-              <strong className="text-right text-[12px] font-[820] text-[var(--ptg-on-surface-variant)]">{step.progress}%</strong>
+              <div className="mt-3 min-w-0 pl-[2px]">
+                <strong className="block truncate text-[13px] font-[850]">{index + 1}. {step.label}</strong>
+                <strong className={`mt-3 block text-[21px] font-[900] leading-none ${tone === "success" ? "text-[var(--ptg-success)]" : tone === "danger" ? "text-[var(--ptg-error)]" : "text-[var(--ptg-primary)]"}`}>{step.progress}%</strong>
+                <p className="mt-2 truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{step.status === "running" ? "In progress" : step.status}</p>
+              </div>
             </div>
           );
         })}
@@ -811,6 +775,94 @@ function ResourceAlertsCard({ overview, actions }) {
   );
 }
 
+function SelectedServerSummary({ state, actions }) {
+  const machine = state.selectedMachine || state.machines[0] || null;
+  if (!machine) {
+    return (
+      <Surface className="grid min-h-[174px] place-items-center p-5 text-center">
+        <div>
+          <span className="ptg-icon-well mx-auto inline-flex h-12 w-12 items-center justify-center rounded-[12px]">
+            <Icon name="servers" className="h-6 w-6" />
+          </span>
+          <h3 className="mt-4 text-[16px] font-[850]">Waiting for servers</h3>
+          <p className="mx-auto mt-2 max-w-[260px] text-[12px] font-[600] leading-5 text-[var(--ptg-on-surface-variant)]">
+            Add a server connection, then start the local downloader agent with the same machine ID.
+          </p>
+          <AppButton className="mt-4" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>
+        </div>
+      </Surface>
+    );
+  }
+  const diskPeak = diskPeakForMachine(machine);
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Selected Server" action={<button type="button" className="text-[12px] font-[800] text-[var(--ptg-primary)]" onClick={() => actions.setSelectedTab("servers")}>Change</button>} />
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="h-2.5 w-2.5 rounded-full bg-[var(--ptg-success)]" />
+            <strong className="truncate text-[18px] font-[900]">{machine.displayName || machine.machineId}</strong>
+            <StatusPill status={statusKind(machine.status)}>{machine.status}</StatusPill>
+          </div>
+          <p className="mt-2 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
+        </div>
+        <IconButton icon="more" label="Server actions" />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3 border-t border-[var(--ptg-outline)] pt-4">
+        <MiniFact label="Platform" value={machine.platform || "unknown"} />
+        <MiniFact label="Last Seen" value={shortDate(machine.lastSeenAt)} />
+        <MiniFact label="Disk" value={`${diskPeak}%`} />
+      </div>
+      <div className="mt-4 grid grid-cols-3 gap-3 border-t border-[var(--ptg-outline)] pt-4">
+        <MiniFact label="CPU" value="--" />
+        <MiniFact label="RAM" value="--" />
+        <div className="min-w-0">
+          <span className="block text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]">Disk Usage</span>
+          <UsageBar percent={diskPeak} className="mt-3 w-full" />
+        </div>
+      </div>
+    </Surface>
+  );
+}
+
+function QuickActionsCard({ actions }) {
+  const items = [
+    ["console", "Run Command", () => actions.setSelectedTab("events")],
+    ["pause", "Pause All", () => actions.setNotice({ message: "Pause command requires a selected server", kind: "error" })],
+    ["refresh", "Sync Config", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
+    ["pipelines", "View Pipelines", () => actions.setSelectedTab("pipelines")],
+    ["events", "View Logs", () => actions.setSelectedTab("events")],
+    ["alerts", "Add Alert", () => actions.setSelectedTab("alerts")],
+  ];
+  return (
+    <Surface className="p-4">
+      <SectionTitle title="Quick Actions" />
+      <div className="grid grid-cols-2 gap-2">
+        {items.map(([icon, label, onClick]) => (
+          <button
+            key={label}
+            type="button"
+            onClick={onClick}
+            className="state-layer inline-flex min-h-11 items-center justify-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 text-[12px] font-[760] text-[var(--ptg-on-surface)] hover:border-[var(--ptg-outline-strong)] hover:text-[var(--ptg-primary)]"
+          >
+            <Icon name={icon} className="h-4 w-4 text-[var(--ptg-primary)]" />
+            <span className="truncate">{label}</span>
+          </button>
+        ))}
+      </div>
+    </Surface>
+  );
+}
+
+function MiniFact({ label, value }) {
+  return (
+    <span className="min-w-0">
+      <small className="block truncate text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]">{label}</small>
+      <strong className="mt-1 block truncate text-[13px] font-[850]">{value}</strong>
+    </span>
+  );
+}
+
 function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
   const visible = events.slice(0, limit);
   return (
@@ -845,9 +897,8 @@ function machineNameForId(state, machineId) {
 function OverviewDashboard({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
   return (
-    <section className="screen-enter mt-4 grid gap-4">
-      <OverviewHero state={state} overview={overview} actions={actions} />
-      <section className="ptg-card-grid gap-3">
+    <section className="screen-enter grid gap-4">
+      <section className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         {KPI_CARDS.map(([key, icon]) => {
           const metric = overview.kpis[key];
           return (
@@ -862,17 +913,21 @@ function OverviewDashboard({ state, actions }) {
           );
         })}
       </section>
-      <section className="grid grid-cols-[minmax(0,1.1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
-        <PipelineOverview overview={overview} />
-        <FleetHealthCard overview={overview} />
-      </section>
-      <section className="grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
-        <DiskCapacityCard state={state} />
-        <ResourceAlertsCard overview={overview} actions={actions} />
-      </section>
-      <section className="grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
-        <ActiveRangesCard overview={overview} />
-        <EventStreamCard events={overview.recentEvents} />
+      <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-2xl:grid-cols-1">
+        <div className="grid gap-4">
+          <PipelineOverview overview={overview} />
+          <section className="grid grid-cols-[minmax(260px,0.7fr)_minmax(320px,0.85fr)_minmax(320px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
+            <FleetHealthCard overview={overview} />
+            <DiskCapacityCard state={state} />
+            <ResourceAlertsCard overview={overview} actions={actions} />
+          </section>
+          <ActiveRangesCard overview={overview} />
+        </div>
+        <div className="grid content-start gap-4">
+          <SelectedServerSummary state={state} actions={actions} />
+          <QuickActionsCard actions={actions} />
+          <EventStreamCard events={overview.recentEvents} title="Live Event Console" limit={7} />
+        </div>
       </section>
     </section>
   );
@@ -1171,7 +1226,7 @@ function ThresholdPreview({ icon, label, value, detail }) {
         </span>
         {label}
       </span>
-      <strong className="mt-3 block text-[20px] font-[800] leading-none tracking-[-0.02em]">{value}</strong>
+      <strong className="mt-3 block text-[20px] font-[800] leading-none">{value}</strong>
       <p className="mt-2 text-[11.5px] font-[500] leading-snug text-[var(--ptg-on-surface-variant)]">{detail}</p>
     </div>
   );
@@ -1187,13 +1242,13 @@ function SettingsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-4 grid gap-3">
       <Surface className="overflow-hidden p-0">
-        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[linear-gradient(135deg,rgba(163,51,246,0.20)_0%,rgba(27,36,52,0.96)_100%)] px-4 py-4 max-sm:grid-cols-1">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-4 py-4 max-sm:grid-cols-1">
           <div className="flex min-w-0 items-center gap-3">
-            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary)] text-white shadow-[0_10px_24px_rgba(18,103,216,0.20)]">
+            <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]">
               <Icon name="settings" className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-[17px] font-[800] leading-tight tracking-[-0.02em]">Alert Thresholds</h3>
+              <h3 className="text-[17px] font-[850] leading-tight">Alert Thresholds</h3>
               <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">Applied across {serverCount} connected servers</p>
             </div>
           </div>
@@ -1454,13 +1509,13 @@ function ServerPanel({ state, actions }) {
   const machine = state.selectedMachine;
   if (!machine) {
     return (
-      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-xl:hidden">
         <Surface className="grid min-h-[300px] place-items-center overflow-hidden bg-[linear-gradient(160deg,#ffffff_0%,#eef6ff_100%)] p-5 text-center text-[var(--ptg-on-surface-variant)]">
           <div>
             <span className="mx-auto inline-flex h-14 w-14 items-center justify-center rounded-2xl bg-white text-[var(--ptg-primary)] shadow-[0_14px_36px_rgba(6,109,234,0.14)]">
               <Icon name="servers" className="h-7 w-7" />
             </span>
-            <h3 className="mt-5 text-[16px] font-[850] tracking-[-0.02em] text-[var(--ptg-on-surface)]">Select a server</h3>
+            <h3 className="mt-5 text-[16px] font-[850] text-[var(--ptg-on-surface)]">Select a server</h3>
             <p className="mx-auto mt-2 max-w-[270px] text-[12.5px] font-[620] leading-5">Choose a row from Servers to control jobs, env, secrets, configs, and the live console.</p>
             <AppButton className="mt-5" icon="servers" onClick={() => actions.setSelectedTab("servers")}>Open Servers</AppButton>
           </div>
@@ -1475,12 +1530,15 @@ function ServerPanel({ state, actions }) {
     console: state.events.length,
   };
   return (
-    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433]/96 p-4 backdrop-blur-xl max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
-      <header className="overflow-hidden rounded-[20px] border border-[var(--ptg-outline)] bg-[linear-gradient(145deg,rgba(163,51,246,0.20),rgba(27,36,52,0.96))] p-4 shadow-[var(--ptg-shadow-1)]">
+    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white/92 p-4 backdrop-blur-xl max-xl:hidden">
+      <header className="overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-1)]">
         <div className="flex items-start justify-between gap-3">
-          <div className="min-w-0">
-            <h2 className="truncate text-[17px] font-[850] leading-tight tracking-[-0.02em]">{machine.displayName || machine.machineId}</h2>
-            <p className="mt-0.5 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
+          <span className="ptg-icon-well inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-[12px]">
+            <Icon name="servers" className="h-6 w-6" />
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 className="truncate text-[20px] font-[900] leading-tight">{machine.displayName || machine.machineId}</h2>
+            <p className="mt-1 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</p>
           </div>
           <StatusPill status={statusKind(machine.status)}>{machine.status}</StatusPill>
         </div>
@@ -1490,7 +1548,7 @@ function ServerPanel({ state, actions }) {
         </div>
       </header>
 
-      <div className="grid grid-cols-2 gap-2 py-4">
+      <div className="grid grid-cols-3 gap-2 py-4">
         {COMMANDS.map(([type, label, icon]) => (
           <AppButton
             key={type}
@@ -1504,14 +1562,14 @@ function ServerPanel({ state, actions }) {
         ))}
       </div>
 
-      <nav className="grid grid-cols-5 gap-1 rounded-[18px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
+      <nav className="grid grid-cols-5 gap-1 rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="Selected server sections">
         {SERVER_TABS.map(([tab, label, icon]) => (
           <button
             key={tab}
             type="button"
             onClick={() => actions.setSelectedServerTab(tab)}
-            className={`state-layer flex min-h-8 items-center justify-center gap-1 rounded-lg px-1 text-[10px] font-[760] ${
-              state.selectedServerTab === tab ? "bg-[rgba(255,255,255,0.10)] text-[var(--ptg-on-surface)] shadow-[0_1px_3px_rgba(20,31,37,0.22)]" : "text-[var(--ptg-on-surface-variant)]"
+            className={`state-layer flex min-h-9 items-center justify-center gap-1 rounded-[8px] px-1 text-[10px] font-[760] ${
+              state.selectedServerTab === tab ? "bg-white text-[var(--ptg-primary)] shadow-[0_1px_3px_rgba(20,31,37,0.10)]" : "text-[var(--ptg-on-surface-variant)]"
             }`}
           >
             <Icon name={icon} className={`h-3.5 w-3.5 ${state.selectedServerTab === tab ? "text-[var(--ptg-secondary)]" : ""}`} />
@@ -1681,18 +1739,18 @@ function ServerOnboardingForm({ state, actions }) {
 
   return (
     <section className="grid gap-4">
-      <div className="rounded-[20px] border border-[var(--ptg-outline)] bg-[linear-gradient(145deg,rgba(163,51,246,0.20),rgba(27,36,52,0.96))] p-4">
+      <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-4">
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
-        <h4 className="mt-3 text-[15px] font-[850] tracking-[-0.02em]">Server control uses the local agent</h4>
+        <h4 className="mt-3 text-[15px] font-[850]">Server control uses the local agent</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
           Save the remote login for inventory and reachability checks. Dashboard operations start after the same machine ID is online through `npm run agent`.
         </p>
       </div>
 
       <form
-        className="grid gap-3 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-3"
+        className="grid gap-3 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3"
         onSubmit={(event) => {
           event.preventDefault();
           actions.saveServerConnection(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
@@ -1726,7 +1784,7 @@ function ServerOnboardingForm({ state, actions }) {
           <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">macOS / Linux</h4>
           <AppButton icon="copy" onClick={() => copy(onboarding.command)}>Copy</AppButton>
         </div>
-        <pre className="ptg-scrollbar overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{onboarding.command}</pre>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{onboarding.command}</pre>
       </section>
 
       <section className="grid gap-2">
@@ -1734,10 +1792,10 @@ function ServerOnboardingForm({ state, actions }) {
           <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows PowerShell</h4>
           <AppButton icon="copy" onClick={() => copy(powershellCommand)}>Copy</AppButton>
         </div>
-        <pre className="ptg-scrollbar overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{powershellCommand}</pre>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{powershellCommand}</pre>
       </section>
 
-      <div className="rounded-lg border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
+      <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
         If a machine ID is reused while another live agent owns it, registration is rejected as a conflict.
       </div>
     </section>
@@ -1749,7 +1807,7 @@ function EditorDrawer({ state, actions }) {
   if (editor.type === "summary") return null;
   if (editor.type === "server-onboarding") {
     return (
-      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433] p-4 shadow-[var(--ptg-shadow-2)]">
+      <aside className="fixed right-0 top-0 z-20 h-screen w-[min(430px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
         <div className="mb-4 flex items-start justify-between gap-3">
           <div>
             <h3 className="text-[17px] font-[760]">Add Server</h3>
@@ -1766,7 +1824,7 @@ function EditorDrawer({ state, actions }) {
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
-    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#1b2433] p-4 shadow-[var(--ptg-shadow-2)]">
+    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record, editor)}</h3>
@@ -2056,30 +2114,32 @@ export default function DashboardApp() {
   const { state, actions } = useDashboardState();
   const hasServerPanel = Boolean(state.selectedMachine);
   return (
-    <main className={`ptg-dark-shell grid min-h-screen ${hasServerPanel ? "grid-cols-[80px_minmax(0,1fr)_372px] max-xl:grid-cols-[80px_minmax(0,1fr)_348px]" : "grid-cols-[80px_minmax(0,1fr)]"} bg-[var(--ptg-background)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`ptg-shell grid min-h-screen ${hasServerPanel ? "grid-cols-[244px_minmax(0,1fr)_410px] max-xl:grid-cols-[244px_minmax(0,1fr)]" : "grid-cols-[244px_minmax(0,1fr)]"} max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
-      <section className="min-w-0 overflow-hidden p-5 pl-6 max-md:p-4">
+      <section className="min-w-0 overflow-hidden">
         <Header state={state} actions={actions} />
-        <Notice notice={state.notice} />
-        {state.selectedTab === "settings" ? (
-          <SettingsDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "credentials" ? (
-          <CredentialsDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "secrets" ? (
-          <SecretsDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "servers" ? (
-          <ServersDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "pipelines" ? (
-          <PipelinesDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "configs" ? (
-          <ConfigsDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "events" ? (
-          <EventsDashboard state={state} actions={actions} />
-        ) : state.selectedTab === "alerts" ? (
-          <AlertsDashboard state={state} actions={actions} />
-        ) : (
-          <OverviewDashboard state={state} actions={actions} />
-        )}
+        <div className="px-6 pb-8 pt-5 max-md:px-4">
+          <Notice notice={state.notice} />
+          {state.selectedTab === "settings" ? (
+            <SettingsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "credentials" ? (
+            <CredentialsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "secrets" ? (
+            <SecretsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "servers" ? (
+            <ServersDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "pipelines" ? (
+            <PipelinesDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "configs" ? (
+            <ConfigsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "events" ? (
+            <EventsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "alerts" ? (
+            <AlertsDashboard state={state} actions={actions} />
+          ) : (
+            <OverviewDashboard state={state} actions={actions} />
+          )}
+        </div>
       </section>
       {hasServerPanel ? <ServerPanel state={state} actions={actions} /> : null}
       <EditorDrawer state={state} actions={actions} />

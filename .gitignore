@@ -7,6 +7,7 @@ proxy.txt
 /dashboard/node_modules
 /dashboard/src/client/dist
 /outputs
+/output
 /reports
 /download
 /archives

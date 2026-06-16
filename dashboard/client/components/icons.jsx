@@ -42,6 +42,13 @@ const paths = {
   search: [<circle key="a" cx="11" cy="11" r="6" />, <path key="b" d="m16 16 4 4" />],
   close: [<path key="a" d="M7 7l10 10M17 7 7 17" />],
   disk: [<path key="a" d="M5 6h14l2 8v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4l2-8Z" />, <path key="b" d="M6 14h12M8 17h.01M12 17h4" />],
+  home: [<path key="a" d="M4 11.5 12 5l8 6.5" />, <path key="b" d="M6.5 10.5V20h11v-9.5" />, <path key="c" d="M10 20v-5h4v5" />],
+  refresh: [<path key="a" d="M20 12a8 8 0 0 1-14.7 4.4" />, <path key="b" d="M4 17v-5h5" />, <path key="c" d="M4 12a8 8 0 0 1 14.7-4.4" />, <path key="d" d="M20 7v5h-5" />],
+  more: [<circle key="a" cx="6" cy="12" r="1.4" />, <circle key="b" cx="12" cy="12" r="1.4" />, <circle key="c" cx="18" cy="12" r="1.4" />],
+  filter: [<path key="a" d="M4 6h16l-6 7v5l-4 2v-7z" />],
+  upload: [<path key="a" d="M12 16V4" />, <path key="b" d="m7 9 5-5 5 5" />, <path key="c" d="M5 16v3h14v-3" />],
+  download: [<path key="a" d="M12 4v12" />, <path key="b" d="m7 11 5 5 5-5" />, <path key="c" d="M5 20h14" />],
+  clock: [<circle key="a" cx="12" cy="12" r="8" />, <path key="b" d="M12 8v5l3 2" />],
 };
 
 export function Icon({ name, className = "", decorative = true, title, ...props }) {
@@ -67,28 +74,28 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-11 w-11 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 64 64">
+    <svg aria-hidden="true" className="h-12 w-12 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 72 72">
       <defs>
-        <linearGradient id="ptg-mark-blue" x1="10" x2="48" y1="14" y2="50" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#34d5ff" />
-          <stop offset="1" stopColor="#0b7cff" />
-        </linearGradient>
-        <linearGradient id="ptg-mark-red" x1="8" x2="56" y1="22" y2="44" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#ff4c56" />
-          <stop offset="1" stopColor="#fb123b" />
+        <linearGradient id="ptg-logo-blue" x1="16" x2="52" y1="15" y2="55" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#24d7ff" />
+          <stop offset="0.55" stopColor="#0b73f6" />
+          <stop offset="1" stopColor="#0754c8" />
         </linearGradient>
       </defs>
       <path
-        className="brand-orbit-blue"
-        d="M31.9 9.4c13.7 0 24.9 6 24.9 13.4S45.6 36.2 31.9 36.2 7 30.2 7 22.8 18.2 9.4 31.9 9.4Zm0 5.9c-10.6 0-19.2 3.4-19.2 7.5s8.6 7.5 19.2 7.5 19.2-3.4 19.2-7.5-8.6-7.5-19.2-7.5Z"
-        fill="url(#ptg-mark-blue)"
+        d="M9.5 35.9c0-15 12.1-27.1 27.1-27.1 8.6 0 16.2 4 21.2 10.3-4.7-3.6-10.6-5.7-17-5.7-15.1 0-27.3 12.2-27.3 27.3 0 7.1 2.7 13.5 7.1 18.3-6.8-5-11.1-13.4-11.1-23.1Z"
+        fill="url(#ptg-logo-blue)"
       />
       <path
-        className="brand-orbit-red"
-        d="M55.5 25.3c-2.8-5.4-13.2-9.3-25.3-9.3-14.7 0-26.6 5.2-26.6 11.6 0 4.5 5.9 8.4 14.5 10.2C8.6 37 1.9 32.5 1.9 27.2c0-7.4 12.8-13.4 28.6-13.4 13.2 0 24.3 4.2 27.5 9.9Z"
-        fill="url(#ptg-mark-red)"
+        d="M19.5 34.8c0-11.9 9.6-21.5 21.5-21.5 6.1 0 11.7 2.5 15.6 6.6-3.7-2.6-8.2-4.1-13-4.1-12.6 0-22.9 10.2-22.9 22.9 0 6.5 2.7 12.3 7.1 16.5-5.1-3.9-8.3-10.2-8.3-20.4Z"
+        fill="#ffffff"
+        opacity="0.95"
       />
-      <text x="17" y="36.5" fill="#35d4ff" fontFamily="Inter, Arial Black, Arial, sans-serif" fontSize="14" fontWeight="900" letterSpacing="-0.6">PTG</text>
+      <path
+        d="M61.8 27.5c-6.1-7.9-18.7-12.2-31.7-9.8-14.6 2.8-25.3 12.4-23.8 21.5 0.9 5.8 6.7 9.8 14.7 11-10 .8-17.8-3.6-19-10.6-1.8-10.9 10.4-22.2 27.3-25.4 14.7-2.8 28.9 2.7 34.1 12.3Z"
+        fill="#ff2437"
+      />
+      <text x="16" y="42" fill="#20c8f7" fontFamily="Inter, Arial Black, Arial, sans-serif" fontSize="18" fontWeight="900" letterSpacing="0">PTG</text>
     </svg>
   );
 }
