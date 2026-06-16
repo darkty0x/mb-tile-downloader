@@ -21,6 +21,7 @@ const paths = {
   key: [<circle key="a" cx="7.5" cy="14.5" r="3.5" />, <path key="b" d="M10 12 21 1M15 7l2 2M18 4l2 2" />],
   config: [<path key="a" d="M6 3h8l4 4v14H6z" />, <path key="b" d="M14 3v5h5" />, <path key="c" d="M9 13h6M9 17h6" />],
   env: [<path key="a" d="M5 6h14M5 12h14M5 18h14" />, <circle key="b" cx="9" cy="6" r="2" />, <circle key="c" cx="15" cy="12" r="2" />, <circle key="d" cx="11" cy="18" r="2" />],
+  settings: [<path key="a" d="M5 6h6M15 6h4" />, <path key="b" d="M5 12h3M12 12h7" />, <path key="c" d="M5 18h8M17 18h2" />, <circle key="d" cx="13" cy="6" r="2" />, <circle key="e" cx="10" cy="12" r="2" />, <circle key="f" cx="15" cy="18" r="2" />],
   secrets: [<rect key="a" x="5" y="10" width="14" height="10" rx="2" />, <path key="b" d="M8 10V7a4 4 0 0 1 8 0v3" />],
   console: [<path key="a" d="m5 7 5 5-5 5" />, <path key="b" d="M12 17h7" />],
   play: [<path key="a" d="M8 5v14l11-7Z" />],
@@ -47,7 +48,7 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
       stroke="currentColor"
       strokeLinecap="round"
       strokeLinejoin="round"
-      strokeWidth="1.9"
+      strokeWidth="2"
       vectorEffect="non-scaling-stroke"
       viewBox="0 0 24 24"
       {...props}
@@ -60,12 +61,29 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-8 w-14 shrink-0 overflow-visible" viewBox="0 0 180 92">
-      <ellipse className="brand-orbit-blue" cx="90" cy="46" rx="78" ry="22" stroke="#12aeea" strokeLinecap="round" strokeWidth="3.5" fill="none" transform="rotate(-22 90 46)" />
-      <ellipse className="brand-orbit-red" cx="88" cy="47" rx="73" ry="20" stroke="#ff2535" strokeLinecap="round" strokeWidth="8" fill="none" transform="rotate(20 88 47)" />
-      <text x="32" y="62" fill="#14aee5" fontFamily="Impact, Arial Black, sans-serif" fontSize="44" fontWeight="900" letterSpacing="0">
-        PTG
-      </text>
+    <svg aria-hidden="true" className="h-11 w-12 shrink-0 overflow-visible" viewBox="0 0 112 82">
+      <defs>
+        <linearGradient id="ptg-mark-blue" x1="5" x2="92" y1="12" y2="70" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#0b73d9" />
+          <stop offset="1" stopColor="#064da8" />
+        </linearGradient>
+        <linearGradient id="ptg-mark-violet" x1="39" x2="87" y1="28" y2="54" gradientUnits="userSpaceOnUse">
+          <stop stopColor="#bbc3ff" />
+          <stop offset="1" stopColor="#7f8fea" />
+        </linearGradient>
+      </defs>
+      <path
+        d="M91.6 12.6C69.4 1 35.6 4.4 15.7 23.3-8.8 46.6 8.3 72 42.8 76.3c18.7 2.3 36.4-1.7 49.2-10.4-17.1 3.6-39.7 2.4-57-4.4C8.2 50.9 9.9 30.1 31.2 18.7c15-8 39.4-10.7 60.4-6.1Z"
+        fill="url(#ptg-mark-blue)"
+      />
+      <path
+        d="M78.5 23.3C62 13.7 38.7 16 26.4 29.1 12.9 43.1 25.6 60 49.4 60.3c15.3.2 29.4-5.3 39.2-14.1-11.1 3.8-26.2 3.3-39.5-1.9-16.7-6.5-20.7-19.1-8.6-25.1 10-4.9 25.7-3.7 38 4.1Z"
+        fill="url(#ptg-mark-blue)"
+      />
+      <path
+        d="M39.1 51.2c12.7 8.7 32.5 8.5 42.9-.8 9.9-8.9 4-23.7-13.6-32.3 9.3 7.5 11.4 16.7 4.9 23.1-7.6 7.5-22.1 10.2-34.2 10Z"
+        fill="url(#ptg-mark-violet)"
+      />
     </svg>
   );
 }

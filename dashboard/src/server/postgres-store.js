@@ -1,8 +1,10 @@
 import { randomUUID } from "node:crypto";
 
 import { normalizeRanges } from "../../../src/config/config-loader.js";
+import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
+const SETTINGS_KEY = "dashboard";
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL)/;
 const EVENT_SEVERITIES = new Set(["debug", "info", "warn", "error", "success"]);
@@ -151,6 +153,27 @@ export function createPostgresDashboardStore({
   if (!db?.query) throw new Error("db.query is required");
 
   return {
+    async getSettings() {
+      const row = await firstRow(db, "SELECT value_json FROM dashboard_settings WHERE key=$1", [SETTINGS_KEY]);
+      return normalizeDashboardSettings(jsonValue(row?.value_json, {}));
+    },
+
+    async updateSettings(input) {
+      const current = await firstRow(db, "SELECT value_json FROM dashboard_settings WHERE key=$1", [SETTINGS_KEY]);
+      const settings = normalizeDashboardSettings(input, normalizeDashboardSettings(jsonValue(current?.value_json, {})));
+      const row = await firstRow(
+        db,
+        `INSERT INTO dashboard_settings (key, value_json, updated_at)
+        VALUES ($1,$2,$3)
+        ON CONFLICT (key) DO UPDATE SET
+          value_json=excluded.value_json,
+          updated_at=excluded.updated_at
+        RETURNING value_json`,
+        [SETTINGS_KEY, settings, now().toISOString()]
+      );
+      return normalizeDashboardSettings(jsonValue(row?.value_json, settings));
+    },
+
     async registerMachine(input) {
       const machineId = requireNonEmpty(input.machineId, "machineId");
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");

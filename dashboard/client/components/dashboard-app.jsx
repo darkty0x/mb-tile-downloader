@@ -18,6 +18,7 @@ const TABS = [
   ["overview", "Overview", "overview"],
   ["servers", "Servers", "servers"],
   ["secrets", "Secrets", "secrets"],
+  ["settings", "Settings", "settings"],
 ];
 
 const SERVER_TABS = [
@@ -33,9 +34,11 @@ const SECRET_LABELS = {
   storj_access: "Storj Access",
 };
 
-const SECRET_POOL_THRESHOLDS = {
-  mapbox_token: 2,
-  proxy_txt: 50,
+const DEFAULT_DASHBOARD_SETTINGS = {
+  alertThresholds: {
+    mapboxTokensPerServer: 2,
+    proxiesPerServer: 50,
+  },
 };
 
 const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
@@ -46,6 +49,22 @@ const SAMPLE_CONFIG = {
   layer: "esri-satellite",
   ranges: [{ zoom: 14, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
 };
+
+function mergeDashboardSettings(settings = {}) {
+  return {
+    alertThresholds: {
+      ...DEFAULT_DASHBOARD_SETTINGS.alertThresholds,
+      ...(settings.alertThresholds || {}),
+    },
+  };
+}
+
+function thresholdValue(settings, name) {
+  const value = Number(settings?.alertThresholds?.[name]);
+  return Number.isInteger(value) && value >= 0
+    ? value
+    : DEFAULT_DASHBOARD_SETTINGS.alertThresholds[name];
+}
 
 function formatBytes(value) {
   if (!Number.isFinite(Number(value)) || Number(value) <= 0) return "0 B";
@@ -82,18 +101,6 @@ function Notice({ notice }) {
   return <div className={`screen-enter mt-3 rounded-lg border px-3 py-2 text-[13px] ${kind}`}>{notice.message}</div>;
 }
 
-function useMaterialWeb() {
-  useEffect(() => {
-    Promise.all([
-      import("@material/web/button/filled-button.js"),
-      import("@material/web/button/outlined-button.js"),
-      import("@material/web/button/text-button.js"),
-    ]).catch((err) => {
-      console.error("failed to load Material Web components", err);
-    });
-  }, []);
-}
-
 function useDashboardState() {
   const [machineSearch, setMachineSearch] = useState("");
   const [machines, setMachines] = useState([]);
@@ -102,6 +109,7 @@ function useDashboardState() {
   const [secrets, setSecrets] = useState([]);
   const [secretPool, setSecretPool] = useState([]);
   const [events, setEvents] = useState([]);
+  const [settings, setSettings] = useState(DEFAULT_DASHBOARD_SETTINGS);
   const [selectedMachineId, setSelectedMachineId] = useState(null);
   const [selectedTab, setSelectedTab] = useState("overview");
   const [selectedServerTab, setSelectedServerTab] = useState("control");
@@ -155,18 +163,25 @@ function useDashboardState() {
     setSecretPool(nextSecretPool);
   }
 
+  async function refreshSettings() {
+    const { settings: nextSettings } = await api("/api/settings");
+    setSettings(mergeDashboardSettings(nextSettings));
+  }
+
   async function refreshAll() {
     setLoading(true);
     try {
-      const [{ machines: nextMachines }, { secrets: nextSecretPool }] = await Promise.all([
+      const [{ machines: nextMachines }, { secrets: nextSecretPool }, { settings: nextSettings }] = await Promise.all([
         api("/api/machines"),
         api("/api/secrets"),
+        api("/api/settings"),
       ]);
       const nextSelected = selectedMachineId && nextMachines.some((machine) => machine.machineId === selectedMachineId)
         ? selectedMachineId
         : nextMachines[0]?.machineId || null;
       setMachines(nextMachines);
       setSecretPool(nextSecretPool);
+      setSettings(mergeDashboardSettings(nextSettings));
       setSelectedMachineId(nextSelected);
       await refreshMachineData(nextSelected);
     } finally {
@@ -194,6 +209,7 @@ function useDashboardState() {
       secrets,
       secretPool,
       events,
+      settings,
       selectedMachineId,
       selectedMachine,
       selectedTab,
@@ -214,6 +230,7 @@ function useDashboardState() {
       refreshAll,
       refreshMachineData,
       refreshSecretPool,
+      refreshSettings,
       async selectMachine(machineId) {
         setSelectedMachineId(machineId);
         setSelectedServerTab("control");
@@ -280,6 +297,20 @@ function useDashboardState() {
         await refreshSecretPool();
         await refreshMachineData();
       },
+      async saveSettings(formData) {
+        const body = {
+          alertThresholds: {
+            mapboxTokensPerServer: Number(formData.get("mapboxTokensPerServer")),
+            proxiesPerServer: Number(formData.get("proxiesPerServer")),
+          },
+        };
+        const { settings: nextSettings } = await api("/api/settings", {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        setSettings(mergeDashboardSettings(nextSettings));
+        setNotice({ message: "Settings saved", kind: "success" });
+      },
       async deleteRecord(type, id) {
         const paths = {
           config: `/api/configs/${encodeURIComponent(id)}`,
@@ -297,12 +328,12 @@ function useDashboardState() {
 
 function Rail({ state, actions }) {
   return (
-    <aside className="ptg-scrollbar sticky top-0 flex h-screen flex-col gap-5 overflow-auto border-r border-[var(--ptg-rail-outline)] bg-[var(--ptg-rail)] px-3 py-4 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
-      <section className="flex items-center gap-2 px-0.5 pb-1">
+    <aside className="ptg-scrollbar sticky top-0 flex h-screen flex-col gap-6 overflow-auto border-r border-[var(--ptg-rail-outline)] bg-[var(--ptg-rail)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto">
+      <section className="flex items-center gap-3 px-0.5 pb-1">
         <LogoMark />
         <div className="min-w-0">
-          <h1 className="truncate text-[13px] font-[760] leading-tight">PTG Dashboard</h1>
-          <p className="mt-0.5 text-[11px] leading-[1.15] text-[var(--ptg-rail-muted)]">PTG Management Dashboard</p>
+          <h1 className="truncate text-[14px] font-[800] leading-tight tracking-[-0.01em]">PTG Dashboard</h1>
+          <p className="mt-1 text-[11px] font-[500] leading-[1.15] text-[var(--ptg-rail-muted)]">Management Console</p>
         </div>
       </section>
 
@@ -314,17 +345,17 @@ function Rail({ state, actions }) {
               key={tab}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer grid min-h-9 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-2.5 text-left text-[12.5px] font-[680] ${
+              className={`state-layer grid min-h-10 grid-cols-[minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border px-3 text-left text-[12.5px] font-[700] ${
                 state.selectedTab === tab
-                  ? "border-[#315f6a] bg-[var(--ptg-rail-active)] text-[var(--ptg-rail-text)] shadow-[inset_3px_0_0_var(--ptg-primary)]"
+                  ? "border-[#2b4774] bg-[var(--ptg-rail-active)] text-[var(--ptg-rail-text)] shadow-[inset_3px_0_0_#4f8cff]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-[var(--ptg-rail-text)]"
               }`}
             >
               <span className="flex min-w-0 items-center gap-2">
-                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#69d9ff]" : ""}`} />
+                <Icon name={icon} className={`h-4 w-4 ${state.selectedTab === tab ? "text-[#7db1ff]" : ""}`} />
                 <span className="truncate">{label}</span>
               </span>
-              {count === null ? null : <strong className="rounded-full bg-[#22324a] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
+              {count === null ? null : <strong className="rounded-full bg-[#223354] px-2 py-0.5 text-[10.5px] text-[#dce8f7]">{count}</strong>}
             </button>
           );
         })}
@@ -336,7 +367,7 @@ function Rail({ state, actions }) {
       }}>
         <button
           type="submit"
-          className="state-layer inline-flex h-9 w-full items-center justify-center gap-2 rounded-lg border border-[#2d4952] bg-[#112b33] text-[12px] font-[700] text-[var(--ptg-rail-text)]"
+          className="state-layer inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-[#2c3f60] bg-[#111d33] text-[12px] font-[750] text-[var(--ptg-rail-text)]"
           title="Refresh"
         >
           <Icon name="sync" className="h-4 w-4" />
@@ -350,17 +381,17 @@ function Rail({ state, actions }) {
 function Header({ state }) {
   const online = state.machines.filter((machine) => machine.status === "online").length;
   return (
-    <header className="border-b border-[var(--ptg-outline)] pb-3">
+    <header className="border-b border-[var(--ptg-outline)] pb-4">
       <div className="flex flex-wrap items-center gap-2.5">
-        <h2 className="min-w-0 text-[21px] font-[720] leading-tight">PTG Management Dashboard</h2>
+        <h2 className="min-w-0 text-[22px] font-[800] leading-tight tracking-[-0.02em]">PTG Management Dashboard</h2>
         <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} online` : "Waiting"}</StatusPill>
       </div>
-      <div className="mt-2 flex flex-wrap gap-2 text-[11.5px] text-[var(--ptg-on-surface-variant)]">
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2">{state.machines.length} servers connected</span>
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2">
+      <div className="mt-2.5 flex flex-wrap gap-2 text-[11.5px] font-[500] text-[var(--ptg-on-surface-variant)]">
+        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">{state.machines.length} servers connected</span>
+        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">
           {state.selectedMachine ? `Selected ${state.selectedMachine.displayName || state.selectedMachine.machineId}` : "No server selected"}
         </span>
-        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2">
+        <span className="inline-flex min-h-6 items-center rounded-full border border-[var(--ptg-outline)] bg-white px-2.5 shadow-[0_1px_1px_rgba(15,23,42,0.03)]">
           {state.selectedMachine ? `Last seen ${shortDate(state.selectedMachine.lastSeenAt)}` : "Waiting for agent"}
         </span>
       </div>
@@ -400,18 +431,20 @@ function SecretsDashboard({ state, actions }) {
   const mapbox = secretCounts(state.secretPool, "mapbox_token");
   const proxies = secretCounts(state.secretPool, "proxy_txt");
   const serverCount = state.machines.length;
+  const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
+  const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
   const alerts = [
     {
       type: "mapbox_token",
       label: "Mapbox keys",
       available: mapbox.available,
-      threshold: SECRET_POOL_THRESHOLDS.mapbox_token * serverCount,
+      threshold: mapboxPerServer * serverCount,
     },
     {
       type: "proxy_txt",
       label: "Proxies",
       available: proxies.available,
-      threshold: SECRET_POOL_THRESHOLDS.proxy_txt * serverCount,
+      threshold: proxiesPerServer * serverCount,
     },
   ].filter((alert) => serverCount > 0 && alert.available <= alert.threshold);
 
@@ -426,7 +459,7 @@ function SecretsDashboard({ state, actions }) {
 
       {alerts.length ? (
         <Surface className="grid gap-2 border-[rgba(143,95,0,0.25)] bg-[#fff9ed]">
-          <SectionTitle title="Capacity Alerts" meta={`${serverCount} servers connected`} />
+          <SectionTitle title="Capacity Alerts" meta={`${serverCount} servers connected | thresholds from Settings`} />
           {alerts.map((alert) => (
             <div key={alert.type} className="flex flex-wrap items-center gap-2 rounded-lg border border-[rgba(143,95,0,0.18)] bg-white px-3 py-2 text-[12px]">
               <StatusPill status="warn">low</StatusPill>
@@ -455,6 +488,110 @@ function SecretsDashboard({ state, actions }) {
           actions={actions}
         />
       </section>
+    </section>
+  );
+}
+
+function ThresholdPreview({ icon, label, value, detail }) {
+  return (
+    <div className="rounded-lg border border-[var(--ptg-outline)] bg-[#fbfdff] p-3">
+      <span className="flex items-center gap-2 text-[11px] font-[750] text-[var(--ptg-on-surface-variant)]">
+        <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+          <Icon name={icon} className="h-4 w-4" />
+        </span>
+        {label}
+      </span>
+      <strong className="mt-3 block text-[20px] font-[800] leading-none tracking-[-0.02em]">{value}</strong>
+      <p className="mt-2 text-[11.5px] font-[500] leading-snug text-[var(--ptg-on-surface-variant)]">{detail}</p>
+    </div>
+  );
+}
+
+function SettingsDashboard({ state, actions }) {
+  const serverCount = state.machines.length;
+  const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
+  const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
+  const mapboxAlertAt = mapboxPerServer * serverCount;
+  const proxyAlertAt = proxiesPerServer * serverCount;
+
+  return (
+    <section className="screen-enter mt-4 grid gap-3">
+      <Surface className="overflow-hidden p-0">
+        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-4 border-b border-[var(--ptg-outline)] bg-[linear-gradient(135deg,#ffffff_0%,#f2f6ff_100%)] px-4 py-4 max-sm:grid-cols-1">
+          <div className="flex min-w-0 items-center gap-3">
+            <span className="inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary)] text-white shadow-[0_10px_24px_rgba(18,103,216,0.20)]">
+              <Icon name="settings" className="h-5 w-5" />
+            </span>
+            <div className="min-w-0">
+              <h3 className="text-[17px] font-[800] leading-tight tracking-[-0.02em]">Alert Thresholds</h3>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">Applied across {serverCount} connected servers</p>
+            </div>
+          </div>
+          <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right shadow-[0_1px_1px_rgba(15,23,42,0.03)] max-sm:text-left">
+            <span className="block text-[10.5px] font-[750] uppercase text-[var(--ptg-on-surface-variant)]">Servers</span>
+            <strong className="mt-0.5 block text-[20px] font-[800] leading-none">{serverCount}</strong>
+          </div>
+        </div>
+        <form
+          key={`${mapboxPerServer}-${proxiesPerServer}`}
+          className="grid gap-4 p-4"
+          onSubmit={(event) => {
+            event.preventDefault();
+            actions.saveSettings(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+          }}
+        >
+          <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <TextInput
+                label="Mapbox keys per server"
+                name="mapboxTokensPerServer"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={mapboxPerServer}
+                required
+              />
+            </div>
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <TextInput
+                label="Proxies per server"
+                name="proxiesPerServer"
+                type="number"
+                min="0"
+                step="1"
+                defaultValue={proxiesPerServer}
+                required
+              />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
+            <ThresholdPreview
+              icon="key"
+              label="Mapbox alert line"
+              value={`${mapboxAlertAt} keys`}
+              detail={`${mapboxPerServer} per server x ${serverCount} servers`}
+            />
+            <ThresholdPreview
+              icon="secrets"
+              label="Proxy alert line"
+              value={`${proxyAlertAt} proxies`}
+              detail={`${proxiesPerServer} per server x ${serverCount} servers`}
+            />
+          </div>
+
+          <div className="flex flex-wrap gap-2 border-t border-[var(--ptg-outline)] pt-3">
+            <AppButton variant="filled" icon="check" type="submit">Save Settings</AppButton>
+            <AppButton
+              icon="sync"
+              type="button"
+              onClick={() => actions.refreshSettings().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            >
+              Reload
+            </AppButton>
+          </div>
+        </form>
+      </Surface>
     </section>
   );
 }
@@ -508,7 +645,7 @@ function SecretResourceRow({ secret, icon, state, actions }) {
 
   return (
     <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[28px_minmax(0,1fr)]">
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[#eaf8fb] text-[var(--ptg-primary-dark)]">
+      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
         <Icon name={icon} className="h-4 w-4" />
       </span>
       <div className="min-w-0 pt-0.5">
@@ -546,7 +683,7 @@ function ServersTable({ state, actions }) {
               onChange={(event) => actions.setMachineSearch(event.target.value)}
               type="search"
               placeholder="Search servers"
-              className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(12,168,224,0.14)]"
+              className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(18,103,216,0.12)]"
             />
           </label>
         }
@@ -568,7 +705,7 @@ function ServersTable({ state, actions }) {
               const diskPeak = Math.max(0, ...((machine.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
               const selected = machine.machineId === state.selectedMachineId;
               return (
-                <tr key={machine.machineId} className={selected ? "bg-[#eefafe]" : "bg-white"}>
+                <tr key={machine.machineId} className={selected ? "bg-[#edf4ff]" : "bg-white"}>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
                     <strong className="block max-w-[280px] truncate text-[12.5px]">{machine.displayName || machine.machineId}</strong>
                     <small className="mt-0.5 block max-w-[300px] truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{machine.machineId}</small>
@@ -614,7 +751,7 @@ function Pipeline({ state }) {
           const completed = state.events.some((event) => event.type === `range.${step}.completed`);
           const started = state.events.some((event) => event.type === `range.${step}.started`);
           return (
-            <div key={step} className={`min-h-[82px] rounded-lg border p-2.5 ${completed ? "border-[rgba(0,109,98,0.34)] bg-[#effaf7]" : started ? "pulse-step border-[rgba(12,168,224,0.42)] bg-[#eefafe]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)]"}`}>
+            <div key={step} className={`min-h-[82px] rounded-lg border p-2.5 ${completed ? "border-[rgba(19,116,87,0.24)] bg-[#ecfdf5]" : started ? "pulse-step border-[rgba(18,103,216,0.34)] bg-[#eff6ff]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)]"}`}>
               <span className={`inline-flex h-6 w-6 items-center justify-center rounded-lg border text-[11px] font-[760] ${completed ? "border-[var(--ptg-secondary)] bg-[var(--ptg-secondary)] text-white" : "border-[var(--ptg-outline)] bg-white text-[var(--ptg-on-surface-variant)]"}`}>
                 {completed ? <Icon name="check" className="h-3.5 w-3.5" /> : index + 1}
               </span>
@@ -632,11 +769,13 @@ function ServerPanel({ state, actions }) {
   const machine = state.selectedMachine;
   if (!machine) {
     return (
-      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-[#fbfdfc] p-3.5 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
-        <Surface className="grid min-h-56 place-items-center border-dashed text-center text-[var(--ptg-on-surface-variant)]">
-          <Icon name="servers" className="h-7 w-7" />
-          <h3 className="mt-2 text-[14px] font-[760] text-[var(--ptg-on-surface)]">Select a server</h3>
-          <p className="mt-1 max-w-[260px] text-[12px] leading-relaxed">Choose a server from the table to manage config, env, secrets, console, and commands.</p>
+      <aside className="panel-enter sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+        <Surface className="grid min-h-56 place-items-center border-dashed bg-[#fbfdff] text-center text-[var(--ptg-on-surface-variant)]">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+            <Icon name="servers" className="h-6 w-6" />
+          </span>
+          <h3 className="mt-3 text-[14px] font-[800] text-[var(--ptg-on-surface)]">Select a server</h3>
+          <p className="mt-1 max-w-[260px] text-[12px] font-[500] leading-relaxed">Choose a server to manage config, env, secrets, console, and commands.</p>
         </Surface>
       </aside>
     );
@@ -648,7 +787,7 @@ function ServerPanel({ state, actions }) {
     console: state.events.length,
   };
   return (
-    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-[#fbfdfc] p-3.5 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
+    <aside className="panel-enter ptg-scrollbar sticky top-0 h-screen overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 max-lg:static max-lg:col-span-full max-lg:h-auto max-lg:border-l-0 max-lg:border-t">
       <header className="flex items-start justify-between gap-3 border-b border-[var(--ptg-outline)] pb-3">
         <div className="min-w-0">
           <h2 className="truncate text-[17px] font-[760] leading-tight">{machine.displayName || machine.machineId}</h2>
@@ -838,7 +977,7 @@ function EditorDrawer({ state, actions }) {
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
-    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-[#fbfdfc] p-4 shadow-[var(--ptg-shadow-2)]">
+    <aside className="fixed right-0 top-0 z-20 h-screen w-[min(410px,100vw)] overflow-auto border-l border-[var(--ptg-outline)] bg-white p-4 shadow-[var(--ptg-shadow-2)]">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
           <h3 className="text-[17px] font-[760]">{editorTitle(editor.type, record)}</h3>
@@ -932,15 +1071,16 @@ function SecretForm({ record, editor, actions }) {
 }
 
 export default function DashboardApp() {
-  useMaterialWeb();
   const { state, actions } = useDashboardState();
   return (
-    <main className={`grid min-h-screen grid-cols-[230px_minmax(0,1fr)_392px] bg-[var(--ptg-background)] max-lg:grid-cols-[214px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`grid min-h-screen grid-cols-[248px_minmax(0,1fr)_368px] bg-[var(--ptg-background)] max-lg:grid-cols-[228px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
-      <section className="min-w-0 overflow-hidden p-4">
+      <section className="min-w-0 overflow-hidden p-5 max-md:p-4">
         <Header state={state} />
         <Notice notice={state.notice} />
-        {state.selectedTab === "secrets" ? (
+        {state.selectedTab === "settings" ? (
+          <SettingsDashboard state={state} actions={actions} />
+        ) : state.selectedTab === "secrets" ? (
           <SecretsDashboard state={state} actions={actions} />
         ) : (
           <section className="screen-enter mt-3 grid gap-2.5">

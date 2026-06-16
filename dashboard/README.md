@@ -98,7 +98,7 @@ Dashboard-managed secrets are materialized for agent child processes under:
 
 Mapbox keys and proxy URLs are managed as a global resource pool. Pool items with no `machineId` are available; active pool items are assigned to a single machine during agent sync and are not shared with any other machine. Disabled, inactive, or error secrets are not sent to agents.
 
-Proxy pool items are normalized into root `proxy.txt` because the downloader already treats that file as the local paid-proxy source. The dashboard warns when available Mapbox keys are at or below `2 * server count`, and when available proxies are at or below `50 * server count`.
+Proxy pool items are normalized into root `proxy.txt` because the downloader already treats that file as the local paid-proxy source. The dashboard warns when available Mapbox keys or proxies are at or below the thresholds configured on the Settings page. The default thresholds are `2 * server count` for Mapbox keys and `50 * server count` for proxies.
 
 ## Commands
 

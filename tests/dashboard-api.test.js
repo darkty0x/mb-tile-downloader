@@ -146,6 +146,51 @@ test("dashboard machine list is available without an admin token", async (t) => 
   assert.deepEqual(response.body.machines, []);
 });
 
+test("dashboard settings expose and persist alert thresholds", async (t) => {
+  const server = await withServer(t);
+
+  const defaults = await request(server, { path: "/api/settings" });
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/settings",
+    body: {
+      alertThresholds: {
+        mapboxTokensPerServer: 4,
+        proxiesPerServer: 125,
+      },
+    },
+  });
+  const listed = await request(server, { path: "/api/settings" });
+
+  assert.equal(defaults.status, 200);
+  assert.deepEqual(defaults.body.settings.alertThresholds, {
+    mapboxTokensPerServer: 2,
+    proxiesPerServer: 50,
+  });
+  assert.equal(updated.status, 200);
+  assert.deepEqual(listed.body.settings.alertThresholds, {
+    mapboxTokensPerServer: 4,
+    proxiesPerServer: 125,
+  });
+});
+
+test("dashboard settings reject invalid alert thresholds", async (t) => {
+  const server = await withServer(t);
+
+  const response = await request(server, {
+    method: "PUT",
+    path: "/api/settings",
+    body: {
+      alertThresholds: {
+        mapboxTokensPerServer: -1,
+      },
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /mapboxTokensPerServer/);
+});
+
 test("dashboard app awaits async persistent store methods", async (t) => {
   const server = await withServer(t, {
     store: {

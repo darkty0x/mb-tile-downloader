@@ -85,3 +85,9 @@ CREATE TABLE IF NOT EXISTS secrets (
   created_at timestamptz NOT NULL DEFAULT now(),
   updated_at timestamptz NOT NULL DEFAULT now()
 );
+
+CREATE TABLE IF NOT EXISTS dashboard_settings (
+  key text PRIMARY KEY,
+  value_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  updated_at timestamptz NOT NULL DEFAULT now()
+);

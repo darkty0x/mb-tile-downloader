@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { normalizeRanges } from "../../../src/config/config-loader.js";
+import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
@@ -143,8 +144,18 @@ export function createDashboardStore({
   const envProfiles = new Map();
   const events = [];
   const commands = new Map();
+  let settings = normalizeDashboardSettings();
 
   return {
+    getSettings() {
+      return normalizeDashboardSettings(settings);
+    },
+
+    updateSettings(input) {
+      settings = normalizeDashboardSettings(input, settings);
+      return settings;
+    },
+
     registerMachine(input) {
       const machineId = requireNonEmpty(input.machineId, "machineId");
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");

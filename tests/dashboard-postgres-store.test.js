@@ -10,6 +10,7 @@ function createFakePgDb() {
     machine_commands: new Map(),
     configs: new Map(),
     env_profiles: new Map(),
+    dashboard_settings: new Map(),
   };
   let serial = 0;
 
@@ -23,6 +24,16 @@ function createFakePgDb() {
       if (/SELECT \* FROM machines WHERE machine_id=\$1/.test(sql)) {
         const row = tables.machines.get(params[0]);
         return rows(row ? [{ ...row }] : []);
+      }
+      if (/SELECT value_json FROM dashboard_settings WHERE key=\$1/.test(sql)) {
+        const row = tables.dashboard_settings.get(params[0]);
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/INSERT INTO dashboard_settings/.test(sql)) {
+        const [key, value_json, updated_at] = params;
+        const row = { key, value_json, updated_at };
+        tables.dashboard_settings.set(key, row);
+        return rows([{ value_json }]);
       }
       if (/INSERT INTO machines/.test(sql)) {
         const [
@@ -208,6 +219,31 @@ test("postgres store persists machine registration, heartbeat, and conflicts", a
     agentInstanceId: "agent-2",
   });
   assert.equal(takeover.status, "takeover");
+});
+
+test("postgres store persists dashboard alert settings", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  assert.deepEqual((await store.getSettings()).alertThresholds, {
+    mapboxTokensPerServer: 2,
+    proxiesPerServer: 50,
+  });
+
+  await store.updateSettings({
+    alertThresholds: {
+      mapboxTokensPerServer: 5,
+      proxiesPerServer: 80,
+    },
+  });
+
+  assert.deepEqual((await store.getSettings()).alertThresholds, {
+    mapboxTokensPerServer: 5,
+    proxiesPerServer: 80,
+  });
 });
 
 test("postgres store lists expired machines as offline", async () => {

@@ -176,6 +176,17 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "GET" && url.pathname === "/api/settings") {
+          json(res, 200, { settings: await store.getSettings() });
+          return;
+        }
+
+        if (req.method === "PUT" && url.pathname === "/api/settings") {
+          const body = await readJson(req);
+          json(res, 200, { settings: await store.updateSettings(body) });
+          return;
+        }
+
         if (req.method === "GET" && url.pathname === "/api/events") {
           const machineId = url.searchParams.get("machineId") || undefined;
           json(res, 200, { events: await store.listEvents({ machineId }) });
