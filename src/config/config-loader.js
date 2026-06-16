@@ -55,6 +55,36 @@ function validateRange(range) {
   }
 }
 
+function tileYToLatitude(y, z) {
+  const n = Math.PI - (2 * Math.PI * y) / 2 ** z;
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function shouldAutoInvertUkraineY(config, range) {
+  const name = `${config?.jobName || ""} ${config?.name || ""}`.toLowerCase();
+  if (!name.includes("ukraine")) return false;
+  if (range.zoomStart !== range.zoomEnd) return false;
+  const z = range.zoomStart;
+  const max = 2 ** z - 1;
+  const centerY = (range.yStart + range.yEnd) / 2;
+  const currentLat = tileYToLatitude(centerY, z);
+  const invertedCenterY = max - centerY;
+  const invertedLat = tileYToLatitude(invertedCenterY, z);
+  return currentLat < 0 && invertedLat >= 44 && invertedLat <= 54;
+}
+
+function autoCorrectUkraineY(config, range) {
+  if (!shouldAutoInvertUkraineY(config, range)) return range;
+  const max = 2 ** range.zoomStart - 1;
+  return {
+    ...range,
+    yStart: max - range.yEnd,
+    yEnd: max - range.yStart,
+    label: `${range.label} y=tms->xyz`,
+    autoCorrectedY: "tms-to-xyz",
+  };
+}
+
 export function normalizeRanges(config) {
   const { ranges, zoomStart, zoomEnd, xStart, xEnd, yStart, yEnd } = config || {};
 
@@ -73,8 +103,9 @@ export function normalizeRanges(config) {
           range.label ||
           `range#${idx + 1}: z=${zStart}${zEnd !== zStart ? `-${zEnd}` : ""} x=${range.xStart}-${range.xEnd} y=${range.yStart}-${range.yEnd}`,
       };
-      validateRange(normalized);
-      return normalized;
+      const corrected = autoCorrectUkraineY(config, normalized);
+      validateRange(corrected);
+      return corrected;
     });
   }
 
@@ -88,8 +119,9 @@ export function normalizeRanges(config) {
       yEnd,
       label: "legacy-range",
     };
-    validateRange(normalized);
-    return [normalized];
+    const corrected = autoCorrectUkraineY(config, normalized);
+    validateRange(corrected);
+    return [corrected];
   }
 
   throw new Error("No valid ranges found in config");
@@ -161,6 +193,17 @@ export async function loadConfig(configPath, options = {}) {
   const tile = { ...defaults.tile, ...(raw.tile || {}) };
   const url = { ...defaults.url, ...(raw.url || {}) };
   const ranges = normalizeRanges(raw);
+  const hasAutoCorrectedUkraineY = ranges.some((range) => range.autoCorrectedY === "tms-to-xyz");
+  if (provider === "esri" && hasAutoCorrectedUkraineY) {
+    tile.unavailableFallback = {
+      source: "current",
+      maxParentZoomOffset: 4,
+      autoEnabled: true,
+      ...(tile.unavailableFallback && typeof tile.unavailableFallback === "object"
+        ? tile.unavailableFallback
+        : {}),
+    };
+  }
   const output = {
     dir: resolvePlatformPath(
       {

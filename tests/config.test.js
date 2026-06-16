@@ -100,6 +100,25 @@ test("Esri World Imagery configs use separate layer folder and xyz rows", async 
   }
 });
 
+test("Ukraine z19 split configs auto-correct TMS y ranges to XYZ without editing config files", async () => {
+  const raw = JSON.parse(await readFile("configs/ukraine-z19-part-003-esri-satellite.config.json", "utf8"));
+  assert.equal(raw.ranges[0].yStart, 339498);
+  assert.equal(raw.ranges[0].yEnd, 351754);
+
+  const config = await loadConfig("configs/ukraine-z19-part-003-esri-satellite.config.json", {
+    env: {},
+    platform: "win32",
+    defaultProxyFilePath: null,
+  });
+
+  assert.equal(config.ranges[0].yStart, 172533);
+  assert.equal(config.ranges[0].yEnd, 184789);
+  assert.match(config.ranges[0].label, /y=tms->xyz/);
+  assert.equal(config.ranges[0].autoCorrectedY, "tms-to-xyz");
+  assert.equal(config.tile.unavailableFallback.autoEnabled, true);
+  assert.equal(config.tile.unavailableFallback.source, "current");
+});
+
 test("loaded direct Esri configs keep requested config concurrency", async () => {
   const config = await loadConfig("configs/13-esri-satellite.config.json", {
     env: {},

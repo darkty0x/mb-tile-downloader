@@ -783,6 +783,73 @@ test("Esri unavailable fallback is disabled by default", async () => {
   db.close();
 });
 
+test("auto-corrected Ukraine Esri z19 ranges create child tiles from current parents without global synthesis env", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const placeholder = Buffer.from("esri unavailable placeholder");
+  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
+  const parent = quadrantJpeg();
+  const requestedUrls = [];
+
+  const result = await runDownloadJob({
+    config: {
+      jobName: "ukraine-z19-part-003-esri-satellite",
+      provider: "esri",
+      layer: "esri-satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+      tile: {
+        extension: "jpg",
+        yScheme: "xyz",
+        unavailableTileSha256: placeholderHash,
+        unavailableFallback: { autoEnabled: true, source: "current", maxParentZoomOffset: 2 },
+      },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [
+        {
+          zoomStart: 19,
+          zoomEnd: 19,
+          xStart: 318592,
+          xEnd: 318592,
+          yStart: 172533,
+          yEnd: 172533,
+          label: "corrected",
+          autoCorrectedY: "tms-to-xyz",
+        },
+      ],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
+      verifyAfterDownload: false,
+    },
+    stateDb: db,
+    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: undefined },
+    progress: false,
+    skipVerifyAfterDownload: true,
+    fetchImpl: async (url) => {
+      requestedUrls.push(String(url));
+      if (String(url) === "https://example.test/19/172533/318592") {
+        return new Response(placeholder, { status: 200, headers: { "content-type": "image/jpeg" } });
+      }
+      if (String(url) === "https://example.test/18/86266/159296") {
+        return new Response(parent, { status: 200, headers: { "content-type": "image/jpeg" } });
+      }
+      return new Response("not found", { status: 404 });
+    },
+  });
+
+  assert.equal(result.tilesDownloaded, 0);
+  assert.equal(result.tilesCreated, 1);
+  assert.equal(result.tilesMissing, 0);
+  assert.equal(result.tilesFailed, 0);
+  assert.deepEqual(requestedUrls, [
+    "https://example.test/19/172533/318592",
+    "https://example.test/18/86266/159296",
+  ]);
+
+  db.close();
+});
+
 test("Esri unavailable fallback searches older Wayback releases before marking missing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

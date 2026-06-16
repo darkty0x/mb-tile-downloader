@@ -548,10 +548,9 @@ function renderUrlTemplate(template, values) {
 function unavailableFallbackConfig(config, provider, env = process.env) {
   if (provider.name !== "esri") return null;
 
-  const envEnabled = parseBoolean(env.TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK);
-  if (envEnabled !== true) return null;
-
   const configured = config.tile?.unavailableFallback ?? config.unavailableFallback;
+  const envEnabled = parseBoolean(env.TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK);
+  if (envEnabled !== true && configured?.autoEnabled !== true) return null;
   if (configured === false || configured?.enabled === false) return null;
 
   const fallback = {

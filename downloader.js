@@ -447,6 +447,8 @@ async function runOneConfig(configPath, opts) {
     }
     if (opts.synthesizeMissing) {
       console.log("Synthesis: enabled (--synthesize-missing)");
+    } else if (config.tile?.unavailableFallback?.autoEnabled) {
+      console.log("Synthesis: auto-enabled for corrected Esri parent overzoom");
     } else {
       console.log("Synthesis: disabled");
     }
