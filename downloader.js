@@ -460,6 +460,7 @@ async function runOneConfig(configPath, opts) {
     console.log(`  Rows completed: ${result.rowsCompleted}`);
     console.log(`  Tiles planned: ${result.tilesPlanned}`);
     console.log(`  Tiles downloaded: ${result.tilesDownloaded}`);
+    console.log(`  Tiles created: ${result.tilesCreated}`);
     console.log(`  Tile files skipped: ${result.tileFilesSkipped}`);
     console.log(`  Tiles missing: ${result.tilesMissing}`);
     console.log(`  Tiles failed: ${result.tilesFailed}`);

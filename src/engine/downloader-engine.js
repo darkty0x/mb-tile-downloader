@@ -202,6 +202,21 @@ function createProgressReporter(enabled) {
     return Math.max(ms / 1000, 0.001);
   }
 
+  function formatDuration(secondsValue) {
+    if (!Number.isFinite(secondsValue) || secondsValue < 0) return "unknown";
+    const totalSeconds = Math.max(0, Math.round(secondsValue));
+    const days = Math.floor(totalSeconds / 86_400);
+    const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+    const minutes = Math.floor((totalSeconds % 3_600) / 60);
+    const secondsPart = totalSeconds % 60;
+    const parts = [];
+    if (days) parts.push(`${days}d`);
+    if (hours || parts.length) parts.push(`${hours}h`);
+    if (minutes || parts.length) parts.push(`${minutes}m`);
+    parts.push(`${secondsPart}s`);
+    return parts.join(" ");
+  }
+
   function line(message, force = false) {
     const now = Date.now();
     if (!force && now - lastLineAt < 1000) return;
@@ -225,14 +240,18 @@ function createProgressReporter(enabled) {
       const intervalSec = seconds(now - lastRateAt);
       const rowRate = (rowsDone - lastRowsDone) / intervalSec;
       const tileRate = (tilesDone - lastTilesDone) / intervalSec;
+      const elapsedSec = seconds(now - currentRangeStartedAt);
+      const averageTileRate = tilesDone / elapsedSec;
+      const etaSec = averageTileRate > 0 ? (tilesTotal - tilesDone) / averageTileRate : Infinity;
       lastRowsDone = rowsDone;
       lastTilesDone = tilesDone;
       lastRateAt = now;
       line(
         `  ↳ range ${rangeIndex}/${rangeCount} row ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
-          `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} s=${totals.tileFilesSkipped} ` +
+          `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} c=${totals.tilesCreated} s=${totals.tileFilesSkipped} ` +
           `m=${totals.tilesMissing} f=${totals.tilesFailed} skippedRows=${totals.rowsSkipped} ` +
-          `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} tiles/s`
+          `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} tiles/s eta=${formatDuration(etaSec)}`,
+        rowsDone === rowsTotal
       );
     },
     rowRetry({ rangeIndex, rangeCount, z, x, failed, pass, maxPasses }) {
@@ -880,7 +899,7 @@ async function downloadOneTile({
       if (classified.status === "retry") {
         lastRetryStatus = resp.status;
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
-        if ((resp.status === 403 || resp.status === 429) && await writeFallbackTile()) return "downloaded";
+        if ((resp.status === 403 || resp.status === 429) && await writeFallbackTile()) return "created";
         if (blocked) return "blocked";
         networkAttempt++;
         if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -904,7 +923,7 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
-          if (await writeFallbackTile()) return "downloaded";
+          if (await writeFallbackTile()) return "created";
           if (providerRuntime.noteUnavailable) {
             providerRuntime.noteUnavailable(proxy, protocol);
           }
@@ -955,7 +974,7 @@ async function downloadOneTile({
     return "missing";
   }
 
-  if (provider.name === "esri" && lastRetryStatus === 404 && await writeFallbackTile()) return "downloaded";
+  if (provider.name === "esri" && lastRetryStatus === 404 && await writeFallbackTile()) return "created";
 
   return "failed";
 }
@@ -992,10 +1011,11 @@ async function processRow({
   };
   const expected = yEnd - yStart + 1;
   if (!forceVerify && stateDb.shouldSkipRow(key)) {
-    return { skipped: true, expected, downloaded: 0, skippedFiles: expected, missing: 0, failed: 0 };
+    return { skipped: true, expected, downloaded: 0, created: 0, skippedFiles: expected, missing: 0, failed: 0 };
   }
 
   let downloaded = 0;
+  let created = 0;
   let skippedFiles = 0;
   let missing = 0;
   const pending = new Set();
@@ -1052,6 +1072,7 @@ async function processRow({
           y,
         });
         if (result === "downloaded") downloaded++;
+        else if (result === "created") created++;
         else if (result === "skipped") skippedFiles++;
         else if (result === "missing") missing++;
         else pending.add(y);
@@ -1067,7 +1088,7 @@ async function processRow({
     stateDb.markRowComplete({
       ...key,
       expected,
-      downloaded: downloaded + skippedFiles,
+      downloaded: downloaded + created + skippedFiles,
       missing,
       failed,
     });
@@ -1075,13 +1096,13 @@ async function processRow({
     stateDb.markRowPartial({
       ...key,
       expected,
-      downloaded: downloaded + skippedFiles,
+      downloaded: downloaded + created + skippedFiles,
       missing,
       failed,
     });
   }
 
-  return { skipped: false, expected, downloaded, skippedFiles, missing, failed };
+  return { skipped: false, expected, downloaded, created, skippedFiles, missing, failed };
 }
 
 function* iterRows(ranges) {
@@ -1121,6 +1142,7 @@ async function verifyRange({
   let present = 0;
   let missing = 0;
   let repairedDownloaded = 0;
+  let repairedCreated = 0;
   let providerMissing = 0;
   let failed = 0;
   let rowsDone = 0;
@@ -1179,11 +1201,12 @@ async function verifyRange({
         });
         repairedResult = repaired;
         repairedDownloaded += repaired.downloaded;
+        repairedCreated += repaired.created;
         providerMissing += repaired.missing;
         failed += repaired.failed;
         present -= rowPresent;
         missing -= rowMissing;
-        rowPresent = repaired.downloaded + repaired.skippedFiles;
+        rowPresent = repaired.downloaded + repaired.created + repaired.skippedFiles;
         rowMissing = repaired.missing + repaired.failed;
         present += rowPresent;
         missing += rowMissing;
@@ -1218,6 +1241,7 @@ async function verifyRange({
     providerMissing,
     failed,
     repairedDownloaded,
+    repairedCreated,
   };
 }
 
@@ -1261,6 +1285,7 @@ export async function runDownloadJob({
   let rowsSkipped = 0;
   let rowsCompleted = 0;
   let tilesDownloaded = 0;
+  let tilesCreated = 0;
   let tilesMissing = 0;
   let tilesFailed = 0;
   let tileFilesSkipped = 0;
@@ -1284,6 +1309,7 @@ export async function runDownloadJob({
       rowsSkipped,
       rowsCompleted,
       tilesDownloaded,
+      tilesCreated,
       tilesMissing,
       tilesFailed,
       tileFilesSkipped,
@@ -1340,6 +1366,7 @@ export async function runDownloadJob({
             if (result.skipped) rowsSkipped++;
             else rowsCompleted++;
             tilesDownloaded += result.downloaded;
+            tilesCreated += result.created;
             tileFilesSkipped += result.skippedFiles;
             tilesMissing += result.missing;
             tilesFailed += result.failed;
@@ -1358,6 +1385,7 @@ export async function runDownloadJob({
                 rowsSkipped,
                 rowsCompleted,
                 tilesDownloaded,
+                tilesCreated,
                 tileFilesSkipped,
                 tilesMissing,
                 tilesFailed,
@@ -1393,6 +1421,7 @@ export async function runDownloadJob({
         });
         rangesVerified++;
         tilesDownloaded += verified.repairedDownloaded;
+        tilesCreated += verified.repairedCreated;
         tilesMissing = Math.max(0, tilesMissing - rangeTilesMissing + verified.providerMissing);
         tilesFailed = Math.max(0, tilesFailed - rangeTilesFailed + verified.failed);
         stateDb.markRangeVerified({
@@ -1419,6 +1448,7 @@ export async function runDownloadJob({
     rowsSkipped,
     rowsCompleted,
     tilesDownloaded,
+    tilesCreated,
     tilesMissing,
     tilesFailed,
     tileFilesSkipped,
