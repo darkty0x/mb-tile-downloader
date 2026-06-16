@@ -24,9 +24,9 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo) {
+async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo, options = {}) {
   try {
-    return await collectDiskInfoImpl();
+    return await collectDiskInfoImpl(options);
   } catch (err) {
     return [
       {
@@ -219,7 +219,7 @@ export async function runAgent({
   log(`dashboard agent registered machineId=${identity.machineId} dashboard=${env.DASHBOARD_URL}`);
 
   async function tick() {
-    const disk = await safeDiskSnapshot(collectDiskInfoImpl);
+    const disk = await safeDiskSnapshot(collectDiskInfoImpl, { projectDir, platform: process.platform });
     await client.heartbeat({
       ...identity,
       status: "online",

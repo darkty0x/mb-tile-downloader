@@ -271,7 +271,7 @@ function ServerControl({ state }) {
 }
 
 function ServerDisk({ machine }) {
-  const disks = machine?.disk || [];
+  const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
   return (
     <section className="grid gap-2">
       <SectionTitle title="Disk Space" meta={`${disks.length} drives`} />
@@ -280,7 +280,10 @@ function ServerDisk({ machine }) {
         return (
           <Surface key={`${disk.name}-${disk.mount}`} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-2.5 shadow-none hover:shadow-sm">
             <div className="min-w-0">
-              <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
+              <span className="flex min-w-0 items-center gap-2">
+                <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
+                {disk.containsProject ? <StatusPill status="success">downloader</StatusPill> : null}
+              </span>
               <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || ""} | {formatBytes(disk.freeBytes)} free</small>
             </div>
             <UsageBar percent={pct} className="w-24" />

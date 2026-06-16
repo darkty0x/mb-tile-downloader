@@ -3,11 +3,13 @@ import assert from "node:assert/strict";
 
 import { parseDfOutput, parseWindowsLogicalDiskJson } from "../src/agent/disk.js";
 
-test("parses POSIX df -kP output into normalized byte counts", () => {
+test("parses POSIX df -kP output into normalized useful byte counts", () => {
   const disks = parseDfOutput(`Filesystem 1024-blocks Used Available Capacity Mounted on
 /dev/disk3s1 487350000 250000000 237350000 52% /
+/dev 100 100 0 100% /dev
+/dev/disk3s2 2000 100 1900 5% /System/Volumes/Preboot
 /dev/disk3s2 1000 250 750 25% /Volumes/Data Drive
-`);
+`, { projectDir: "/Volumes/Data Drive/mb-tile-downloader", platform: "darwin" });
 
   assert.deepEqual(disks, [
     {
@@ -27,6 +29,7 @@ test("parses POSIX df -kP output into normalized byte counts", () => {
       freeBytes: 750 * 1024,
       usedBytes: 250 * 1024,
       percentUsed: 25,
+      containsProject: true,
     },
   ]);
 });
@@ -46,7 +49,8 @@ test("parses Windows logical disk JSON object and array forms", () => {
       { DeviceID: "C:", Size: 1000, FreeSpace: 250, DriveType: 3 },
       { DeviceID: "D:", Size: 2000, FreeSpace: 1000, DriveType: 3 },
       { DeviceID: "Z:", Size: 3000, FreeSpace: 1500, DriveType: 4 },
-    ])
+    ]),
+    { projectDir: "D:\\mb-tile-downloader", platform: "win32" }
   );
 
   assert.deepEqual(single[0], {
@@ -60,4 +64,5 @@ test("parses Windows logical disk JSON object and array forms", () => {
   });
   assert.equal(multiple.length, 2);
   assert.equal(multiple[1].name, "D:");
+  assert.equal(multiple[1].containsProject, true);
 });

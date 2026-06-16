@@ -546,7 +546,7 @@ function ServerPageControl({ state, machine }) {
 }
 
 function ServerPageDisk({ machine }) {
-  const disks = machine?.disk || [];
+  const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
   return (
     <section className="grid gap-2">
       <SectionTitle title="Disk Space" meta={`${disks.length} Drives`} />
@@ -555,7 +555,10 @@ function ServerPageDisk({ machine }) {
         return (
           <div key={`${disk.name}-${disk.mount}`} className="grid grid-cols-[minmax(0,1fr)_96px_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-1">
             <div className="min-w-0">
-              <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
+              <span className="flex min-w-0 items-center gap-2">
+                <strong className="block truncate text-[12.5px]">{disk.mount || disk.name}</strong>
+                {disk.containsProject ? <StatusPill status="success">downloader</StatusPill> : null}
+              </span>
               <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || ""} | {formatBytes(disk.freeBytes)} Free</small>
             </div>
             <UsageBar percent={pct} className="w-24 max-sm:w-full" />

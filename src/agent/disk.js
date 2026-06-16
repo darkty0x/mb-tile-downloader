@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -23,8 +24,42 @@ function normalizeDisk({ name, filesystem, mount, totalBytes, freeBytes }) {
   };
 }
 
-export function parseDfOutput(output) {
-  return output
+function isUsefulPosixDisk(disk) {
+  const mount = String(disk.mount || "");
+  const filesystem = String(disk.filesystem || "");
+  if (!mount || !filesystem) return false;
+  if (filesystem === "devfs" || filesystem === "map" || filesystem === "tmpfs") return false;
+  if (/^(devfs|tmpfs|autofs|procfs|sysfs|overlay)$/i.test(filesystem)) return false;
+  if (mount === "/dev") return false;
+  if (mount.startsWith("/System/Volumes/")) return false;
+  if (mount.startsWith("/private/var/")) return false;
+  if (mount.startsWith("/run/") || mount.startsWith("/snap/")) return false;
+  return mount === "/" || mount.startsWith("/Volumes/") || mount.startsWith("/mnt/") || mount.startsWith("/media/");
+}
+
+function diskContainsProject(disk, projectDir, platform = process.platform) {
+  if (!projectDir) return false;
+  const mount = String(disk.mount || disk.name || "");
+  if (platform === "win32") {
+    const resolvedProject = path.win32.resolve(projectDir).toLowerCase();
+    const resolvedMount = path.win32.resolve(`${mount}\\`).toLowerCase();
+    if (resolvedProject === resolvedMount.replace(/\\$/, "")) return true;
+    return resolvedProject.toLowerCase().startsWith(`${mount.toLowerCase()}\\`);
+  }
+  const resolvedProject = path.resolve(projectDir);
+  const resolvedMount = path.resolve(mount);
+  return resolvedProject === resolvedMount || resolvedProject.startsWith(`${resolvedMount}${path.sep}`);
+}
+
+function markProjectDisk(disks, { projectDir, platform = process.platform } = {}) {
+  return disks.map((disk) => ({
+    ...disk,
+    ...(diskContainsProject(disk, projectDir, platform) ? { containsProject: true } : {}),
+  }));
+}
+
+export function parseDfOutput(output, { projectDir, platform = process.platform } = {}) {
+  const disks = output
     .trim()
     .split(/\r?\n/)
     .slice(1)
@@ -43,14 +78,16 @@ export function parseDfOutput(output) {
         percentUsed: toNumber(percentUsed),
       };
     })
-    .filter(Boolean);
+    .filter(Boolean)
+    .filter(isUsefulPosixDisk);
+  return markProjectDisk(disks, { projectDir, platform });
 }
 
-export function parseWindowsLogicalDiskJson(output) {
+export function parseWindowsLogicalDiskJson(output, { projectDir, platform = "win32" } = {}) {
   if (!output.trim()) return [];
   const parsed = JSON.parse(output);
   const rows = Array.isArray(parsed) ? parsed : [parsed];
-  return rows
+  const disks = rows
     .filter((row) => Number(row.DriveType) === 3)
     .map((row) =>
       normalizeDisk({
@@ -61,18 +98,19 @@ export function parseWindowsLogicalDiskJson(output) {
         freeBytes: row.FreeSpace,
       })
     );
+  return markProjectDisk(disks, { projectDir, platform });
 }
 
-export async function collectDiskInfo({ platform = process.platform } = {}) {
+export async function collectDiskInfo({ platform = process.platform, projectDir = process.cwd() } = {}) {
   if (platform === "win32") {
     const { stdout } = await execFileAsync("powershell.exe", [
       "-NoProfile",
       "-Command",
       "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID,VolumeName,Size,FreeSpace,DriveType | ConvertTo-Json",
     ]);
-    return parseWindowsLogicalDiskJson(stdout);
+    return parseWindowsLogicalDiskJson(stdout, { projectDir, platform });
   }
 
   const { stdout } = await execFileAsync("df", ["-kP"]);
-  return parseDfOutput(stdout);
+  return parseDfOutput(stdout, { projectDir, platform });
 }
