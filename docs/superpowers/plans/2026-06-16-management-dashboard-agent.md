@@ -12,7 +12,8 @@
 
 ## Current Status
 
-- [x] Railway Backend is deployed from `feature/management-dashboard-agent`.
+- [x] Local repository work is on `main`; `main` matches `origin/main`.
+- [ ] Confirm Railway production service deploys from `main` and is running the latest commit.
 - [x] Railway Postgres exists and Backend has `DATABASE_URL`.
 - [x] Production dashboard now fails startup when `NODE_ENV=production` and `DATABASE_URL` is missing.
 - [x] Dashboard schema exists for machines, events, commands, jobs, configs, env profiles, secrets, and settings.
@@ -29,13 +30,30 @@
 - [x] Job progress is now a first-class durable API surface for the dashboard.
 - [x] Agent pipeline now persists stage results to dashboard jobs.
 - [x] Fleet snapshot API exists so the dashboard can load fleet state without per-server loops.
-- [ ] Overview, Servers, Secrets, Credentials, Configs, Pipelines, Events, Alerts, and Settings pages need clearer separation and page-specific workflows.
-- [ ] The right-side "select server" style panel should be removed from the final layout.
-- [ ] Server add/remove/onboarding needs a complete operator flow with generated agent install/run commands.
+- [x] Overview, Servers, Secrets, Credentials, Configs, Pipelines, Events, Alerts, and Settings surfaces exist.
+- [x] Dashboard can add and remove server connection profiles.
+- [x] Server onboarding explains outbound agent registration and generates Windows env/setup content.
 - [ ] Storj upload readiness still needs a machine-level preflight and dashboard-visible diagnostics.
-- [ ] Client-to-dashboard communication contract still needs retry/backoff policy; canonical endpoint names, command leases, and protocol versioning are implemented.
-- [ ] Live dashboard sync needs predictable polling intervals for 9 to 100+ servers.
+- [ ] Dedicated `src/agent/preflight.js` still needs to replace the current dry-run-style readiness check.
+- [ ] Storj upload diagnostics need a parseable success/failure result shape with bucket, remote path, and byte counts.
+- [ ] Client-to-dashboard communication contract still needs bounded retry/backoff policy for reporting failures; canonical endpoint names, command leases, and protocol versioning are implemented.
+- [ ] Live dashboard browser sync needs configurable visible-tab polling intervals for 9 to 100+ servers.
+- [ ] Settings schema needs sync/workflow/Telegram settings beyond alert thresholds.
 - [ ] Telegram and web console notifications need a consistent event policy and deduping.
+- [ ] UI quality should continue moving toward the selected PTG reference designs, but the core page surfaces now exist.
+
+Current local verification:
+
+```text
+npm test -- --test-concurrency=1 --test-reporter=dot
+Result: 263/263 passing
+
+npm --prefix dashboard test -- --test-reporter=dot
+Result: 75/75 passing
+
+npm --prefix dashboard run build
+Result: passed; dashboard client built at dashboard/src/client/dist
+```
 
 ---
 
