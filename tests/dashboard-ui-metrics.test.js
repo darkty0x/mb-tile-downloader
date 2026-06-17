@@ -61,6 +61,48 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.activeRanges[0].name, "ukraine-range-01");
 });
 
+test("overview model uses durable jobs for scoped pipeline and ETA", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-09", status: "offline", disk: [] }],
+    events: [
+      { machineId: "server-09", type: "range.download.started", severity: "info", message: "old event" },
+    ],
+    jobs: [
+      {
+        jobId: "job-server-09",
+        machineId: "server-09",
+        status: "running",
+        stage: "zip",
+        startedAt: "2026-06-16T00:25:00.000Z",
+        progress: {
+          percent: 50,
+          tilesDone: 750,
+          tilesTotal: 1000,
+          tilesPerSecond: 25,
+        },
+      },
+      {
+        jobId: "job-other",
+        machineId: "server-01",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-16T00:26:00.000Z",
+        progress: { percent: 90 },
+      },
+    ],
+    machineId: "SERVER-09",
+  });
+
+  assert.equal(model.activeJob.jobId, "job-server-09");
+  assert.equal(model.pipeline[0].status, "complete");
+  assert.equal(model.pipeline[1].status, "complete");
+  assert.equal(model.pipeline[2].status, "running");
+  assert.equal(model.pipeline[2].progress, 50);
+  assert.equal(model.pipelineStage, "압축");
+  assert.equal(model.pipelineProgress, "63%");
+  assert.equal(model.pipelineEta, "10초");
+});
+
 test("server onboarding explains agent registration instead of manual dashboard rows", () => {
   const onboarding = buildServerOnboarding({
     dashboardUrl: "https://ptg-dashboard.example.com",

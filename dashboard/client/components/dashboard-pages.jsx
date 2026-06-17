@@ -67,10 +67,27 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function PipelineOverview({ overview }) {
+function PipelineOverview({ overview, title = "실시간 처리흐름 진행", meta = "모든 활성 구간" }) {
+  const summary = [
+    ["진행", overview.pipelineProgress || "0%"],
+    ["단계", overview.pipelineStage || "대기중"],
+    ["완료예상", overview.pipelineEta || "대기중"],
+  ];
   return (
     <Surface className="p-4">
-      <SectionTitle title="실시간 처리흐름 진행" meta="모든 활성 구간" />
+      <SectionTitle
+        title={title}
+        meta={meta}
+        action={(
+          <div className="flex flex-wrap justify-end gap-1.5">
+            {summary.map(([label, value]) => (
+              <span key={label} className="rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-1 text-[11px] font-[750] text-[var(--ptg-on-surface-variant)]">
+                {label} <strong className="ml-1 text-[var(--ptg-on-surface)]">{value}</strong>
+              </span>
+            ))}
+          </div>
+        )}
+      />
       <div className="grid grid-cols-4 gap-5 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {overview.pipeline.map((step, index) => {
           const tone = pipelineTone(step.status);
@@ -436,10 +453,20 @@ export function ServerManagementPage({ state, actions }) {
     configs: selectedMatchesTarget ? state.configs : [],
     envProfiles: selectedMatchesTarget ? state.envProfiles : [],
     secrets: selectedMatchesTarget ? state.secrets : [],
+    jobs: selectedMatchesTarget ? state.jobs : [],
     events: selectedMatchesTarget ? state.events : [],
     activeConfig: selectedMatchesTarget ? state.activeConfig : null,
     activeEnv: selectedMatchesTarget ? state.activeEnv : null,
   };
+  const serverOverview = buildOverviewModel({
+    machines: machine ? [machine] : [],
+    configs: serverState.configs,
+    events: serverState.events,
+    jobs: serverState.jobs,
+    secretPool: state.secretPool,
+    settings: state.settings,
+    machineId: targetMachineId,
+  });
   const counts = {
     configs: serverState.configs.length || snapshot.configs?.length || 0,
     env: serverState.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
@@ -482,7 +509,7 @@ export function ServerManagementPage({ state, actions }) {
             variant={type === "start_pipeline" ? "filled" : "outlined"}
             icon={icon}
             className={type === "stop_pipeline" ? "danger-button" : ""}
-            disabled={!machine}
+            disabled={!targetMachineId}
             onClick={() => actions.sendCommand(type).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           >
             {label}
@@ -508,7 +535,7 @@ export function ServerManagementPage({ state, actions }) {
       </nav>
 
       <Surface className="p-4">
-        {state.selectedServerTab === "control" ? <ServerPageControl state={serverState} machine={machine} /> : null}
+        {state.selectedServerTab === "control" ? <ServerPageControl state={serverState} machine={machine} overview={serverOverview} /> : null}
         {state.selectedServerTab === "configs" ? <ServerPageConfigs state={serverState} actions={actions} /> : null}
         {state.selectedServerTab === "env" ? <ServerPageEnv state={serverState} actions={actions} /> : null}
         {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={serverState} actions={actions} /> : null}
@@ -518,7 +545,7 @@ export function ServerManagementPage({ state, actions }) {
   );
 }
 
-function ServerPageControl({ state, machine }) {
+function ServerPageControl({ state, machine, overview }) {
   const snapshot = machine?.agentSnapshot || {};
   const proxySummary = snapshot.secrets?.proxy;
   const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
@@ -533,6 +560,11 @@ function ServerPageControl({ state, machine }) {
   ];
   return (
     <section className="grid gap-4">
+      <PipelineOverview
+        overview={overview}
+        title="이 봉사기 처리흐름"
+        meta={overview.activeJob ? `작업 ${overview.activeJob.jobId}` : "대기중인 작업 또는 최근 단계자료"}
+      />
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {facts.map(([icon, label, value]) => (
           <div key={label} className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">

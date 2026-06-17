@@ -210,6 +210,7 @@ export function fleetState(state) {
     ...state,
     configs: state.globalConfigs?.length ? state.globalConfigs : state.configs,
     events: state.globalEvents?.length ? state.globalEvents : state.events,
+    jobs: state.globalJobs?.length ? state.globalJobs : state.jobs,
   };
 }
 

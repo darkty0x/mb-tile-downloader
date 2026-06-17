@@ -277,14 +277,14 @@ export function useDashboardState() {
         await refreshMachineData(selectedId);
       },
       async sendCommand(commandType) {
-        const machine = findMachineById(machines, selectedMachineId);
-        if (!machine) throw new Error("먼저 봉사기관리페지를 여십시오");
+        const targetMachineId = normalizeMachineId(selectedMachineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
           if (!activeConfig) throw new Error("활성 설정화일이 필요합니다");
           payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
         }
-        await api(`/api/machines/${encodeURIComponent(machine.machineId)}/commands`, {
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
           method: "POST",
           body: JSON.stringify({ commandType, payload, requestedBy: "dashboard" }),
         });
@@ -298,7 +298,7 @@ export function useDashboardState() {
           sync_env: "환경변수 동기화",
         }[commandType] || commandType;
         setNotice({ message: `${commandLabel} 명령이 대기렬에 들어갔습니다`, kind: "success" });
-        await refreshMachineData(machine.machineId);
+        await refreshMachineData(targetMachineId);
       },
       async deleteMachine(machineId) {
         await api(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" });
