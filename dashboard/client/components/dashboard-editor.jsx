@@ -537,10 +537,25 @@ function ConfigForm({ record, state, actions, editor }) {
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
   const defaultActive = record?.active ?? !id;
+  const effectiveMachineIds = id ? [record?.machineId || state.selectedMachineId].filter(Boolean) : selectedMachineIds;
+  const effectiveMachines = effectiveMachineIds.map((machineId) => findMachineById(state.machines, machineId)).filter(Boolean);
+  const missingMachineCount = effectiveMachineIds.length - effectiveMachines.length;
+  const offlineMachines = effectiveMachines.filter((machine) => machine.status !== "online");
+  const machineSelectionError = !effectiveMachineIds.length
+    ? "봉사기를 먼저 선택하십시오"
+    : missingMachineCount > 0
+      ? "선택한 봉사기를 찾을수 없습니다"
+      : offlineMachines.length > 0
+        ? "련결된 봉사기만 선택할수 있습니다"
+        : "";
+  const canSubmit = !submitting && !machineSelectionError;
   return (
     <form className="grid gap-3" onSubmit={async (event) => {
       event.preventDefault();
-      if (submitting) return;
+      if (!canSubmit) {
+        actions.setNotice({ message: machineSelectionError, kind: "error" });
+        return;
+      }
       try {
         setSubmitting(true);
         await actions.saveConfig(new FormData(event.currentTarget), id);
@@ -568,6 +583,11 @@ function ConfigForm({ record, state, actions, editor }) {
           onChange={setSelectedTemplateIds}
         />
       ) : null}
+      {machineSelectionError ? (
+        <div className="rounded-lg border border-[rgba(201,121,0,0.24)] bg-[#fff8ed] p-3 text-[12px] font-[650] text-[#8a5300]">
+          {machineSelectionError}
+        </div>
+      ) : null}
       {templateMode ? (
         <>
           <ConfigRangeBuilder actions={actions} />
@@ -579,7 +599,7 @@ function ConfigForm({ record, state, actions, editor }) {
         <TextArea label="설정화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>{templateMode ? `${selectedTemplateIds.length}개 만들기` : "설정화일 보관"}</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 만들기` : "설정화일 보관"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>

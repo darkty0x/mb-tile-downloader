@@ -437,7 +437,10 @@ export function useDashboardState() {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
         const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
         const targetMachineIds = machineIds.length ? machineIds : selectedMachineId ? [selectedMachineId] : [];
-        if (!id && targetMachineIds.length === 0) throw new Error("봉사기를 하나이상 선택하십시오");
+        if (targetMachineIds.length === 0) throw new Error("봉사기를 먼저 선택하십시오");
+        const targetMachines = targetMachineIds.map((machineId) => findMachineById(machines, machineId)).filter(Boolean);
+        if (targetMachines.length !== targetMachineIds.length) throw new Error("선택한 봉사기를 찾을수 없습니다");
+        if (targetMachines.some((machine) => machine.status !== "online")) throw new Error("련결된 봉사기만 선택할수 있습니다");
         if (!id && templateIds.length > 0) {
           const { configs: created } = await api("/api/configs/batch", {
             method: "POST",

@@ -122,15 +122,25 @@ export function formatBytes(value) {
   return `${size.toFixed(size >= 10 || unit === 0 ? 0 : 1)} ${units[unit]}`;
 }
 
+const KOREAN_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
+  year: "numeric",
+  month: "2-digit",
+  day: "2-digit",
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  hourCycle: "h23",
+});
+
 export function shortDate(value) {
   if (!value) return "없음";
-  return new Intl.DateTimeFormat(undefined, {
-    month: "short",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    timeZoneName: "short",
-  }).format(new Date(value));
+  const parts = Object.fromEntries(
+    KOREAN_DATE_FORMATTER
+      .formatToParts(new Date(value))
+      .filter((part) => part.type !== "literal")
+      .map((part) => [part.type, part.value])
+  );
+  return `${parts.year}. ${parts.month}. ${parts.day}. ${parts.hour}:${parts.minute}`;
 }
 
 export function statusKind(status) {
