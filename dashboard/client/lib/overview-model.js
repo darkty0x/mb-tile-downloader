@@ -299,7 +299,7 @@ export function buildOverviewModel({
       throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 Agent 지표 대기중" },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
       failedJobs: { label: "실패한 타일수", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
-      resourceAlerts: { label: "API Key와 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
+      resourceAlerts: { label: "API Key및 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: pipelineModel.steps,
     pipelineEta: pipelineModel.etaLabel,

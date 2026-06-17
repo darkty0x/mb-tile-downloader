@@ -22,7 +22,7 @@ export const TABS = [
 export const PAGE_META = {
   overview: ["첫페지", "전체 공정흐름을 감시 및 관리합니다"],
   servers: ["봉사기", "작업기대 봉사기들을 관리합니다"],
-  secrets: ["API Key와 Proxy", "Mapbox API Key 및 Proxy정보들을 관리합니다"],
+  secrets: ["API Key및 Proxy", "Mapbox API Key 및 Proxy정보들을 관리합니다"],
   credentials: ["계정정보", "웹싸이트 및 RDP 접속자료와 접근권한을 관리합니다"],
   settings: ["설정", "체계와 환경을 설정합니다"],
   pipelines: ["공정흐름", "활성화된 봉사기들의 작업공정흐름을 관리합니다"],
@@ -124,9 +124,9 @@ export function formatBytes(value) {
 
 const KOREAN_DATE_FORMATTER = new Intl.DateTimeFormat("ko-KR", {
   year: "numeric",
-  month: "2-digit",
-  day: "2-digit",
-  hour: "2-digit",
+  month: "numeric",
+  day: "numeric",
+  hour: "numeric",
   minute: "2-digit",
   hour12: false,
   hourCycle: "h23",
@@ -140,7 +140,7 @@ export function shortDate(value) {
       .filter((part) => part.type !== "literal")
       .map((part) => [part.type, part.value])
   );
-  return `${parts.year}. ${parts.month}. ${parts.day}. ${parts.hour}:${parts.minute}`;
+  return `${parts.year}년 ${Number(parts.month)}월 ${Number(parts.day)}일 ${Number(parts.hour)}시 ${parts.minute}분`;
 }
 
 export function statusKind(status) {

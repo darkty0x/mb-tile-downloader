@@ -41,7 +41,7 @@ function pipelineTone(status) {
   return "muted";
 }
 
-function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac" }) {
+function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac", compactUnit = "" }) {
   return (
     <Surface className={`ptg-metric-tile min-h-[122px] overflow-hidden p-4 ptg-palette-${palette} ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
       <div className="flex items-start gap-3">
@@ -50,7 +50,10 @@ function InsightCard({ icon, label, value, detail, tone = "primary", palette = "
         </span>
         <span className="min-w-0">
           <span className="block truncate text-[11px] font-[650] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
-          <strong className="mt-2 block truncate text-[28px] font-[475] leading-none text-[var(--ptg-on-surface)]">{value}</strong>
+          <strong className="mt-2 flex min-w-0 items-end gap-1 truncate text-[28px] font-[475] leading-none text-[var(--ptg-on-surface)]">
+            <span className="truncate">{value}</span>
+            {compactUnit ? <span className="shrink-0 pb-[1px] text-[15px] font-[650] leading-none">{compactUnit}</span> : null}
+          </strong>
           <p className={`mt-2 truncate text-[11.5px] font-[500] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
         </span>
       </div>
@@ -123,7 +126,7 @@ function FleetHealthCard({ overview }) {
   const warningStop = healthyStop + warning * 3.6;
   const criticalStop = warningStop + critical * 3.6;
   const ring = total
-    ? `conic-gradient(var(--ptg-success) 0 ${healthyStop}deg, var(--ptg-warning) ${healthyStop}deg ${warningStop}deg, var(--ptg-error) ${warningStop}deg ${criticalStop}deg, #9aa8bd ${criticalStop}deg 360deg)`
+    ? `conic-gradient(#4fd4a6 0 ${healthyStop}deg, #f3b45d ${healthyStop}deg ${warningStop}deg, #ff8a82 ${warningStop}deg ${criticalStop}deg, #c7d2e2 ${criticalStop}deg 360deg)`
     : "conic-gradient(#dbe5f2 0 360deg)";
   return (
     <Surface className="min-h-[278px] p-4">
@@ -207,7 +210,7 @@ function ResourceAlertsCard({ overview, actions }) {
   return (
     <Surface className="p-4">
       <SectionTitle
-        title="API Key와 Proxy상태"
+        title="API Key및 Proxy상태"
         meta="설정의 림계값을 리용합니다"
         action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>림계값</AppButton>}
       />
@@ -319,15 +322,18 @@ export function OverviewDashboard({ state, actions }) {
       <section className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
         {KPI_CARDS.map(([key, icon, palette]) => {
           const metric = overview.kpis[key];
+          const isThroughput = key === "throughput";
+          const value = isThroughput ? String(metric.value).replace(/\s*타일\/초$/, "") : metric.value;
           return (
             <InsightCard
               key={key}
               icon={icon}
               label={metric.label}
-              value={metric.value}
+              value={value}
               detail={metric.detail}
               tone={kpiTone(key, metric)}
               palette={palette}
+              compactUnit={isThroughput ? "타일/초" : ""}
             />
           );
         })}
@@ -430,21 +436,24 @@ function ServerConnectionsSection({ state, actions }) {
 
 export function ServerManagementPage({ state, actions }) {
   const connection = state.secretPool.find((item) => item.secretId === state.editor.id);
-  if (!connection) {
+  const requestedMachineId = state.editor.machineId || state.selectedMachineId;
+  const targetMachineId = connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId || requestedMachineId;
+  const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
+  if (!connection && !machine) {
     return (
       <section className="screen-enter mt-4 grid gap-4">
         <Surface className="p-5">
           <SectionTitle title="봉사기관리" action={<AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>뒤로가기</AppButton>} />
-          <EmptyLine>접속 Profile을 찾을수 없습니다.</EmptyLine>
+          <EmptyLine>봉사기 또는 접속 Profile을 찾을수 없습니다.</EmptyLine>
         </Surface>
       </section>
     );
   }
-  const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
-  const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const snapshot = machine?.agentSnapshot || {};
-  const validation = state.serverValidationResults[connection.secretId];
-  const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const validation = connection ? state.serverValidationResults[connection.secretId] : null;
+  const endpoint = connection
+    ? `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`
+    : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const serverState = {
     ...state,
@@ -481,15 +490,15 @@ export function ServerManagementPage({ state, actions }) {
               <Icon name="servers" className="h-6 w-6" />
             </span>
             <div className="min-w-0">
-              <h2 className="truncate text-[22px] font-[900] leading-tight">{connection.label}</h2>
-              <p className="mt-1 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{endpoint} | {connection.credential?.username || "없음"} | {displayMachineId(targetMachineId)}</p>
+              <h2 className="truncate text-[22px] font-[900] leading-tight">{connection?.label || machine?.displayName || displayMachineId(targetMachineId)}</h2>
+              <p className="mt-1 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{endpoint} | {connection?.credential?.username || "Agent"} | {displayMachineId(targetMachineId)}</p>
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             <StatusPill status={machine ? statusKind(machine.status) : "neutral"}>{machine ? displayStatus(machine.status) : "Agent 등록안됨"}</StatusPill>
             {validation ? <StatusPill status={validation.valid ? "success" : "error"}>{validation.valid ? "준비됨" : "준비안됨"}</StatusPill> : null}
-            <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton>
-            <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>계정정보 편집</AppButton>
+            {connection ? <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton> : null}
+            {connection ? <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>계정정보 편집</AppButton> : null}
             <AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>뒤로</AppButton>
           </div>
         </div>
@@ -954,7 +963,7 @@ export function SecretsDashboard({ state, actions }) {
 
       {alerts.length ? (
         <Surface className="grid gap-2 border-[rgba(143,95,0,0.25)] bg-[#fff9ed]">
-          <SectionTitle title="용량경보" meta={`봉사기 ${serverCount}개 련결됨 | 설정의 림계값`} />
+          <SectionTitle title="경보" meta={`봉사기 ${serverCount}개 련결됨 | 설정의 림계값`} />
           {alerts.map((alert) => (
             <div key={alert.type} className="flex flex-wrap items-center gap-2 rounded-lg border border-[rgba(143,95,0,0.18)] bg-white px-3 py-2 text-[12px]">
               <StatusPill status="warn">낮음</StatusPill>
@@ -1254,9 +1263,9 @@ export function SettingsDashboard({ state, actions }) {
               </span>
               <div className="grid gap-3">
                 <SwitchField name="telegramEnabled" label="Telegram 켜기" defaultChecked={Boolean(notifications.telegramEnabled)} />
-                <SwitchField name="webConsoleEnabled" label="웹Console 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
-                <TextInput label="중복제거 시간창(ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
-                <SelectInput label="최소 심각도" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
+                <SwitchField name="webConsoleEnabled" label="Web Console 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
+                <TextInput label="중복제거 시간간격(ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
+                <SelectInput label="알림 Threshold" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
                   <option value="debug">Debug</option>
                   <option value="info">일반</option>
                   <option value="warn">경고</option>
@@ -1280,13 +1289,13 @@ export function SettingsDashboard({ state, actions }) {
           <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
             <ThresholdPreview
               icon="key"
-              label="Mapbox API Key 경보선"
+              label="Mapbox API Key 경고 Threshold"
               value={`${mapboxAlertAt}개 Key`}
               detail={`봉사기당 ${mapboxPerServer}개 x 전체 봉사기 ${serverCount}개`}
             />
             <ThresholdPreview
               icon="secrets"
-              label="Proxy 경보선"
+              label="Proxy 경고 Threshold"
               value={`${proxyAlertAt}개 Proxy`}
               detail={`봉사기당 ${proxiesPerServer}개 x 전체 봉사기 ${serverCount}개`}
             />
@@ -1559,7 +1568,6 @@ function ServersTable({ state, actions }) {
     `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
   );
   const online = state.machines.filter((machine) => machine.status === "online").length;
-  const connectionForMachine = (machineId) => state.secretPool.find((secret) => isServerConnection(secret) && sameMachineId(secret.targetMachineId || secret.credential?.machineId || secret.machineId, machineId));
   return (
     <Surface className="min-h-[500px] max-w-full overflow-hidden">
       <SectionTitle
@@ -1596,7 +1604,6 @@ function ServersTable({ state, actions }) {
           <tbody>
             {filtered.length ? filtered.map((machine) => {
               const diskPeak = Math.max(0, ...((machine.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
-              const connection = connectionForMachine(machine.machineId);
               return (
                 <tr
                   key={machine.machineId}
@@ -1617,14 +1624,9 @@ function ServersTable({ state, actions }) {
                       <button
                         type="button"
                         aria-label={`${machine.displayName || machine.machineId} 관리`}
-                        disabled={!connection}
                         onClick={(event) => {
                           event.stopPropagation();
-                          if (!connection) {
-                            actions.setNotice({ message: "이 봉사기를 관리하기전에 접속 Profile을 추가하십시오.", kind: "error" });
-                            return;
-                          }
-                          return actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                          return actions.manageMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
                         className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >

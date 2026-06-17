@@ -228,19 +228,49 @@ function uniqueStrings(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
-async function rebalanceSecretAssignments({ store, secretVault } = {}) {
+async function rebalanceSecretAssignments({ store, secretVault, machineIds } = {}) {
   if (!secretVault?.rebalanceAssignments) return null;
   const [machines, settings] = await Promise.all([
     store.listMachines(),
     store.getSettings(),
   ]);
+  const targetMachineIds = uniqueStrings(machineIds || []);
   return secretVault.rebalanceAssignments({
-    machineIds: machines.map((machine) => machine.machineId),
+    machineIds: targetMachineIds.length ? targetMachineIds : machines.map((machine) => machine.machineId),
     targets: {
       mapbox_token: settings.alertThresholds?.mapboxTokensPerServer,
       proxy_txt: settings.alertThresholds?.proxiesPerServer,
     },
   });
+}
+
+async function validateExistingPoolSecrets({ secretVault, secretValidator, machineIds = [], secretTypes = ["mapbox_token"] } = {}) {
+  if (!secretVault?.listSecretsForBrowser || !secretVault?.getSecretForDashboard || !secretVault?.updateSecret) {
+    return { checked: 0, changed: 0 };
+  }
+  const targetMachines = new Set(uniqueStrings(machineIds).map((machineId) => normalizeMachineId(machineId)));
+  const targetTypes = new Set(uniqueStrings(secretTypes));
+  const browserSecrets = await secretVault.listSecretsForBrowser();
+  let checked = 0;
+  let changed = 0;
+  for (const item of browserSecrets) {
+    if (!targetTypes.has(item.secretType)) continue;
+    if (item.status !== "active") continue;
+    if (targetMachines.size && !targetMachines.has(normalizeMachineId(item.machineId))) continue;
+    const existing = await secretVault.getSecretForDashboard(item.secretId);
+    const validation = await validatePoolSecret({
+      secretValidator,
+      secretType: existing.secretType,
+      value: existing.value,
+    });
+    if (!validation) continue;
+    checked += 1;
+    if (validation.status !== item.status) {
+      await secretVault.updateSecret(item.secretId, { status: validation.status });
+      changed += 1;
+    }
+  }
+  return { checked, changed };
 }
 
 async function validatePoolSecret({ secretValidator, secretType, value } = {}) {
@@ -741,8 +771,20 @@ export function createDashboardApp({
 
         if (req.method === "POST" && url.pathname === "/api/secrets/rebalance") {
           if (!secretVault) throw new Error("secret vault is not configured");
-          const result = await rebalanceSecretAssignments({ store, secretVault });
-          json(res, 200, result || { changed: 0, secrets: await secretVault.listSecretsForBrowser() });
+          const body = await readJson(req);
+          const validation = body.validateExisting
+            ? await validateExistingPoolSecrets({
+              secretVault,
+              secretValidator,
+              machineIds: body.machineIds,
+              secretTypes: body.secretTypes || ["mapbox_token"],
+            })
+            : { checked: 0, changed: 0 };
+          const result = await rebalanceSecretAssignments({ store, secretVault, machineIds: body.machineIds });
+          json(res, 200, {
+            ...(result || { changed: 0, secrets: await secretVault.listSecretsForBrowser() }),
+            validation,
+          });
           return;
         }
 
@@ -770,7 +812,17 @@ export function createDashboardApp({
             }));
           }
           if (["mapbox_token", "proxy_txt"].includes(body.secretType)) {
-            await rebalanceSecretAssignments({ store, secretVault });
+            const targetMachineIds = uniqueStrings(body.machineIds || []);
+            const shouldValidateExisting = body.validateExisting !== false && body.secretType === "mapbox_token";
+            if (shouldValidateExisting) {
+              await validateExistingPoolSecrets({
+                secretVault,
+                secretValidator,
+                machineIds: targetMachineIds,
+                secretTypes: [body.secretType],
+              });
+            }
+            await rebalanceSecretAssignments({ store, secretVault, machineIds: targetMachineIds });
           }
           const secret = created[0];
           json(res, 200, {

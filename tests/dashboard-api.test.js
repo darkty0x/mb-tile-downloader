@@ -1128,6 +1128,69 @@ test("dashboard validates Mapbox tokens and proxies before assigning pool items"
   assert.equal(agent.body.secrets.some((secret) => /bad/.test(secret.value)), false);
 });
 
+test("dashboard validates assigned Mapbox keys before targeted rebalance", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  for (const machineId of ["worker-a", "worker-b", "worker-c"]) {
+    store.registerMachine({ machineId, agentInstanceId: `${machineId}-agent` });
+  }
+  const secretVault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  secretVault.createSecret({
+    machineId: "worker-a",
+    secretType: "mapbox_token",
+    label: "existing good",
+    value: "pk.existing-good",
+    status: "active",
+  });
+  secretVault.createSecret({
+    machineId: "worker-a",
+    secretType: "mapbox_token",
+    label: "existing bad",
+    value: "pk.existing-bad",
+    status: "active",
+  });
+  const server = await withServer(t, {
+    store,
+    secretVault,
+    secretValidator: {
+      async validateSecret({ value }) {
+        return String(value).includes("bad")
+          ? { ok: false, status: "invalid", message: "expired token" }
+          : { ok: true, status: "active", message: "valid token" };
+      },
+    },
+  });
+
+  const saved = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "mapbox_token",
+      label: "mapbox",
+      value: "pk.new-1,pk.new-2,pk.new-3,pk.new-4,pk.new-5,pk.new-6,pk.new-7",
+      machineIds: ["worker-a", "worker-b", "worker-c"],
+      validateExisting: true,
+    },
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+  const activeCounts = listed.body.secrets
+    .filter((secret) => secret.secretType === "mapbox_token" && secret.status === "active")
+    .reduce((counts, secret) => {
+      counts[secret.machineId] = (counts[secret.machineId] || 0) + 1;
+      return counts;
+    }, {});
+
+  assert.equal(saved.status, 200);
+  assert.equal(listed.body.secrets.find((secret) => secret.label === "existing bad").status, "invalid");
+  assert.deepEqual(activeCounts, { "worker-a": 3, "worker-b": 3, "worker-c": 2 });
+});
+
 test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {
   let id = 0;
   const vault = createSecretVault({

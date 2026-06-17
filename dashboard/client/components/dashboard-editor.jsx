@@ -251,13 +251,13 @@ export function EditorDrawer({ state, actions }) {
   return (
     <ModalShell
       title={editorTitle(editor.type, record, editor)}
-      subtitle={editor.type.includes("secret") ? "전역 자원풀" : displayMachineId(state.selectedMachine?.machineId)}
+      subtitle={editor.type.includes("secret") ? "전체범위" : displayMachineId(state.selectedMachine?.machineId)}
       width="w-[min(620px,calc(100vw-32px))]"
       onClose={() => actions.setEditor({ type: "summary" })}
     >
       {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} editor={editor} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
-      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
+      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} state={state} actions={actions} /> : null}
     </ModalShell>
   );
 }
@@ -633,11 +633,12 @@ function EnvForm({ record, actions }) {
   );
 }
 
-function SecretForm({ record, editor, actions }) {
+function SecretForm({ record, editor, state, actions }) {
   const id = record?.secretId || "";
   const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
   const credential = record?.credential || {};
   const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
+  const [selectedMachineIds, setSelectedMachineIds] = useState(() => (state?.machines || []).map((machine) => machine.machineId));
   const [credentialMachineId, setCredentialMachineId] = useState(credential.machineId || record?.targetMachineId || "");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
@@ -645,7 +646,14 @@ function SecretForm({ record, editor, actions }) {
   const [submitting, setSubmitting] = useState(false);
   const isCredential = ["credential", "server_rdp_credential"].includes(selectedSecretType);
   const isServerCredential = selectedSecretType === "server_rdp_credential";
+  const isPoolSecret = ["mapbox_token", "proxy_txt"].includes(selectedSecretType);
   const lockSecretType = Boolean(id || editor?.secretType || record?.secretType);
+  const machines = state?.machines || [];
+
+  useEffect(() => {
+    if (id || !isPoolSecret || selectedMachineIds.length || !machines.length) return;
+    setSelectedMachineIds(machines.map((machine) => machine.machineId));
+  }, [id, isPoolSecret, machines.length, selectedMachineIds.length]);
 
   useEffect(() => {
     if (!id || !isCredential) {
@@ -699,13 +707,20 @@ function SecretForm({ record, editor, actions }) {
           {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </SelectInput>
       )}
-      <TextInput
-        label={isCredential ? isServerCredential ? "봉사기이름" : "Protocol이름" : "표식"}
-        name="label"
-        defaultValue={record?.label || ""}
-        placeholder={isCredential ? isServerCredential ? "봉사기 02" : "Storj 계정" : "기본"}
-      />
-      {isCredential && !isServerCredential ? (
+      {isPoolSecret ? (
+        <>
+          <input type="hidden" name="label" value={record?.label || selectedSecretType} />
+          <input type="hidden" name="status" value={record?.status || "active"} />
+        </>
+      ) : (
+        <TextInput
+          label={isCredential ? isServerCredential ? "봉사기이름" : "Protocol이름" : "표식"}
+          name="label"
+          defaultValue={record?.label || ""}
+          placeholder={isCredential ? isServerCredential ? "봉사기 02" : "Storj 계정" : "기본"}
+        />
+      )}
+      {isPoolSecret ? null : isCredential && !isServerCredential ? (
         <input type="hidden" name="status" value={record?.status || "active"} />
       ) : (
         <SelectInput label="상태" name="status" defaultValue={record?.status || "active"}>
@@ -780,6 +795,56 @@ function SecretForm({ record, editor, actions }) {
           placeholder={id ? "현재 값을 유지하려면 비워두십시오" : selectedSecretType === "proxy_txt" ? "Proxy URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API Key를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
         />
       )}
+      {isPoolSecret && !id ? (
+        <section className="rounded-xl border border-[var(--ptg-outline)] bg-white/45 p-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span>
+              <span className="block text-[12px] font-[800]">배정할 봉사기</span>
+              <span className="text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">{selectedMachineIds.length || machines.length} / {machines.length} 선택</span>
+            </span>
+            <span className="flex gap-2">
+              <AppButton icon="servers" type="button" onClick={() => setSelectedMachineIds(machines.map((machine) => machine.machineId))}>모두</AppButton>
+              <AppButton icon="close" type="button" onClick={() => setSelectedMachineIds([])}>지우기</AppButton>
+            </span>
+          </div>
+          <div className="grid max-h-[180px] gap-2 overflow-y-auto pr-1">
+            {machines.length ? machines.map((machine) => {
+              const checked = selectedMachineIds.includes(machine.machineId);
+              return (
+                <label
+                  key={machine.machineId}
+                  className={`flex cursor-pointer items-center gap-3 rounded-xl border p-2 transition ${checked ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary-container)]" : "border-[var(--ptg-outline)] bg-white/55"}`}
+                >
+                  <input
+                    className="sr-only"
+                    type="checkbox"
+                    name="machineIds"
+                    value={machine.machineId}
+                    checked={checked}
+                    onChange={(event) => {
+                      setSelectedMachineIds((current) => event.target.checked
+                        ? [...new Set([...current, machine.machineId])]
+                        : current.filter((machineId) => machineId !== machine.machineId));
+                    }}
+                  />
+                  <span className="grid h-8 w-8 place-items-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]">
+                    <Icon name="servers" className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0">
+                    <strong className="block truncate text-[12px] font-[850]">{machine.displayName || machine.machineId}</strong>
+                    <span className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">{displayMachineId(machine.machineId)} | {displayStatus(machine.status)}</span>
+                  </span>
+                </label>
+              );
+            }) : <EmptyLine>등록된 봉사기가 없습니다. 보관하면 전체 자원풀에 추가됩니다.</EmptyLine>}
+          </div>
+          {selectedSecretType === "mapbox_token" ? (
+            <div className="mt-3">
+              <SwitchField name="validateExisting" label="기존 API Key를 검증한 다음 배정" defaultChecked />
+            </div>
+          ) : null}
+        </section>
+      ) : null}
       <div className="mt-1 grid gap-2 border-t border-[var(--ptg-outline)] pt-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
         {id ? (
           <AppButton className="danger-button justify-self-start" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton>

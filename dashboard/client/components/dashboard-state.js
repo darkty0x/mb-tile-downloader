@@ -367,6 +367,17 @@ export function useDashboardState() {
         setEditor({ type: "server-management", id: secretId });
         await refreshMachineData(selectedId);
       },
+      async manageMachine(machineId) {
+        const targetMachineId = normalizeMachineId(machineId);
+        if (!targetMachineId) throw new Error("봉사기 ID가 없습니다");
+        const matchingMachine = findMachineById(machines, targetMachineId);
+        const selectedId = matchingMachine?.machineId || targetMachineId;
+        setSelectedMachineId(selectedId);
+        setSelectedServerTab("control");
+        setSelectedTab("servers");
+        setEditor({ type: "server-management", machineId: selectedId });
+        await refreshMachineData(selectedId);
+      },
       async sendCommand(commandType) {
         const targetMachineId = normalizeMachineId(selectedMachineId);
         if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
@@ -491,8 +502,10 @@ export function useDashboardState() {
         const secretType = formData.get("secretType") || existingType;
         const body = {
           machineId: formData.get("machineId") || null,
+          machineIds: formData.getAll("machineIds").filter(Boolean),
           label: formData.get("label") || secretType,
           status: formData.get("status"),
+          validateExisting: formData.get("validateExisting") === "on",
         };
         if (!id) body.secretType = secretType;
         if (["credential", "server_rdp_credential"].includes(secretType)) {
@@ -594,7 +607,7 @@ export function useDashboardState() {
         const result = await api("/api/secrets/rebalance", { method: "POST" });
         setSecretPool(result.secrets || []);
         await refreshMachineData();
-        setNotice({ message: `자원풀이 다시 배정되였습니다(변경 ${result.changed || 0}개)`, kind: "success" });
+        setNotice({ message: `API Key/Proxy가 다시 배정되였습니다(변경 ${result.changed || 0}개)`, kind: "success" });
         return result;
       },
       async validateSecret(secretId) {
