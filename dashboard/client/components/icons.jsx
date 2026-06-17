@@ -19,6 +19,7 @@ const symbols = {
   settings: "settings",
   secrets: "lock",
   credentials: "id_card",
+  user: "person",
   console: "terminal",
   bell: "notifications",
   command: "keyboard_command_key",

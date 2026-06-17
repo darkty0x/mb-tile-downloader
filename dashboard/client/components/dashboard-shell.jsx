@@ -399,6 +399,8 @@ export function ConfirmDialog({ request, actions }) {
 function AccountMenu({ actions }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
+  const accountName = "Owner";
+  const accountRole = "Administrator";
 
   useEffect(() => {
     if (!open) return undefined;
@@ -430,10 +432,12 @@ function AccountMenu({ actions }) {
         onClick={() => setOpen((current) => !current)}
         className="state-layer grid h-11 grid-cols-[32px_minmax(0,1fr)_16px] items-center gap-2 rounded-[999px] border border-[var(--ptg-outline)] bg-white px-2.5 pr-3 text-left shadow-[0_1px_2px_rgba(10,26,51,0.05)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-surface-container)] max-md:grid-cols-[32px_16px]"
       >
-        <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
+        <span className="ptg-admin-avatar h-8 w-8 rounded-full">
+          <Icon name="user" className="h-5 w-5" filled />
+        </span>
         <span className="min-w-0 max-md:hidden">
-          <strong className="block truncate text-[12px] font-[800] leading-tight">관리자</strong>
-          <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">소유자</small>
+          <strong className="block truncate text-[12px] font-[800] leading-tight">{accountName}</strong>
+          <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{accountRole}</small>
         </span>
         <Icon name="chevronDown" className={`h-4 w-4 text-[var(--ptg-on-surface-variant)] transition ${open ? "rotate-180" : ""}`} />
       </button>
@@ -444,10 +448,12 @@ function AccountMenu({ actions }) {
           className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-64 overflow-hidden rounded-[18px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
         >
           <div className="flex items-center gap-3 rounded-[14px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
-            <span className="ptg-admin-avatar h-10 w-10 rounded-full" />
+            <span className="ptg-admin-avatar h-10 w-10 rounded-full">
+              <Icon name="user" className="h-6 w-6" filled />
+            </span>
             <span className="min-w-0">
-              <strong className="block truncate text-[13px] font-[850]">관리자</strong>
-              <small className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">소유자</small>
+              <strong className="block truncate text-[13px] font-[850]">{accountName}</strong>
+              <small className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">{accountRole}</small>
             </span>
           </div>
           <div className="mt-2 grid gap-1">
