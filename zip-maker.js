@@ -423,14 +423,54 @@ function outputForTask(task) {
   };
 }
 
-function tileFilePath(task, x, y) {
-  const root = selectOutputRoot(outputForTask(task), { z: task.z, x, y });
-  return path.join(root, task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+function uniquePaths(paths) {
+  const seen = new Set();
+  const out = [];
+  for (const value of paths) {
+    if (!value) continue;
+    const normalized = path.normalize(value);
+    const key = process.platform === "win32" ? normalized.toLowerCase() : normalized;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(normalized);
+  }
+  return out;
 }
 
-function tileRowDir(task, x) {
-  const root = selectOutputRoot(outputForTask(task), { z: task.z, x, y: task.yStart });
-  return path.join(root, task.layer, String(task.z), String(x));
+function tileRelativePath(task, x, y) {
+  return path.join(task.layer, String(task.z), String(x), `${y}.${task.extension}`);
+}
+
+function tileCandidateRoots(task, x, y = task.yStart) {
+  const output = outputForTask(task);
+  const selected = selectOutputRoot(output, { z: task.z, x, y });
+  return uniquePaths([selected, ...(output.dirs || []), output.dir]);
+}
+
+function tileCandidatePaths(task, x, y) {
+  return tileCandidateRoots(task, x, y).map((root) => path.join(root, tileRelativePath(task, x, y)));
+}
+
+function tileFilePath(task, x, y) {
+  return tileCandidatePaths(task, x, y)[0];
+}
+
+function tileRowDirs(task, x) {
+  return tileCandidateRoots(task, x).map((root) => path.join(root, task.layer, String(task.z), String(x)));
+}
+
+async function findExistingTileFile(task, x, y) {
+  for (const filePath of tileCandidatePaths(task, x, y)) {
+    try {
+      const st = await fsp.stat(filePath);
+      if (!st.isFile()) continue;
+      return { filePath, stat: st };
+    } catch (err) {
+      if (err.code === "ENOENT") continue;
+      throw err;
+    }
+  }
+  return null;
 }
 
 async function pathExists(filePath) {
@@ -522,12 +562,18 @@ async function isRangeComplete(
   };
 
   for (let x = xStart; x <= xEnd; x++) {
-    const rowDir = tileRowDir(task, x);
-    let names;
-    try {
-      names = await fsp.readdir(rowDir);
-    } catch (err) {
-      if (err.code !== "ENOENT") throw err;
+    const names = [];
+    let foundRowDir = false;
+    for (const rowDir of tileRowDirs(task, x)) {
+      try {
+        names.push(...(await fsp.readdir(rowDir)));
+        foundRowDir = true;
+      } catch (err) {
+        if (err.code !== "ENOENT") throw err;
+      }
+    }
+
+    if (!foundRowDir) {
       const rowState = rowStateByX.get(x);
       const accepted =
         rowState?.status === "complete" && rowState.failed === 0
@@ -616,30 +662,18 @@ async function splitTaskByArchiveSize(
   };
 
   const estimateEntry = async (x, y) => {
-    const filePath = tileFilePath(task, x, y);
-    let size;
-    try {
-      const st = await fsp.stat(filePath);
-      if (!st.isFile()) {
-        checked++;
-        emitProgress();
-        return null;
-      }
-      size = st.size;
-    } catch (err) {
-      if (err.code === "ENOENT") {
-        checked++;
-        emitProgress();
-        return null;
-      }
-      throw err;
+    const found = await findExistingTileFile(task, x, y);
+    if (!found) {
+      checked++;
+      emitProgress();
+      return null;
     }
 
     checked++;
     existing++;
     emitProgress();
     const zipName = `${task.layer}/${task.z}/${x}/${y}.${task.extension}`;
-    return { x, y, bytes: estimateZipEntryBytes(size, zipName) };
+    return { x, y, bytes: estimateZipEntryBytes(found.stat.size, zipName) };
   };
 
   const splitSingleRow = (entries) => {
@@ -746,16 +780,10 @@ async function* iterateRangeFiles({ outputDir, outputDirs, layer, z, xStart, xEn
   const task = { outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension };
   for (let x = xStart; x <= xEnd; x++) {
     for (let y = yStart; y <= yEnd; y++) {
-      const filePath = tileFilePath(task, x, y);
-      try {
-        const st = await fsp.stat(filePath);
-        if (!st.isFile()) continue;
-      } catch (err) {
-        if (err.code === "ENOENT") continue;
-        throw err;
-      }
+      const found = await findExistingTileFile(task, x, y);
+      if (!found) continue;
       yield {
-        filePath,
+        filePath: found.filePath,
         zipName: `${layer}/${z}/${x}/${y}.${extension}`,
       };
     }
@@ -1023,21 +1051,21 @@ async function removeRangeFiles(task, deleteConcurrency = 16) {
 
   const nextFile = () => {
     if (nextX > xEnd) return null;
-    const file = tileFilePath(task, nextX, nextY);
+    const files = tileCandidatePaths(task, nextX, nextY);
     nextY++;
     if (nextY > yEnd) {
       nextY = yStart;
       nextX++;
     }
-    return file;
+    return files;
   };
 
   let removed = 0;
   const workers = Array.from({ length: Math.min(deleteConcurrency, total) }, async () => {
     while (true) {
-      const file = nextFile();
-      if (!file) return;
-      await fsp.rm(file, { force: true, maxRetries: 8, retryDelay: 150 });
+      const files = nextFile();
+      if (!files) return;
+      await Promise.all(files.map((file) => fsp.rm(file, { force: true, maxRetries: 8, retryDelay: 150 })));
       removed++;
       if (removed % 1000 === 0 || removed === total) {
         console.log(`  deleted source files ${removed}/${total}`);
@@ -1048,8 +1076,9 @@ async function removeRangeFiles(task, deleteConcurrency = 16) {
 
   let removedDirs = 0;
   for (let x = xStart; x <= xEnd; x++) {
-    const xDir = tileRowDir(task, x);
-    if (await removeEmptyDir(xDir)) removedDirs++;
+    for (const xDir of tileRowDirs(task, x)) {
+      if (await removeEmptyDir(xDir)) removedDirs++;
+    }
   }
   for (const root of outputForTask(task).dirs) {
     const zDir = path.join(root, task.layer, String(task.z));
@@ -1359,6 +1388,7 @@ async function main() {
           path.dirname(sourceConfigPath),
           path.join(__dirname, "tiles")
         );
+  const configuredOutputDir = outputDir;
   let outputDirs = [outputDir];
   if (!opts.tilesDir && !(archiveConfig.outputDir !== undefined && !directDownloaderConfig) && isDownloaderConfig(sourceConfig)) {
     const sourceEnv = envForSourceConfig(sourceConfigPath, dotEnvKeys);
@@ -1369,7 +1399,7 @@ async function main() {
       projectDir: process.cwd(),
     });
     outputDir = outputStorage.dir;
-    outputDirs = outputStorage.dirs || [outputDir];
+    outputDirs = uniquePaths([...(outputStorage.dirs || [outputDir]), configuredOutputDir]);
   }
   const rawArchiveDir = opts.archiveDir || selectPlatformPath(archiveConfig, "archiveDir");
   const archiveDir = resolvePath(rawArchiveDir, configDir, path.join(__dirname, "archives"));

@@ -134,6 +134,23 @@ test("dashboard-run runs direct command with synced config env and secrets", asy
   assert.match(await readFile(path.join(dir, ".tile-state", "dashboard-agent.log"), "utf8"), /dashboard output line/);
 });
 
+test("dashboard-run refuses managed commands when dashboard env is partial", async () => {
+  await assert.rejects(
+    () => runDashboardCommand({
+      argv: ["--", process.execPath, "zip-maker.js", "--dry-run"],
+      env: {
+        DASHBOARD_URL: "https://dashboard.example.com",
+        AGENT_TOKEN: "agent-token",
+      },
+      log: () => {},
+      createClient: () => {
+        throw new Error("client should not be created");
+      },
+    }),
+    /missing MACHINE_ID.*wrong tile set/
+  );
+});
+
 test("dashboard-run publishes an immediate dashboard snapshot after sync", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-run-snapshot-"));
   const calls = [];

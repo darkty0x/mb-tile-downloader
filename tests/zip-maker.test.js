@@ -101,6 +101,46 @@ test("zip-maker reads tiles from sharded output roots", async () => {
   assert.doesNotMatch(stdout, /WAIT incomplete/);
 });
 
+test("zip-maker still reads configured output dir when dynamic roots change", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const configuredTilesDir = path.join(dir, "downloaded-tiles");
+  const currentDynamicRoot = path.join(dir, "current-empty-root");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(configuredTilesDir, "vector", "5", "27"), { recursive: true });
+  await writeFile(path.join(configuredTilesDir, "vector", "5", "27", "19.vector.pbf"), "tile");
+
+  const configPath = path.join(dir, "mapbox-pbf-dynamic.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-pbf-dynamic",
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, "--dry-run", `--archive-dir=${archivesDir}`],
+    {
+      cwd: path.resolve("."),
+      env: {
+        ...process.env,
+        TILE_DOWNLOADER_OUTPUT_ROOTS: currentDynamicRoot,
+      },
+    }
+  );
+
+  assert.match(stdout, /Tile directories:/);
+  assert.match(stdout, new RegExp(configuredTilesDir.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
+  assert.match(stdout, /DRY RUN: would zip 1 files/);
+  assert.doesNotMatch(stdout, /WAIT failed/);
+});
+
 test("zip-maker uses esri-satellite layer in archive names", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
   const tilesDir = path.join(dir, "downloaded-tiles");

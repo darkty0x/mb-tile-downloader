@@ -9,10 +9,16 @@ export function dashboardSyncConfig(env = process.env) {
   const baseUrl = envValue(env, "DASHBOARD_URL");
   const agentToken = envValue(env, "AGENT_TOKEN");
   const machineId = envValue(env, "MACHINE_ID");
+  const missingKeys = [
+    ["DASHBOARD_URL", baseUrl],
+    ["AGENT_TOKEN", agentToken],
+    ["MACHINE_ID", machineId],
+  ].filter(([, value]) => !value).map(([key]) => key);
   if (!baseUrl || !agentToken || !machineId) {
     return {
       configured: false,
       reason: "dashboard env is incomplete",
+      missingKeys,
       baseUrl,
       agentToken,
       machineId,

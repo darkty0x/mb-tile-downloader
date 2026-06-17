@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import { AGENT_PROTOCOL_VERSION } from "../src/agent/agent.js";
 import { createControlClient } from "../src/agent/control-client.js";
-import { syncDashboardStateIfConfigured } from "../src/agent/dashboard-state-sync.js";
+import { dashboardSyncConfig, syncDashboardStateIfConfigured } from "../src/agent/dashboard-state-sync.js";
 import { collectDiskInfo } from "../src/agent/disk.js";
 import { loadAgentIdentity } from "../src/agent/identity.js";
 import { collectLocalSnapshot } from "../src/agent/local-snapshot.js";
@@ -98,6 +98,28 @@ function isNodeCommand(command) {
 function scriptIndexFor(command) {
   if (isNodeCommand(command)) return 1;
   return 0;
+}
+
+function managedScriptName(command) {
+  const script = command[scriptIndexFor(command)];
+  const name = path.basename(script || "");
+  return MANAGED_CONFIG_SCRIPTS.has(name) ? name : null;
+}
+
+function hasPartialDashboardEnv(env = {}) {
+  return Boolean(env.DASHBOARD_URL || env.AGENT_TOKEN || env.MACHINE_ID);
+}
+
+function assertManagedCommandHasCompleteDashboardEnv(command, env = {}) {
+  const scriptName = managedScriptName(command);
+  if (!scriptName || !hasPartialDashboardEnv(env)) return;
+  const config = dashboardSyncConfig(env);
+  if (config.configured) return;
+  const missing = config.missingKeys?.join(", ") || "DASHBOARD_URL, AGENT_TOKEN, MACHINE_ID";
+  throw new Error(
+    `Dashboard env is incomplete for ${scriptName}: missing ${missing}. ` +
+      "Refusing to fall back to local default config because that can zip the wrong tile set."
+  );
 }
 
 function isJsonConfigArg(arg) {
@@ -307,6 +329,7 @@ export async function runDashboardCommand({
     });
   }
 
+  assertManagedCommandHasCompleteDashboardEnv(opts.command, env);
   const command = withDashboardConfig(opts.command, synced.configPath);
   const [runner, runnerArgs] = opts.watchdog ? watchdogCommand(command) : plainCommand(command);
   const outputTee = createOutputTee({ agentLogPath: dashboardLogPath(stateDir) });
