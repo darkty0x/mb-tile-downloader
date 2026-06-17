@@ -106,10 +106,10 @@ export function AppButton({ variant = "outlined", icon, children, className = ""
       disabled={disabled || busy}
       data-pending={busy ? "true" : "false"}
       onClick={handleClick}
-      className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 ${variantClass} ${className}`}
+      className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap ${variantClass} ${className}`}
     >
       {busy ? <LoadingSpinner /> : icon ? <Icon name={icon} className="h-4 w-4" /> : null}
-      <span className="truncate">{children}</span>
+      <span className="min-w-0 truncate">{children}</span>
     </button>
   );
 }

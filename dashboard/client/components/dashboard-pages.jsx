@@ -402,16 +402,12 @@ function ServerConnectionsSection({ state, actions }) {
               </div>
               <div className="flex justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
                 <AppButton icon="control" onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Manage</AppButton>
-                <AppButton icon="control" onClick={(event) => {
-                  actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
-                }}>Validate</AppButton>
+                <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Validate</AppButton>
                 <IconButton
                   icon="trash"
                   label={`Remove ${connection.label}`}
                   className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
-                  onClick={(event) => {
-                    actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
-                  }}
+                  onClick={() => actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
                 />
               </div>
             </div>
@@ -1055,6 +1051,7 @@ function ThresholdPreview({ icon, label, value, detail }) {
 
 export function SettingsDashboard({ state, actions }) {
   const serverCount = state.machines.length;
+  const [submitting, setSubmitting] = useState(false);
   const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
   const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
   const dashboardPollMs = Number(state.settings.sync?.dashboardPollMs || 5000);
@@ -1098,9 +1095,17 @@ export function SettingsDashboard({ state, actions }) {
             retry.reportBackoffMs,
           ].join("-")}
           className="grid gap-4 p-4"
-          onSubmit={(event) => {
+          onSubmit={async (event) => {
             event.preventDefault();
-            actions.saveSettings(new FormData(event.currentTarget)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+            if (submitting) return;
+            try {
+              setSubmitting(true);
+              await actions.saveSettings(new FormData(event.currentTarget));
+            } catch (err) {
+              actions.setNotice({ message: err.message, kind: "error" });
+            } finally {
+              setSubmitting(false);
+            }
           }}
         >
           <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
@@ -1222,7 +1227,7 @@ export function SettingsDashboard({ state, actions }) {
           </div>
 
           <div className="flex flex-wrap gap-2 border-t border-[var(--ptg-outline)] pt-3">
-            <AppButton variant="filled" icon="check" type="submit">Save Settings</AppButton>
+            <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Settings</AppButton>
             <AppButton
               icon="sync"
               type="button"
@@ -1555,7 +1560,7 @@ function ServersTable({ state, actions }) {
                             actions.setNotice({ message: "Add a connection profile before managing this server.", kind: "error" });
                             return;
                           }
-                          actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                          return actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
                         className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >
@@ -1570,7 +1575,7 @@ function ServersTable({ state, actions }) {
                           event.stopPropagation();
                           const ok = globalThis.confirm?.(`Remove server "${machine.displayName || machine.machineId}" from the dashboard? This releases assigned secrets and deletes server-scoped config/env records.`);
                           if (!ok) return;
-                          actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                          return actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
                       />
                     </div>
