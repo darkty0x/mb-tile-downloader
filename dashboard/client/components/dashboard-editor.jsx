@@ -341,7 +341,7 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Config Types</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length} templates from root configs</p>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length} config presets available</p>
         </div>
         <div className="flex gap-1.5">
           <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>All</AppButton>

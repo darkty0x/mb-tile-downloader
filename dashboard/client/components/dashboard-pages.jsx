@@ -824,7 +824,7 @@ export function ConfigsDashboard({ state, actions }) {
       <Surface className="p-4">
         <SectionTitle
           title="Config Library"
-          meta={`${templates.length} root config type${templates.length === 1 ? "" : "s"} available for assignment`}
+          meta={`${templates.length} config preset${templates.length === 1 ? "" : "s"} available for assignment`}
           action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Create Config</AppButton>}
         />
         <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
@@ -838,7 +838,7 @@ export function ConfigsDashboard({ state, actions }) {
                 {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
               </p>
             </div>
-          )) : <EmptyLine>No root configs discovered</EmptyLine>}
+          )) : <EmptyLine>No config presets available</EmptyLine>}
         </div>
       </Surface>
       <ServersTable state={state} actions={actions} />
