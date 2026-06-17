@@ -79,7 +79,7 @@ function PipelineOverview({ overview }) {
             <div key={step.key} className="relative min-w-0">
               <div className="flex items-center gap-3">
                 <span className={`inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full ${tone === "success" ? "bg-[var(--ptg-success)] text-white" : tone === "danger" ? "bg-[var(--ptg-error)] text-white" : tone === "primary" ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-surface-container-high)] text-[var(--ptg-on-surface-variant)]"}`}>
-                <Icon name={STEP_ICONS[step.key] || "pipelines"} className="h-4 w-4" />
+                <Icon name={STEP_ICONS[step.key] || "pipelines"} className="h-5 w-5" />
               </span>
                 <span className="h-[3px] flex-1 rounded-full bg-[#d9e3f0]">
                   <span className={`block h-full rounded-full ${tone === "success" ? "bg-[var(--ptg-success)]" : tone === "danger" ? "bg-[var(--ptg-error)]" : "bg-[var(--ptg-primary)]"}`} style={{ width: `${step.progress}%` }} />

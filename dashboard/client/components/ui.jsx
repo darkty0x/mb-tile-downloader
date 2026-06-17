@@ -141,7 +141,7 @@ export function IconButton({ icon, label, className = "", loading = false, ...pr
       className={`state-layer inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)] ${className}`}
       {...buttonProps}
     >
-      {busy ? <LoadingSpinner /> : <Icon name={icon} className="h-4 w-4" />}
+      {busy ? <LoadingSpinner /> : <Icon name={icon} className="h-5 w-5" />}
     </button>
   );
 }
