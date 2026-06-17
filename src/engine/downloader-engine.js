@@ -468,7 +468,20 @@ function renderPath(template, values) {
   });
 }
 
-function tilePath(config, provider, z, x, y) {
+function uniquePaths(paths) {
+  const seen = new Set();
+  const result = [];
+  for (const value of paths) {
+    if (!value) continue;
+    const normalized = path.normalize(value);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(normalized);
+  }
+  return result;
+}
+
+function tileRelativePath(config, provider, z, x, y) {
   const rel = renderPath(config.output.pathTemplate, {
     provider: config.provider,
     layer: config.layer,
@@ -486,7 +499,21 @@ function tilePath(config, provider, z, x, y) {
   ) {
     throw new Error(`output path template escapes output directory: ${rel}`);
   }
-  return path.join(selectOutputRoot(config.output, { z, x, y }), normalized);
+  return normalized;
+}
+
+function outputCandidateRoots(output, selector) {
+  const configured = Array.isArray(output?.dirs) && output.dirs.length ? output.dirs : [output?.dir];
+  return uniquePaths([selectOutputRoot(output, selector), ...configured, output?.dir]);
+}
+
+function tileCandidatePaths(config, provider, z, x, y) {
+  const rel = tileRelativePath(config, provider, z, x, y);
+  return outputCandidateRoots(config.output, { z, x, y }).map((root) => path.join(root, rel));
+}
+
+function tilePath(config, provider, z, x, y) {
+  return tileCandidatePaths(config, provider, z, x, y)[0];
 }
 
 async function existsNonZero(filePath, provider = null) {
@@ -504,6 +531,13 @@ async function existsNonZero(filePath, provider = null) {
   } catch {
     return false;
   }
+}
+
+async function findExistingTilePath(config, provider, z, x, y) {
+  for (const candidatePath of tileCandidatePaths(config, provider, z, x, y)) {
+    if (await existsNonZero(candidatePath, provider)) return candidatePath;
+  }
+  return null;
 }
 
 async function removeStaleTempFiles(finalPath) {
@@ -547,7 +581,7 @@ async function downloadOneTile({
   y,
 }) {
   const finalPath = tilePath(config, provider, z, x, y);
-  if (await existsNonZero(finalPath, provider)) return "skipped";
+  if (await findExistingTilePath(config, provider, z, x, y)) return "skipped";
 
   await fsp.mkdir(path.dirname(finalPath), { recursive: true });
   await removeStaleTempFiles(finalPath);
@@ -866,7 +900,7 @@ async function verifyRange({
       let rowMissing = 0;
       for (let y = range.yStart; y <= range.yEnd; y++) {
         expected++;
-        if (await existsNonZero(tilePath(config, provider, z, x, y), provider)) {
+        if (await findExistingTilePath(config, provider, z, x, y)) {
           present++;
           rowPresent++;
         } else {

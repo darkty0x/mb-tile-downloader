@@ -89,6 +89,49 @@ test("download writes row tiles to deterministic output roots", async () => {
   db.close();
 });
 
+test("download skips existing tiles from alternate output roots", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const rootA = path.join(dir, "drive-a");
+  const rootB = path.join(dir, "drive-b");
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  await mkdir(path.join(rootB, "satellite", "1", "1"), { recursive: true });
+  await writeFile(path.join(rootB, "satellite", "1", "1", "1.jpg"), "tile");
+
+  let fetches = 0;
+  const result = await runDownloadJob({
+    config: {
+      jobName: "skip-alt-root",
+      provider: "esri",
+      layer: "satellite",
+      format: "jpg",
+      configHash: "hash",
+      output: {
+        dir: rootA,
+        dirs: [rootA, rootB],
+        pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
+      },
+      tile: { extension: "jpg", yScheme: "xyz" },
+      url: { template: "https://example.test/{z}/{y}/{x}" },
+      ranges: [{ zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "r" }],
+      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+      performance: { maxRetries: 1, retryBackoffMs: 1 },
+      verifyAfterDownload: true,
+    },
+    stateDb: db,
+    progress: false,
+    fetchImpl: async () => {
+      fetches++;
+      throw new Error("should not fetch existing alternate-root tile");
+    },
+  });
+
+  assert.equal(fetches, 0);
+  assert.equal(result.tilesDownloaded, 0);
+  assert.equal(result.tileFilesSkipped, 1);
+  assert.equal(result.tilesFailed, 0);
+  db.close();
+});
+
 test("progress output reports source counters and ETA", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
