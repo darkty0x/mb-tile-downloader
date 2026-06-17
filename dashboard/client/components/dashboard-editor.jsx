@@ -67,7 +67,7 @@ function ServerOnboardingForm({ state, actions }) {
       if (!String(formData.get(name) || "").trim()) return `${title} 이(가) 필요합니다.`;
     }
     const port = Number(formData.get("port"));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return "Port는 1부터 65535사이여야 합니다.";
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return "포트는 1부터 65535사이여야 합니다.";
     return null;
   }
 
@@ -172,7 +172,7 @@ function ServerOnboardingForm({ state, actions }) {
             <option value="winrm">WinRM</option>
             <option value="winrms">WinRM TLS</option>
           </SelectInput>
-          <TextInput label="Port" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+          <TextInput label="포트" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
         </div>
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
         <TextInput label="리용자이름" name="username" defaultValue="root" autoComplete="username" required />
@@ -180,10 +180,10 @@ function ServerOnboardingForm({ state, actions }) {
         <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속프로필 보관</AppButton>
       </form>
 
-      <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
+      <TextInput label="조종판 URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
 
       <section className="grid gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3">
-        <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent Token</h4>
+        <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent 토큰</h4>
         <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_auto]">
           <TextInput
             label="봉인된 토큰"
@@ -203,7 +203,7 @@ function ServerOnboardingForm({ state, actions }) {
 
       <section className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows Agent .env</h4>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows agent .env</h4>
           <AppButton icon="copy" onClick={() => copy(windowsEnv, "Windows Agent Env")}>복사</AppButton>
         </div>
         <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{windowsEnv}</pre>

@@ -405,7 +405,7 @@ function ServerConnectionsSection({ state, actions }) {
             </div>
           );
         }) : (
-          <EmptyLine>보관된 접속프로필이 없습니다. IP, port, 리용자이름, 암호로 하나 추가하십시오.</EmptyLine>
+          <EmptyLine>보관된 접속프로필이 없습니다. IP, 포트, 리용자이름, 암호로 하나 추가하십시오.</EmptyLine>
         )}
       </div>
     </Surface>
@@ -985,7 +985,7 @@ export function CredentialsDashboard({ state, actions }) {
             <thead>
               <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">프로토콜이름</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">프로토콜 URL</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">리용자이름</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">동작</th>
               </tr>

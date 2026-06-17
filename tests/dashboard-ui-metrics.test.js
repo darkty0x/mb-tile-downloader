@@ -54,7 +54,7 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.kpis.serversOnline.value, "1 / 2");
   assert.equal(model.kpis.failedJobs.value, 1);
   assert.equal(model.diskPressure, 92);
-  assert.deepEqual(model.pipeline.map((step) => step.label), ["Download", "Validate", "Zip", "Upload"]);
+  assert.deepEqual(model.pipeline.map((step) => step.label), ["내려받기", "검증", "압축", "올리기"]);
   assert.equal(model.pipeline[0].status, "running");
   assert.equal(model.pipeline[1].status, "complete");
   assert.equal(model.resourceAlerts.length, 2);
@@ -96,7 +96,7 @@ test("server onboarding defaults increment from saved connection profiles and ma
 
   assert.deepEqual(defaults, {
     number: 4,
-    label: "Server 04",
+    label: "봉사기 04",
     machineId: "server-04",
   });
 });
