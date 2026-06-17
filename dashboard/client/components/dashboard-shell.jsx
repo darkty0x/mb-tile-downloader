@@ -130,7 +130,7 @@ export function LoginScreen({ state, actions }) {
           <TextInput name="password" label="암호" type="password" autoComplete="current-password" required />
           {error ? <div className="rounded-[14px] border border-[rgba(197,35,51,0.28)] bg-[#fff5f5] px-3 py-2 text-[12px] font-[650] text-[var(--ptg-error)]">{error}</div> : null}
           {state.authStatus === "checking" ? (
-            <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-3 py-2 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">세션 확인중...</div>
+            <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-3 py-2 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">Session 확인중...</div>
           ) : null}
           <AppButton type="submit" variant="filled" icon="login" className="h-12 w-full">가입</AppButton>
         </form>
