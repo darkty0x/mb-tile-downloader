@@ -79,7 +79,7 @@ export function Header({ state, actions }) {
       <div className="grid grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_auto] items-center gap-5 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate text-[24px] font-[760] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
+            <h1 className="truncate text-[24px] font-[475] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
             <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} 련결됨` : "대기중"}</StatusPill>
           </div>
           <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>

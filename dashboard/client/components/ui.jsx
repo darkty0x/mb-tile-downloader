@@ -64,14 +64,14 @@ export function SectionTitle({ title, meta, action }) {
   );
 }
 
-export function MetricCard({ icon, label, value }) {
+export function MetricCard({ icon, label, value, palette = "lilac" }) {
   return (
-    <Surface className="grid min-h-[98px] grid-cols-[44px_minmax(0,1fr)] content-center gap-x-3 gap-y-1.5">
-      <span className="ptg-icon-well row-span-2 inline-flex h-11 w-11 items-center justify-center rounded-[12px]">
-        <Icon name={icon} className="h-5 w-5" />
+    <Surface className={`ptg-metric-tile grid min-h-[108px] grid-cols-[56px_minmax(0,1fr)] content-center gap-x-3 gap-y-1.5 p-4 ptg-palette-${palette}`}>
+      <span className="ptg-icon-well row-span-2 inline-flex h-14 w-14 items-center justify-center rounded-[20px]">
+        <Icon name={icon} className="h-7 w-7" />
       </span>
-      <span className="text-[11px] font-[760] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
-      <strong className="min-w-0 overflow-hidden text-ellipsis text-[20px] font-[850] leading-tight">{value}</strong>
+      <span className="text-[11px] font-[650] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
+      <strong className="min-w-0 overflow-hidden text-ellipsis text-[24px] font-[475] leading-tight">{value}</strong>
     </Surface>
   );
 }

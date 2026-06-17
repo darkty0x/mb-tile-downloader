@@ -1,4 +1,4 @@
-@import url("https://fonts.googleapis.com/css2?family=Google+Sans+Text:wght@400;500;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..700,0..1,-25..200&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&family=Material+Symbols+Rounded:opsz,wght,FILL,GRAD@20..48,300..700,0..1,-25..200&display=swap");
 @import "tailwindcss";
 
 :root {
@@ -34,6 +34,8 @@
   --ptg-shadow-1: 0 6px 18px rgba(29, 27, 32, 0.08);
   --ptg-shadow-2: 0 18px 46px rgba(29, 27, 32, 0.14);
   --ptg-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ptg-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
+  --ptg-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
   --ptg-standard: cubic-bezier(0.2, 0, 0, 1);
 }
 
@@ -63,7 +65,8 @@ h2,
 h3,
 strong,
 .ptg-display {
-  font-family: "Google Sans Text", Roboto, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: "Google Sans", "Google Sans Text", Roboto, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-variation-settings: "GRAD" 0, "opsz" 18;
 }
 
 button,
@@ -124,6 +127,7 @@ button:disabled {
 .material-surface:hover {
   border-color: var(--ptg-outline-strong);
   box-shadow: 0 16px 42px rgba(10, 26, 51, 0.10);
+  transform: translateY(-1px);
 }
 
 .state-layer {
@@ -182,8 +186,8 @@ button:disabled {
     color 220ms var(--ptg-standard),
     background-color 220ms var(--ptg-standard),
     border-color 220ms var(--ptg-standard),
-    box-shadow 260ms var(--ptg-standard),
-    transform 220ms var(--ptg-emphasized),
+    box-shadow 320ms var(--ptg-standard),
+    transform 360ms var(--ptg-emphasized),
     filter 220ms var(--ptg-standard);
 }
 
@@ -321,19 +325,83 @@ button:disabled {
 }
 
 .ptg-metric-tile {
-  background: #ffffff;
+  --ptg-card-bg: #ffffff;
+  --ptg-card-border: var(--ptg-outline);
+  --ptg-card-fg: var(--ptg-on-surface);
+  --ptg-card-muted: var(--ptg-on-surface-variant);
+  --ptg-card-icon-bg: rgba(255, 255, 255, 0.55);
+  --ptg-card-icon-fg: var(--ptg-primary);
+  border-color: var(--ptg-card-border);
+  background:
+    radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.86), transparent 34%),
+    linear-gradient(135deg, color-mix(in srgb, var(--ptg-card-bg), #ffffff 10%), var(--ptg-card-bg));
+  color: var(--ptg-card-fg);
+  box-shadow:
+    0 1px 2px rgba(29, 27, 32, 0.10),
+    0 12px 34px color-mix(in srgb, var(--ptg-card-border), transparent 74%);
+}
+
+.ptg-metric-tile .ptg-icon-well {
+  background: var(--ptg-card-icon-bg);
+  color: var(--ptg-card-icon-fg);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ptg-card-border), transparent 48%);
+}
+
+.ptg-metric-tile.ptg-palette-sky {
+  --ptg-card-bg: #cfe9ff;
+  --ptg-card-border: #91c7ee;
+  --ptg-card-icon-bg: #eaf6ff;
+  --ptg-card-icon-fg: #005db4;
+}
+
+.ptg-metric-tile.ptg-palette-mint {
+  --ptg-card-bg: #c3f2c0;
+  --ptg-card-border: #91d88e;
+  --ptg-card-icon-bg: #ecffe9;
+  --ptg-card-icon-fg: #006d35;
+}
+
+.ptg-metric-tile.ptg-palette-peach {
+  --ptg-card-bg: #ffd6c2;
+  --ptg-card-border: #efae91;
+  --ptg-card-icon-bg: #fff2eb;
+  --ptg-card-icon-fg: #8c3c00;
+}
+
+.ptg-metric-tile.ptg-palette-lemon {
+  --ptg-card-bg: #ffe680;
+  --ptg-card-border: #e8c348;
+  --ptg-card-icon-bg: #fff8d7;
+  --ptg-card-icon-fg: #725400;
+}
+
+.ptg-metric-tile.ptg-palette-lilac {
+  --ptg-card-bg: #e5d6ff;
+  --ptg-card-border: #c7adfb;
+  --ptg-card-icon-bg: #f6efff;
+  --ptg-card-icon-fg: #5d35b0;
+}
+
+.ptg-metric-tile.ptg-palette-coral,
+.ptg-metric-tile.ptg-tone-danger {
+  --ptg-card-bg: #ffd2cf;
+  --ptg-card-border: #f2a19c;
+  --ptg-card-icon-bg: #fff1ef;
+  --ptg-card-icon-fg: var(--ptg-error);
 }
 
 .ptg-metric-tile.ptg-tone-warn {
-  background: #fffaf0;
-}
-
-.ptg-metric-tile.ptg-tone-danger {
-  background: #fff6f5;
+  --ptg-card-bg: #ffe3b1;
+  --ptg-card-border: #e7be72;
+  --ptg-card-icon-bg: #fff6e6;
+  --ptg-card-icon-fg: var(--ptg-warning);
 }
 
 .ptg-metric-tile.ptg-tone-muted {
-  background: #f9fbfe;
+  --ptg-card-bg: #edf2fb;
+  --ptg-card-border: #ccd8e8;
+  --ptg-card-icon-bg: #ffffff;
+  --ptg-card-icon-fg: var(--ptg-on-surface-variant);
 }
 
 .ptg-event-dot {

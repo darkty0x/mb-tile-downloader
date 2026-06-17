@@ -8,12 +8,12 @@ import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPil
 import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
-  ["serversOnline", "servers"],
-  ["activeJobs", "pipelines"],
-  ["throughput", "speed"],
-  ["storagePressure", "disk"],
-  ["failedJobs", "warning"],
-  ["resourceAlerts", "alerts"],
+  ["serversOnline", "servers", "sky"],
+  ["activeJobs", "pipelines", "lilac"],
+  ["throughput", "speed", "mint"],
+  ["storagePressure", "disk", "lemon"],
+  ["failedJobs", "warning", "coral"],
+  ["resourceAlerts", "alerts", "peach"],
 ];
 
 const STEP_ICONS = {
@@ -27,7 +27,6 @@ function kpiTone(key, metric) {
   if (key === "failedJobs" && Number(metric.value) > 0) return "danger";
   if (key === "resourceAlerts" && Number(metric.value) > 0) return "warn";
   if (key === "storagePressure" && Number.parseInt(metric.value, 10) >= 85) return "warn";
-  if (key === "serversOnline" && String(metric.value).startsWith("0")) return "muted";
   return "primary";
 }
 
@@ -42,17 +41,17 @@ function pipelineTone(status) {
   return "muted";
 }
 
-function InsightCard({ icon, label, value, detail, tone = "primary" }) {
+function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac" }) {
   return (
-    <Surface className={`ptg-metric-tile min-h-[112px] overflow-hidden p-4 ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+    <Surface className={`ptg-metric-tile min-h-[122px] overflow-hidden p-4 ptg-palette-${palette} ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
       <div className="flex items-start gap-3">
-        <span className={`ptg-icon-well inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-[12px] ${tone === "danger" ? "red" : tone === "warn" ? "amber" : tone === "primary" ? "" : ""}`}>
-          <Icon name={icon} className="h-5 w-5" />
+        <span className={`ptg-icon-well inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] ${tone === "danger" ? "red" : tone === "warn" ? "amber" : tone === "primary" ? "" : ""}`}>
+          <Icon name={icon} className="h-7 w-7" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-[11px] font-[800] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
-          <strong className="mt-2 block truncate text-[26px] font-[900] leading-none text-[var(--ptg-on-surface)]">{value}</strong>
-          <p className={`mt-2 truncate text-[11.5px] font-[700] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
+          <span className="block truncate text-[11px] font-[650] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
+          <strong className="mt-2 block truncate text-[28px] font-[475] leading-none text-[var(--ptg-on-surface)]">{value}</strong>
+          <p className={`mt-2 truncate text-[11.5px] font-[500] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
         </span>
       </div>
     </Surface>
@@ -302,7 +301,7 @@ export function OverviewDashboard({ state, actions }) {
   return (
     <section className="screen-enter grid gap-4">
       <section className="grid grid-cols-6 gap-3 max-2xl:grid-cols-3 max-lg:grid-cols-2 max-sm:grid-cols-1">
-        {KPI_CARDS.map(([key, icon]) => {
+        {KPI_CARDS.map(([key, icon, palette]) => {
           const metric = overview.kpis[key];
           return (
             <InsightCard
@@ -312,6 +311,7 @@ export function OverviewDashboard({ state, actions }) {
               value={metric.value}
               detail={metric.detail}
               tone={kpiTone(key, metric)}
+              palette={palette}
             />
           );
         })}
@@ -343,9 +343,9 @@ export function ServersDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-4 grid gap-4">
       <section className="ptg-card-grid gap-3">
-        <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} />
-        <InsightCard icon="disk" label="디스크압력" value={`${overview.diskPressure}%`} detail="관측된 최고 드라이브사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} />
-        <InsightCard icon="control" label="관리프로필" value={connections.length} detail={`agent ${onlineAgents}/${state.machines.length} 련결됨`} />
+        <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} palette="sky" />
+        <InsightCard icon="disk" label="디스크압력" value={`${overview.diskPressure}%`} detail="관측된 최고 드라이브사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
+        <InsightCard icon="control" label="관리프로필" value={connections.length} detail={`agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
       </section>
       <ServerConnectionsSection state={state} actions={actions} />
       <ServersTable state={state} actions={actions} />
@@ -915,10 +915,10 @@ export function SecretsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-3 grid gap-2.5">
       <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
-        <MetricCard icon="key" label="Mapbox 리용가능" value={`${mapbox.available}/${mapbox.total}`} />
-        <MetricCard icon="secrets" label="프록시 리용가능" value={`${proxies.available}/${proxies.total}`} />
-        <MetricCard icon="servers" label="배정된 항목" value={mapbox.assigned + proxies.assigned} />
-        <MetricCard icon={alerts.length ? "warning" : "check"} label="풀경보" value={alerts.length || "정상"} />
+        <MetricCard icon="key" label="Mapbox 리용가능" value={`${mapbox.available}/${mapbox.total}`} palette="sky" />
+        <MetricCard icon="secrets" label="프록시 리용가능" value={`${proxies.available}/${proxies.total}`} palette="mint" />
+        <MetricCard icon="servers" label="배정된 항목" value={mapbox.assigned + proxies.assigned} palette="lilac" />
+        <MetricCard icon={alerts.length ? "warning" : "check"} label="풀경보" value={alerts.length || "정상"} palette={alerts.length ? "peach" : "mint"} />
       </section>
 
       {alerts.length ? (
@@ -955,9 +955,9 @@ export function CredentialsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-3 grid gap-2.5">
       <section className="grid grid-cols-3 gap-2.5 max-lg:grid-cols-1">
-        <MetricCard icon="credentials" label="프로토콜" value={items.length} />
-        <MetricCard icon="check" label="활성" value={active} />
-        <MetricCard icon="stop" label="비활성" value={disabled} />
+        <MetricCard icon="credentials" label="프로토콜" value={items.length} palette="lilac" />
+        <MetricCard icon="check" label="활성" value={active} palette="mint" />
+        <MetricCard icon="stop" label="비활성" value={disabled} palette="coral" />
       </section>
 
       <Surface className="max-w-full overflow-hidden">
