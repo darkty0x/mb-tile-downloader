@@ -174,6 +174,56 @@ test("progress output reports source counters and ETA", async () => {
   assert.match(rowLine, /eta=\d+s/);
 });
 
+test("progress ETA ignores skip-only rows when estimating remaining download work", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const lines = [];
+  const rowDir = path.join(dir, "tiles", "satellite", "1", "1");
+  await mkdir(rowDir, { recursive: true });
+  await writeFile(path.join(rowDir, "1.jpg"), "existing");
+  const originalLog = console.log;
+  const originalNow = Date.now;
+  let fakeNow = 0;
+  console.log = (message) => {
+    lines.push(String(message));
+  };
+  Date.now = () => fakeNow;
+
+  try {
+    await runDownloadJob({
+      config: {
+        jobName: "progress-eta-skips",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [{ zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 3, yStart: 1, yEnd: 1, label: "r" }],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+        verifyAfterDownload: false,
+      },
+      stateDb: db,
+      progress: true,
+      skipVerifyAfterDownload: true,
+      fetchImpl: async () => {
+        fakeNow += 10_000;
+        return new Response("tile");
+      },
+    });
+  } finally {
+    console.log = originalLog;
+    Date.now = originalNow;
+    db.close();
+  }
+
+  const rowLine = lines.find((line) => line.includes(" row 2/3 "));
+  assert.match(rowLine, /s=1/);
+  assert.match(rowLine, /eta=10s/);
+});
+
 test("engine skips rows marked complete for the same config hash", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

@@ -191,7 +191,9 @@ function createProgressReporter(enabled) {
   let currentRangeStartedAt = startedAt;
   let lastRowsDone = 0;
   let lastTilesDone = 0;
+  let lastCostlyTilesDone = 0;
   let lastRateAt = startedAt;
+  let sustainedTileRates = [];
   let proxyBlockLogCount = 0;
   let directBlockLogCount = 0;
 
@@ -226,7 +228,9 @@ function createProgressReporter(enabled) {
       currentRangeStartedAt = Date.now();
       lastRowsDone = 0;
       lastTilesDone = 0;
+      lastCostlyTilesDone = 0;
       lastRateAt = currentRangeStartedAt;
+      sustainedTileRates = [];
       line(
         `▶ Range ${rangeIndex}/${rangeCount}: ${range.label || "unnamed"} rows=${rows} tiles=${tiles}`,
         true
@@ -237,11 +241,19 @@ function createProgressReporter(enabled) {
       const intervalSec = seconds(now - lastRateAt);
       const rowRate = (rowsDone - lastRowsDone) / intervalSec;
       const tileRate = (tilesDone - lastTilesDone) / intervalSec;
-      const elapsedSec = seconds(now - currentRangeStartedAt);
-      const averageTileRate = tilesDone / elapsedSec;
-      const etaSec = averageTileRate > 0 ? (tilesTotal - tilesDone) / averageTileRate : Infinity;
+      const costlyTilesDone = totals.tilesDownloaded + totals.tilesCreated + totals.tilesMissing + totals.tilesFailed;
+      const costlyTileRate = (costlyTilesDone - lastCostlyTilesDone) / intervalSec;
+      if (Number.isFinite(costlyTileRate) && costlyTileRate > 0) {
+        sustainedTileRates.push(costlyTileRate);
+        if (sustainedTileRates.length > 8) sustainedTileRates.shift();
+      }
+      const sustainedTileRate = sustainedTileRates.length
+        ? sustainedTileRates.reduce((sum, rate) => sum + rate, 0) / sustainedTileRates.length
+        : 0;
+      const etaSec = sustainedTileRate > 0 ? (tilesTotal - tilesDone) / sustainedTileRate : Infinity;
       lastRowsDone = rowsDone;
       lastTilesDone = tilesDone;
+      lastCostlyTilesDone = costlyTilesDone;
       lastRateAt = now;
       line(
         `  ↳ range ${rangeIndex}/${rangeCount} row ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
