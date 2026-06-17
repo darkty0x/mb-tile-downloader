@@ -145,9 +145,8 @@ function FleetHealthCard({ overview }) {
             ["offline", "련결안됨", overview.health.offline, "neutral"],
           ].map(([key, label, value, status]) => (
             <div key={key} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2">
-              <span className="flex min-w-0 items-center gap-2">
+              <span className="flex min-w-0 items-center">
                 <StatusPill status={status}>{label}</StatusPill>
-                <span className="truncate text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{key}</span>
               </span>
               <strong className="text-[14px] font-[850]">{value}</strong>
             </div>
