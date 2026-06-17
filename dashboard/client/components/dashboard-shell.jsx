@@ -24,12 +24,9 @@ export function Rail({ state, actions }) {
   };
   return (
     <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto max-md:flex-row max-md:items-center max-md:gap-3 max-md:overflow-x-auto max-md:border-b max-md:border-r-0 max-md:px-4 max-md:py-3">
-      <section className="flex min-h-[60px] items-center gap-3 border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[92px] max-md:border-b-0 max-md:pb-0">
+      <section className="flex min-h-[60px] items-center border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[92px] max-md:border-b-0 max-md:pb-0">
         <LogoMark />
-        <div className="min-w-0">
-          <strong className="block truncate text-[13px] font-[780] leading-tight text-white">Management</strong>
-          <span className="mt-0.5 block truncate text-[11px] font-[560] leading-tight text-[var(--ptg-rail-muted)] max-md:hidden">Dashboard</span>
-        </div>
+        <span className="sr-only">PTG Management Dashboard</span>
       </section>
 
       <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="Dashboard sections">

@@ -431,32 +431,38 @@ export function createPostgresSecretVault({
     }
   }
 
-  async function assignedCount({ machineId, secretType }) {
+  async function assignedCounts({ machineIds, secretType }) {
+    if (!machineIds.length) return new Map();
     const result = await db.query(
-      "SELECT count(*)::int AS count FROM secrets WHERE secret_type=$1 AND machine_id=$2 AND status='active'",
-      [secretType, machineId]
+      `SELECT machine_id, count(*)::int AS count
+       FROM secrets
+       WHERE secret_type=$1
+         AND machine_id = ANY($2::text[])
+         AND status='active'
+       GROUP BY machine_id`,
+      [secretType, machineIds]
     );
-    return Number(result.rows[0]?.count || 0);
+    const counts = new Map(machineIds.map((machineId) => [machineId, 0]));
+    for (const row of result.rows) counts.set(row.machine_id, Number(row.count || 0));
+    return counts;
   }
 
-  async function nextAvailableSecret(secretType) {
+  async function availableSecretIds({ secretType, limit }) {
+    if (!limit) return [];
     const result = await db.query(
-      "SELECT secret_id FROM secrets WHERE secret_type=$1 AND machine_id IS NULL AND status='active' ORDER BY created_at ASC LIMIT 1",
-      [secretType]
+      "SELECT secret_id FROM secrets WHERE secret_type=$1 AND machine_id IS NULL AND status='active' ORDER BY created_at ASC LIMIT $2",
+      [secretType, limit]
     );
-    return result.rows[0]?.secret_id || null;
+    return result.rows.map((row) => row.secret_id);
   }
 
   async function rebalanceType({ machineIds, secretType, targetCount }) {
     if (!machineIds.length || !targetCount) return 0;
+    const counts = await assignedCounts({ machineIds, secretType });
+    const capacity = machineIds.reduce((sum, machineId) => sum + Math.max(0, targetCount - (counts.get(machineId) || 0)), 0);
+    const secretIds = await availableSecretIds({ secretType, limit: capacity });
     let changed = 0;
-    while (true) {
-      const secretId = await nextAvailableSecret(secretType);
-      if (!secretId) return changed;
-      const counts = new Map();
-      for (const machineId of machineIds) {
-        counts.set(machineId, await assignedCount({ machineId, secretType }));
-      }
+    for (const secretId of secretIds) {
       const targetMachineId = machineIds
         .filter((machineId) => (counts.get(machineId) || 0) < targetCount)
         .sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b))[0];
@@ -465,9 +471,11 @@ export function createPostgresSecretVault({
         "UPDATE secrets SET machine_id=$1, updated_at=$2 WHERE secret_id=$3 AND machine_id IS NULL AND status='active' RETURNING secret_id",
         [targetMachineId, now().toISOString(), secretId]
       );
-      if (result.rows[0]) changed += 1;
-      else return changed;
+      if (!result.rows[0]) continue;
+      counts.set(targetMachineId, (counts.get(targetMachineId) || 0) + 1);
+      changed += 1;
     }
+    return changed;
   }
 
   return {
