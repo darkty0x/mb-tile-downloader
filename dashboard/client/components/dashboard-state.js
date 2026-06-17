@@ -340,6 +340,21 @@ export function useDashboardState() {
           sync: {
             dashboardPollMs: Number(formData.get("dashboardPollMs")),
           },
+          workflow: {
+            autoStartNextRange: formData.get("autoStartNextRange") === "on",
+            requirePreflightBeforeStart: formData.get("requirePreflightBeforeStart") === "on",
+            stopTimeoutMs: Number(formData.get("stopTimeoutMs")),
+          },
+          notifications: {
+            telegramEnabled: formData.get("telegramEnabled") === "on",
+            webConsoleEnabled: formData.get("webConsoleEnabled") === "on",
+            dedupeWindowMs: Number(formData.get("dedupeWindowMs")),
+            minSeverity: formData.get("minSeverity"),
+          },
+          retry: {
+            commandRetryLimit: Number(formData.get("commandRetryLimit")),
+            reportBackoffMs: Number(formData.get("reportBackoffMs")),
+          },
         };
         const { settings: nextSettings } = await api("/api/settings", {
           method: "PUT",

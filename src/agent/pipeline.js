@@ -9,6 +9,16 @@ import { createControlClient } from "./control-client.js";
 import { createJobReporter } from "./job-reporter.js";
 
 const STAGES = ["download", "validate", "zip", "upload"];
+let activeStageChild = null;
+let processStopRequested = false;
+
+function requestProcessStop() {
+  processStopRequested = true;
+  if (activeStageChild && !activeStageChild.killed) activeStageChild.kill();
+}
+
+process.once("SIGTERM", requestProcessStop);
+process.once("SIGINT", requestProcessStop);
 
 function defaultEventEmitter(event) {
   console.log(`[event] ${JSON.stringify(event)}`);
@@ -35,8 +45,17 @@ function runNode(args, { env = process.env, cwd = process.cwd() } = {}) {
       env,
       stdio: "inherit",
     });
-    child.on("error", (err) => resolve({ ok: false, error: err.message }));
+    activeStageChild = child;
+    child.on("error", (err) => {
+      if (activeStageChild === child) activeStageChild = null;
+      resolve({ ok: false, error: err.message });
+    });
     child.on("close", (code) => {
+      if (activeStageChild === child) activeStageChild = null;
+      if (processStopRequested) {
+        resolve({ ok: false, error: "pipeline stopped" });
+        return;
+      }
       resolve(code === 0 ? { ok: true } : { ok: false, error: `${args[0]} exited with code ${code}` });
     });
   });
@@ -95,6 +114,7 @@ export async function runRangePipeline({
   emitEvent = defaultEventEmitter,
   createJobReporter = null,
   shouldPauseAfterRange = null,
+  shouldStop = null,
 } = {}) {
   if (!config || !Array.isArray(config.ranges)) throw new Error("config.ranges is required");
   emitEvent({
@@ -108,6 +128,17 @@ export async function runRangePipeline({
     const range = config.ranges[rangeIndex];
     const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex, range }) : null;
     for (const [stageIndex, stage] of STAGES.entries()) {
+      if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage })) {
+        const errorObject = new Error("pipeline stopped");
+        emitEvent({
+          severity: "warn",
+          type: "pipeline.stopped",
+          message: errorObject.message,
+          data: { configPath, rangeIndex, label: range.label || null, stage },
+        });
+        if (reporter) await reporter.fail({ stage, error: errorObject });
+        throw errorObject;
+      }
       const progress = {
         configPath,
         rangeIndex,
@@ -154,6 +185,17 @@ export async function runRangePipeline({
         message: `${stage} completed`,
         data: { configPath, rangeIndex, label: range.label || null },
       });
+      if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage, afterStage: true })) {
+        const errorObject = new Error("pipeline stopped");
+        emitEvent({
+          severity: "warn",
+          type: "pipeline.stopped",
+          message: errorObject.message,
+          data: { configPath, rangeIndex, label: range.label || null, stage },
+        });
+        if (reporter) await reporter.fail({ stage, error: errorObject, progress });
+        throw errorObject;
+      }
     }
     if (reporter) {
       await reporter.complete({
@@ -200,6 +242,7 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
     runStage: (stage, context) => runNode(stageArgs(stage, context)),
     shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
+    shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
   }).catch((err) => {
     console.error(`Fatal: ${err.message}`);
     process.exit(1);

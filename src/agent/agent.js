@@ -1,6 +1,6 @@
 import os from "node:os";
 import path from "node:path";
-import { mkdir, rm, writeFile } from "node:fs/promises";
+import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
@@ -68,22 +68,31 @@ function isBackgroundCommand(commandType) {
 function createAgentControlFiles({ stateDir }) {
   const controlDir = path.join(stateDir, "dashboard", "control");
   const pauseAfterRangeFile = path.join(controlDir, "pause-after-range");
+  const stopPipelineFile = path.join(controlDir, "stop-pipeline");
   return {
     pauseAfterRangeFile,
+    stopPipelineFile,
     async prepare() {
       await mkdir(controlDir, { recursive: true });
     },
     async clearPauseAfterRange() {
       await rm(pauseAfterRangeFile, { force: true });
     },
+    async clearStopPipeline() {
+      await rm(stopPipelineFile, { force: true });
+    },
     async requestPauseAfterRange() {
       await mkdir(controlDir, { recursive: true });
       await writeFile(pauseAfterRangeFile, new Date().toISOString(), "utf8");
     },
+    async requestStopPipeline() {
+      await mkdir(controlDir, { recursive: true });
+      await writeFile(stopPipelineFile, new Date().toISOString(), "utf8");
+    },
   };
 }
 
-export async function runCommand(command, { client, runner, machineId, control = null }) {
+export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null }) {
   try {
     if (command.commandType === "pause_after_range") {
       await control?.requestPauseAfterRange?.();
@@ -100,6 +109,7 @@ export async function runCommand(command, { client, runner, machineId, control =
 
     const commandSpec = resolveManagedCommand(command);
     if (command.commandType === "stop_pipeline") {
+      await control?.requestStopPipeline?.();
       const stopped = runner.stop();
       await client.postEvent({
         machineId,
@@ -112,8 +122,22 @@ export async function runCommand(command, { client, runner, machineId, control =
       return;
     }
 
+    if (command.commandType === "sync_config" || command.commandType === "sync_env") {
+      await syncNow?.({ reason: command.commandType });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: `${command.commandType === "sync_config" ? "Sync config" : "Sync env"} completed.`,
+        data: { commandId: command.id, commandType: command.commandType },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
     if (isBackgroundCommand(command.commandType)) {
       await control?.clearPauseAfterRange?.();
+      await control?.clearStopPipeline?.();
       const runPromise = runner.run(commandSpec);
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       runPromise
@@ -129,6 +153,7 @@ export async function runCommand(command, { client, runner, machineId, control =
 
     if (command.commandType === "run_preflight") {
       await control?.clearPauseAfterRange?.();
+      await control?.clearStopPipeline?.();
     }
 
     if (commandSpec.command === "agent-internal") {
@@ -195,14 +220,19 @@ export async function runAgent({
   const control = createAgentControlFiles({ stateDir });
   await control.prepare();
   const forwarder = createProgressEventForwarder({ machineId: identity.machineId, client });
+  const agentLogPath = path.join(stateDir, "dashboard-agent.log");
   const agentControlEnv = {
     DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE: control.pauseAfterRangeFile,
+    DASHBOARD_AGENT_STOP_FILE: control.stopPipelineFile,
+    DASHBOARD_AGENT_LOG_PATH: agentLogPath,
     [DASHBOARD_MANAGED_RUN_ENV]: "1",
   };
   const managedEnv = {};
   const runner = createRunner({
     env: managedEnv,
     onLine: async (line, stream) => {
+      await mkdir(path.dirname(agentLogPath), { recursive: true });
+      await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");
       if (await forwarder.handleLine(line, stream)) return;
       await client.postEvent({
         machineId: identity.machineId,
@@ -212,6 +242,32 @@ export async function runAgent({
       });
     },
   });
+
+  async function syncAndPublishSnapshot({ reason = "heartbeat" } = {}) {
+    const synced = await syncManagedState({
+      client,
+      machineId: identity.machineId,
+      stateDir,
+      projectDir,
+    });
+    for (const key of Object.keys(managedEnv)) delete managedEnv[key];
+    Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {}, agentControlEnv);
+    const [disk, agentSnapshot] = await Promise.all([
+      safeDiskSnapshot(collectDiskInfoImpl, { projectDir, platform: process.platform }),
+      collectLocalSnapshotImpl({ projectDir, stateDir, synced, agentLogPath }),
+    ]);
+    await client.heartbeat({
+      ...identity,
+      status: "online",
+      platform: process.platform,
+      hostname: os.hostname(),
+      disk,
+      agentSnapshot,
+      agentProtocolVersion: AGENT_PROTOCOL_VERSION,
+      syncReason: reason,
+    });
+    return synced;
+  }
 
   await client.register({
     ...identity,
@@ -223,30 +279,16 @@ export async function runAgent({
   log(`dashboard agent registered machineId=${identity.machineId} dashboard=${env.DASHBOARD_URL}`);
 
   async function tick() {
-    const synced = await syncManagedState({
-      client,
-      machineId: identity.machineId,
-      stateDir,
-      projectDir,
-    });
-    for (const key of Object.keys(managedEnv)) delete managedEnv[key];
-    Object.assign(managedEnv, synced.env || {}, synced.secretEnv || {}, agentControlEnv);
-    const [disk, agentSnapshot] = await Promise.all([
-      safeDiskSnapshot(collectDiskInfoImpl, { projectDir, platform: process.platform }),
-      collectLocalSnapshotImpl({ projectDir, stateDir, synced }),
-    ]);
-    await client.heartbeat({
-      ...identity,
-      status: "online",
-      platform: process.platform,
-      hostname: os.hostname(),
-      disk,
-      agentSnapshot,
-      agentProtocolVersion: AGENT_PROTOCOL_VERSION,
-    });
+    await syncAndPublishSnapshot({ reason: "heartbeat" });
     const { commands = [] } = await client.pollCommands(identity.machineId);
     for (const command of commands) {
-      await runCommand(command, { client, runner, machineId: identity.machineId, control });
+      await runCommand(command, {
+        client,
+        runner,
+        machineId: identity.machineId,
+        control,
+        syncNow: syncAndPublishSnapshot,
+      });
     }
   }
 

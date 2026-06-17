@@ -37,11 +37,97 @@ test("process runner resolves only whitelisted commands", () => {
   assert.equal(start.command, process.execPath);
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/a.json"]);
   assert.equal(preflight.command, process.execPath);
-  assert.deepEqual(preflight.args, ["downloader.js", "--dry-run", "configs/a.json"]);
+  assert.deepEqual(preflight.args, ["src/agent/preflight.js", "configs/a.json"]);
   assert.throws(
     () => resolveManagedCommand({ commandType: "shell", payload: { command: "echo bad" } }),
     /unsupported command/
   );
+});
+
+test("agent sync commands force immediate materialization before acknowledgement", async () => {
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message]),
+  };
+
+  await runCommand(
+    {
+      id: "cmd-sync",
+      commandType: "sync_config",
+      payload: {},
+      claimedAt: "claim-sync",
+    },
+    {
+      client,
+      runner: {},
+      machineId: "worker-a",
+      syncNow: async ({ reason }) => calls.push(["sync", reason]),
+    }
+  );
+
+  assert.deepEqual(calls, [
+    ["sync", "sync_config"],
+    ["event", "command.accepted", "Sync config completed."],
+    ["ack", "cmd-sync"],
+  ]);
+});
+
+test("agent stop command records a stop request and signals the active runner", async () => {
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message]),
+  };
+  const control = {
+    requestStopPipeline: async () => calls.push(["stop-file"]),
+  };
+  const runner = {
+    stop() {
+      calls.push(["runner-stop"]);
+      return true;
+    },
+  };
+
+  await runCommand(
+    {
+      id: "cmd-stop",
+      commandType: "stop_pipeline",
+      payload: {},
+      claimedAt: "claim-stop",
+    },
+    { client, runner, machineId: "worker-a", control }
+  );
+
+  assert.deepEqual(calls, [
+    ["stop-file"],
+    ["runner-stop"],
+    ["event", "command.accepted", "Stop signal sent to the active managed process."],
+    ["ack", "cmd-stop"],
+  ]);
+});
+
+test("range pipeline stops before the next stage when stop is requested", async () => {
+  const calls = [];
+  const events = [];
+
+  await assert.rejects(
+    () =>
+      runRangePipeline({
+        config: { ranges: [{ label: "r1" }] },
+        configPath: "configs/a.json",
+        emitEvent: (event) => events.push(event.type),
+        runStage: async (stage) => {
+          calls.push(stage);
+          return { ok: true };
+        },
+        shouldStop: async ({ stage }) => stage === "validate",
+      }),
+    /pipeline stopped/
+  );
+
+  assert.deepEqual(calls, ["download"]);
+  assert.equal(events.includes("pipeline.stopped"), true);
 });
 
 test("agent accepts long pipeline commands without blocking until process completion", async () => {

@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -190,4 +190,79 @@ test("agent register and heartbeat include protocol version", async () => {
   assert.equal(calls[1][1].agentSnapshot.managed.envPath, snapshotSynced.envPath);
   assert.match(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, /\.tile-state\/dashboard\/control\/pause-after-range$/);
   assert.notEqual(runnerEnv.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE, "dashboard-override");
+});
+
+test("agent writes forwarded process output to the local console snapshot log", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-log-"));
+  const stateDir = path.join(dir, ".tile-state");
+  const calls = [];
+  let runnerEnv = null;
+  const client = {
+    async register() {
+      return { status: "registered" };
+    },
+    async heartbeat(payload) {
+      calls.push(["heartbeat", payload.agentSnapshot.console?.recentLines || []]);
+      return { machine: payload };
+    },
+    async listConfigs() {
+      return { configs: [] };
+    },
+    async listEnvProfiles() {
+      return { envProfiles: [] };
+    },
+    async listSecrets() {
+      return { secrets: [] };
+    },
+    async pollCommands() {
+      return {
+        commands: [
+          {
+            id: "cmd-preflight",
+            commandType: "run_preflight",
+            payload: { configPath: "configs/a.json" },
+            claimedAt: "claim-preflight",
+          },
+        ],
+      };
+    },
+    async ackCommand(commandId) {
+      calls.push(["ack", commandId]);
+    },
+    async postEvent(event) {
+      calls.push(["event", event.message]);
+    },
+  };
+
+  await writeFile(path.join(dir, "package.json"), JSON.stringify({ type: "module" }));
+
+  await runAgent({
+    env: {
+      MACHINE_ID: "server-01",
+      DASHBOARD_URL: "https://dashboard.example.com",
+      AGENT_TOKEN: "agent-token",
+    },
+    argv: ["--once"],
+    stateDir,
+    createClient: () => client,
+    createRunner: ({ env, onLine }) => {
+      runnerEnv = env;
+      return {
+        async run() {
+          await onLine("preflight wrote this line", "stdout");
+          return { code: 0, signal: null };
+        },
+        stop() {
+          return false;
+        },
+      };
+    },
+    collectDiskInfoImpl: async () => [],
+    projectDir: dir,
+  });
+
+  assert.match(runnerEnv.DASHBOARD_AGENT_LOG_PATH, /\.tile-state\/dashboard-agent\.log$/);
+  assert.match(await readFile(path.join(stateDir, "dashboard-agent.log"), "utf8"), /preflight wrote this line/);
+  assert.deepEqual(calls.at(-2), ["event", "preflight wrote this line"]);
+  assert.deepEqual(calls.at(-1), ["ack", "cmd-preflight"]);
 });

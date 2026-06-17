@@ -54,6 +54,21 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
   sync: {
     dashboardPollMs: 5000,
   },
+  workflow: {
+    autoStartNextRange: true,
+    requirePreflightBeforeStart: false,
+    stopTimeoutMs: 30000,
+  },
+  notifications: {
+    telegramEnabled: false,
+    webConsoleEnabled: true,
+    dedupeWindowMs: 60000,
+    minSeverity: "error",
+  },
+  retry: {
+    commandRetryLimit: 3,
+    reportBackoffMs: 5000,
+  },
 };
 
 export const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
@@ -74,6 +89,18 @@ export function mergeDashboardSettings(settings = {}) {
     sync: {
       ...DEFAULT_DASHBOARD_SETTINGS.sync,
       ...(settings.sync || {}),
+    },
+    workflow: {
+      ...DEFAULT_DASHBOARD_SETTINGS.workflow,
+      ...(settings.workflow || {}),
+    },
+    notifications: {
+      ...DEFAULT_DASHBOARD_SETTINGS.notifications,
+      ...(settings.notifications || {}),
+    },
+    retry: {
+      ...DEFAULT_DASHBOARD_SETTINGS.retry,
+      ...(settings.retry || {}),
     },
   };
 }

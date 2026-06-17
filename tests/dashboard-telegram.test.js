@@ -72,3 +72,38 @@ test("telegram notifier reports send failures without throwing", async () => {
   assert.equal(result.ok, false);
   assert.equal(result.status, 500);
 });
+
+test("telegram notifier respects enablement severity and dedupe settings", async () => {
+  let now = 1000;
+  const calls = [];
+  const notifier = createTelegramNotifier({
+    botToken: "bot-token",
+    chatId: "chat-id",
+    now: () => new Date(now),
+    fetchImpl: async (url, options) => {
+      calls.push(JSON.parse(options.body));
+      return { ok: true, status: 200, text: async () => "{}" };
+    },
+  });
+  const settings = {
+    notifications: {
+      telegramEnabled: true,
+      dedupeWindowMs: 1000,
+      minSeverity: "warn",
+    },
+  };
+  const event = {
+    machineId: "worker-a",
+    severity: "error",
+    type: "range.failed",
+    message: "same failure",
+  };
+
+  assert.equal((await notifier.notifyEvent({ ...event, severity: "info" }, settings)).skipped, true);
+  assert.equal((await notifier.notifyEvent(event, settings)).ok, true);
+  assert.equal((await notifier.notifyEvent(event, settings)).skipped, true);
+  now += 1001;
+  assert.equal((await notifier.notifyEvent(event, settings)).ok, true);
+  assert.equal((await notifier.notifyEvent(event, { notifications: { telegramEnabled: false } })).skipped, true);
+  assert.equal(calls.length, 2);
+});

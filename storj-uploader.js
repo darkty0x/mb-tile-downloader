@@ -414,15 +414,25 @@ function filterArchivesByPlan(archives, plan) {
 
 async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }, configDir) {
   const url = remoteUrl(bucket, prefix, archive.name);
+  const cleanPrefix = normalizePrefix(prefix);
+  const remotePath = cleanPrefix ? `${cleanPrefix}/${archive.name}` : archive.name;
+  const resultBase = {
+    ok: true,
+    bucket,
+    remotePath,
+    remoteUrl: url,
+    localPath: archive.filePath,
+    bytes: archive.size,
+  };
   if (dryRun) {
     console.log(`DRY RUN upload: ${archive.filePath} -> ${url}`);
-    return "dry-run";
+    return { ...resultBase, status: "dry-run" };
   }
 
   if (await remoteExists(url, archive.name, configDir)) {
     console.log(`SKIP remote exists: ${archive.name}`);
     console.log(`  kept local: ${archive.filePath}`);
-    return "skipped";
+    return { ...resultBase, status: "skipped" };
   }
 
   console.log(`UPLOAD: ${archive.name} size=${archive.size} -> ${url}`);
@@ -434,7 +444,7 @@ async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }, con
     await fsp.rm(archive.filePath, { force: true });
     console.log(`  deleted local: ${archive.filePath}`);
   }
-  return "uploaded";
+  return { ...resultBase, status: "uploaded" };
 }
 
 function shareTargetUrl(bucket, prefix) {
@@ -522,8 +532,9 @@ async function main() {
   let skipped = 0;
   for (const archive of archives) {
     const result = await uploadArchive({ archive, ...opts }, opts.uplinkConfigDir);
-    if (result === "uploaded") uploaded++;
-    else if (result === "skipped") skipped++;
+    console.log(`[storj-result] ${JSON.stringify(result)}`);
+    if (result.status === "uploaded") uploaded++;
+    else if (result.status === "skipped") skipped++;
   }
 
   const remainingLocal = opts.keepLocal ? archives.length : skipped;

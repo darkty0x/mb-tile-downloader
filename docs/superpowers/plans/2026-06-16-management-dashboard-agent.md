@@ -33,13 +33,13 @@
 - [x] Overview, Servers, Secrets, Credentials, Configs, Pipelines, Events, Alerts, and Settings surfaces exist.
 - [x] Dashboard can add and remove server connection profiles.
 - [x] Server onboarding explains outbound agent registration and generates Windows env/setup content.
-- [ ] Storj upload readiness still needs a machine-level preflight and dashboard-visible diagnostics.
-- [ ] Dedicated `src/agent/preflight.js` still needs to replace the current dry-run-style readiness check.
-- [ ] Storj upload diagnostics need a parseable success/failure result shape with bucket, remote path, and byte counts.
-- [ ] Client-to-dashboard communication contract still needs bounded retry/backoff policy for reporting failures; canonical endpoint names, command leases, and protocol versioning are implemented.
-- [ ] Live dashboard browser sync needs configurable visible-tab polling intervals for 9 to 100+ servers.
-- [ ] Settings schema needs sync/workflow/Telegram settings beyond alert thresholds.
-- [ ] Telegram and web console notifications need a consistent event policy and deduping.
+- [x] Storj upload readiness has machine-level preflight coverage for config/env/output paths and dashboard-visible uploader diagnostics.
+- [x] Dedicated `src/agent/preflight.js` replaced the old downloader dry-run-style readiness check.
+- [x] Storj upload diagnostics print a parseable result shape with bucket, remote path, local path, byte counts, and status.
+- [x] Client-to-dashboard communication settings include retry/backoff policy; canonical endpoint names, command leases, and protocol versioning are implemented.
+- [x] Live dashboard browser sync has configurable visible-tab polling intervals for 9 to 100+ servers.
+- [x] Settings schema includes sync/workflow/Telegram settings beyond alert thresholds.
+- [x] Telegram and web console notifications now use a consistent event policy with settings-controlled severity and deduping.
 - [ ] UI quality should continue moving toward the selected PTG reference designs, but the core page surfaces now exist.
 
 Current local verification:

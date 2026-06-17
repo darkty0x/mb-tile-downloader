@@ -41,6 +41,38 @@ test("storj uploader defaults uploads into archives folder", async () => {
   );
 });
 
+test("storj uploader prints parseable archive result diagnostics", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
+  const archivesDir = path.join(dir, "archives");
+  const archivePath = path.join(archivesDir, "tiles_vector_1_000000-000000_y000000-000000.zip");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(archivePath, "zip");
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-uploader.js",
+      `--archive-dir=${archivesDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve("."), env: { ...process.env, STORJ_PREFIX: "archives" } }
+  );
+
+  const line = stdout.split(/\r?\n/).find((item) => item.startsWith("[storj-result] "));
+  assert.ok(line, "expected a storj-result line");
+  const result = JSON.parse(line.replace("[storj-result] ", ""));
+  assert.deepEqual(result, {
+    ok: true,
+    status: "dry-run",
+    bucket: "mapbox",
+    remotePath: "archives/tiles_vector_1_000000-000000_y000000-000000.zip",
+    remoteUrl: "sj://mapbox/archives/tiles_vector_1_000000-000000_y000000-000000.zip",
+    localPath: archivePath,
+    bytes: 3,
+  });
+});
+
 test("storj uploader uses config jobName as remote folder when config is provided", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");

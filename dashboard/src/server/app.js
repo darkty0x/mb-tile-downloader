@@ -287,7 +287,7 @@ export function createDashboardApp({
               status: body.data.status === "disabled" ? "disabled" : "error",
             });
           }
-          const telegram = telegramNotifier ? await telegramNotifier.notifyEvent(event) : null;
+          const telegram = telegramNotifier ? await telegramNotifier.notifyEvent(event, await store.getSettings()) : null;
           json(res, 200, { event, telegram, ...(secret ? { secret } : {}) });
           return;
         }

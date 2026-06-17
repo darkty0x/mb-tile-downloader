@@ -560,6 +560,50 @@ test("dashboard settings expose and persist sync polling", async (t) => {
   assert.equal(listed.body.settings.sync.dashboardPollMs, 2500);
 });
 
+test("dashboard settings expose and persist workflow notification and retry policy", async (t) => {
+  const server = await withServer(t);
+
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/settings",
+    body: {
+      workflow: {
+        autoStartNextRange: false,
+        requirePreflightBeforeStart: true,
+        stopTimeoutMs: 45000,
+      },
+      notifications: {
+        telegramEnabled: true,
+        webConsoleEnabled: true,
+        dedupeWindowMs: 120000,
+        minSeverity: "warn",
+      },
+      retry: {
+        commandRetryLimit: 5,
+        reportBackoffMs: 7500,
+      },
+    },
+  });
+  const listed = await request(server, { path: "/api/settings" });
+
+  assert.equal(updated.status, 200);
+  assert.deepEqual(listed.body.settings.workflow, {
+    autoStartNextRange: false,
+    requirePreflightBeforeStart: true,
+    stopTimeoutMs: 45000,
+  });
+  assert.deepEqual(listed.body.settings.notifications, {
+    telegramEnabled: true,
+    webConsoleEnabled: true,
+    dedupeWindowMs: 120000,
+    minSeverity: "warn",
+  });
+  assert.deepEqual(listed.body.settings.retry, {
+    commandRetryLimit: 5,
+    reportBackoffMs: 7500,
+  });
+});
+
 test("dashboard app awaits async persistent store methods", async (t) => {
   const server = await withServer(t, {
     store: {

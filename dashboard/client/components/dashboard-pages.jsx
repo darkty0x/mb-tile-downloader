@@ -2,7 +2,7 @@
 
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon } from "./icons";
-import { AppButton, IconButton, MetricCard, SectionTitle, StatusPill, Surface, TextInput, UsageBar } from "./ui";
+import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextInput, UsageBar } from "./ui";
 import { COMMANDS, SECRET_LABELS, SECRET_SECTION_VISIBLE_LIMIT, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, fleetState, formatBytes, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
@@ -970,6 +970,9 @@ export function SettingsDashboard({ state, actions }) {
   const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
   const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
   const dashboardPollMs = Number(state.settings.sync?.dashboardPollMs || 5000);
+  const workflow = state.settings.workflow || {};
+  const notifications = state.settings.notifications || {};
+  const retry = state.settings.retry || {};
   const mapboxAlertAt = mapboxPerServer * serverCount;
   const proxyAlertAt = proxiesPerServer * serverCount;
 
@@ -992,7 +995,20 @@ export function SettingsDashboard({ state, actions }) {
           </div>
         </div>
         <form
-          key={`${mapboxPerServer}-${proxiesPerServer}-${dashboardPollMs}`}
+          key={[
+            mapboxPerServer,
+            proxiesPerServer,
+            dashboardPollMs,
+            workflow.autoStartNextRange,
+            workflow.requirePreflightBeforeStart,
+            workflow.stopTimeoutMs,
+            notifications.telegramEnabled,
+            notifications.webConsoleEnabled,
+            notifications.dedupeWindowMs,
+            notifications.minSeverity,
+            retry.commandRetryLimit,
+            retry.reportBackoffMs,
+          ].join("-")}
           className="grid gap-4 p-4"
           onSubmit={(event) => {
             event.preventDefault();
@@ -1044,6 +1060,61 @@ export function SettingsDashboard({ state, actions }) {
                 defaultValue={dashboardPollMs}
                 required
               />
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 max-lg:grid-cols-1">
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <span className="mb-3 flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
+                <Icon name="pipelines" className="h-4 w-4 text-[var(--ptg-primary)]" />
+                Workflow
+              </span>
+              <div className="grid gap-3">
+                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
+                  <input name="autoStartNextRange" type="checkbox" defaultChecked={Boolean(workflow.autoStartNextRange)} />
+                  Auto start next range
+                </label>
+                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
+                  <input name="requirePreflightBeforeStart" type="checkbox" defaultChecked={Boolean(workflow.requirePreflightBeforeStart)} />
+                  Require preflight before start
+                </label>
+                <TextInput label="Stop timeout (ms)" name="stopTimeoutMs" type="number" min="0" step="1000" defaultValue={workflow.stopTimeoutMs ?? 30000} required />
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <span className="mb-3 flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
+                <Icon name="bell" className="h-4 w-4 text-[var(--ptg-primary)]" />
+                Notifications
+              </span>
+              <div className="grid gap-3">
+                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
+                  <input name="telegramEnabled" type="checkbox" defaultChecked={Boolean(notifications.telegramEnabled)} />
+                  Telegram enabled
+                </label>
+                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
+                  <input name="webConsoleEnabled" type="checkbox" defaultChecked={notifications.webConsoleEnabled !== false} />
+                  Web console enabled
+                </label>
+                <TextInput label="Dedupe window (ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
+                <SelectInput label="Minimum severity" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
+                  <option value="debug">Debug</option>
+                  <option value="info">Info</option>
+                  <option value="warn">Warn</option>
+                  <option value="error">Error</option>
+                </SelectInput>
+              </div>
+            </div>
+
+            <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <span className="mb-3 flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
+                <Icon name="sync" className="h-4 w-4 text-[var(--ptg-primary)]" />
+                Retry / Backoff
+              </span>
+              <div className="grid gap-3">
+                <TextInput label="Command retry limit" name="commandRetryLimit" type="number" min="0" step="1" defaultValue={retry.commandRetryLimit ?? 3} required />
+                <TextInput label="Report backoff (ms)" name="reportBackoffMs" type="number" min="0" step="500" defaultValue={retry.reportBackoffMs ?? 5000} required />
+              </div>
             </div>
           </div>
 

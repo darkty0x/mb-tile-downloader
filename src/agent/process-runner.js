@@ -18,7 +18,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "run_preflight":
       return {
         command: process.execPath,
-        args: ["downloader.js", "--dry-run", requireConfigPath(payload)],
+        args: ["src/agent/preflight.js", requireConfigPath(payload)],
       };
     case "sync_config":
     case "sync_env":
