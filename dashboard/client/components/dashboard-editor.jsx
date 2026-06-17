@@ -60,7 +60,7 @@ function ServerOnboardingForm({ state, actions }) {
       ["machineId", "Machine ID"],
       ["label", "봉사기이름"],
       ["host", "IP / Host"],
-      ["username", "리용자이름"],
+      ["username", "사용자이름"],
       ["password", "암호"],
     ];
     for (const [name, title] of requiredFields) {
@@ -175,7 +175,7 @@ function ServerOnboardingForm({ state, actions }) {
           <TextInput label="포트" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
         </div>
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
-        <TextInput label="리용자이름" name="username" defaultValue="root" autoComplete="username" required />
+        <TextInput label="사용자이름" name="username" defaultValue="root" autoComplete="username" required />
         <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
         <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속Profile 보관</AppButton>
       </form>
@@ -289,7 +289,7 @@ function ConnectionDetail({ connection, state, actions }) {
       <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
         <DetailTile label="Protocol" value={displayProtocol(connection.credential?.protocol)} />
         <DetailTile label="끝점" value={endpoint} />
-        <DetailTile label="리용자이름" value={connection.credential?.username || "N/A"} />
+        <DetailTile label="사용자이름" value={connection.credential?.username || "N/A"} />
         <DetailTile label="Machine ID" value={displayMachineId(targetMachineId)} />
         <DetailTile label="Agent" value={machine ? `${machine.displayName || displayMachineId(machine.machineId)} (${displayStatus(machine.status)})` : "등록되지 않음"} />
         <DetailTile label="계정정보" value={displayStatus(connection.status)} />
@@ -719,7 +719,7 @@ function SecretForm({ record, editor, actions }) {
             <input type="hidden" name="credentialMachineId" value="" />
           )}
           <TextInput
-            label="리용자이름"
+            label="사용자이름"
             name="credentialUsername"
             defaultValue={credential.username || ""}
             placeholder="root"

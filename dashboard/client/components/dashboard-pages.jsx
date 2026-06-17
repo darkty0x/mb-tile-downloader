@@ -421,7 +421,7 @@ function ServerConnectionsSection({ state, actions }) {
             </div>
           );
         }) : (
-          <EmptyLine>보관된 접속Profile이 없습니다. IP, 포트, 리용자이름, 암호로 하나 추가하십시오.</EmptyLine>
+          <EmptyLine>보관된 접속Profile이 없습니다. IP, 포트, 사용자이름, 암호로 하나 추가하십시오.</EmptyLine>
         )}
       </div>
     </Surface>
@@ -1017,7 +1017,7 @@ export function CredentialsDashboard({ state, actions }) {
               <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol이름</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">리용자이름</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">사용자이름</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">동작</th>
               </tr>
             </thead>
@@ -1086,7 +1086,7 @@ export function AccountDashboard({ state, actions }) {
             </span>
             <div className="min-w-0">
               <h3 className="text-[17px] font-[850] leading-tight">계정정보</h3>
-              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">관리체계 로그인자료와 암호를 갱신합니다</p>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">관리체계 가입자료와 암호를 갱신합니다</p>
             </div>
           </div>
           <StatusPill status="success">{user.role || "Administrator"}</StatusPill>
@@ -1108,7 +1108,7 @@ export function AccountDashboard({ state, actions }) {
         >
           <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
             <TextInput label="전자우편" name="email" type="email" defaultValue={user.email || ""} autoComplete="email" required />
-            <TextInput label="리용자이름" name="username" defaultValue={user.username || ""} autoComplete="username" required />
+            <TextInput label="사용자이름" name="username" defaultValue={user.username || ""} autoComplete="username" required />
           </div>
           <div className="grid gap-3 rounded-[18px] border border-[var(--ptg-outline)] bg-white p-3">
             <SectionTitle title="암호 변경" meta="암호를 변경하지 않으려면 새 암호칸을 비워두십시오" />

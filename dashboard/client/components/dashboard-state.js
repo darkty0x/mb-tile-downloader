@@ -280,7 +280,7 @@ export function useDashboardState() {
         });
         setCurrentUser(user);
         setAuthStatus("authenticated");
-        setNotice({ message: "로그인되였습니다", kind: "success" });
+        setNotice({ message: "가입되였습니다", kind: "success" });
         await refreshAll();
       },
       async logout() {
@@ -502,7 +502,7 @@ export function useDashboardState() {
           const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
           const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || machineId !== existingMachineId || username !== existingUsername;
           if (!id || password || changedCredentialIdentity) {
-            const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID 또는 리용자이름" : "URL 또는 리용자이름";
+            const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID 또는 사용자이름" : "URL 또는 사용자이름";
             if (!password) throw new Error(`${changedFields}을(를) 만들거나 바꿀 때 접속암호가 필요합니다`);
             body.value = buildCredentialSecretValue({ protocolUrl, machineId, username, password });
           }

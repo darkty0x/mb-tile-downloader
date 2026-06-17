@@ -40,15 +40,14 @@ export function Rail({ state, actions }) {
               title={label}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${
-                state.selectedTab === tab
+              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${state.selectedTab === tab
                   ? "border-[rgba(234,221,255,0.28)] bg-[var(--ptg-primary-soft)] text-[#1d1b20] shadow-[0_12px_26px_rgba(0,10,24,0.22)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
-              }`}
+                }`}
             >
               <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[var(--ptg-primary)]" : ""}`} />
               <span className="truncate">{label}</span>
-            {count === null ? null : <strong className={`grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-[11px] ${state.selectedTab === tab ? "bg-white text-[var(--ptg-primary)]" : "bg-[rgba(255,255,255,0.11)] text-[#eaf1ff]"}`}>{count}</strong>}
+              {count === null ? null : <strong className={`grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-[11px] ${state.selectedTab === tab ? "bg-white text-[var(--ptg-primary)]" : "bg-[rgba(255,255,255,0.11)] text-[#eaf1ff]"}`}>{count}</strong>}
             </button>
           );
         })}
@@ -110,7 +109,7 @@ export function LoginScreen({ state, actions }) {
     try {
       await actions.login(new FormData(event.currentTarget));
     } catch (err) {
-      setError(err.message || "로그인할수 없습니다");
+      setError(err.message || "가입할수 없습니다");
     }
   };
 
@@ -123,17 +122,17 @@ export function LoginScreen({ state, actions }) {
           </span>
           <span>
             <h1 className="text-[28px] font-[520] leading-tight text-[var(--ptg-on-surface)]">PTG 관리체계</h1>
-            <p className="mt-1 text-[13px] font-[620] text-[var(--ptg-on-surface-variant)]">계정으로 로그인한 뒤 조종판을 리용할수 있습니다.</p>
+            <p className="mt-1 text-[13px] font-[620] text-[var(--ptg-on-surface-variant)]">가입한후에 관리체계를 리용할수 있습니다.</p>
           </span>
         </div>
         <form className="grid gap-4" onSubmit={submit}>
-          <TextInput name="login" label="전자우편 또는 리용자이름" autoComplete="username" required />
+          <TextInput name="login" label="전자우편 또는 사용자이름" autoComplete="username" required />
           <TextInput name="password" label="암호" type="password" autoComplete="current-password" required />
           {error ? <div className="rounded-[14px] border border-[rgba(197,35,51,0.28)] bg-[#fff5f5] px-3 py-2 text-[12px] font-[650] text-[var(--ptg-error)]">{error}</div> : null}
           {state.authStatus === "checking" ? (
             <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-3 py-2 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">세션 확인중...</div>
           ) : null}
-          <AppButton type="submit" variant="filled" icon="login" className="h-12 w-full">로그인</AppButton>
+          <AppButton type="submit" variant="filled" icon="login" className="h-12 w-full">가입</AppButton>
         </form>
       </section>
     </main>
@@ -395,13 +394,12 @@ function NotificationsMenu({ notifications, actions, state }) {
                 onClick={() => openNotification(notification)}
                 className={`state-layer grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left transition hover:bg-[var(--ptg-primary-soft)] ${notification.read ? "opacity-65" : "bg-[var(--ptg-primary-soft)]"}`}
               >
-                <span className={`mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full ${
-                  notification.kind === "error"
+                <span className={`mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full ${notification.kind === "error"
                     ? "bg-[#fff0ef] text-[var(--ptg-error)]"
                     : notification.kind === "warning"
                       ? "bg-[#fff7e7] text-[var(--ptg-warning)]"
                       : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"
-                }`}>
+                  }`}>
                   <Icon name={notification.icon} className="h-4 w-4" />
                 </span>
                 <span className="min-w-0">
