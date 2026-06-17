@@ -98,7 +98,6 @@ export function Header({ state, actions }) {
             <span>마지막 갱신:</span>
             <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "대기중"}</strong>
           </span>
-          <IconButton icon="command" label="명령차림표" />
           <NotificationsMenu notifications={notifications} actions={actions} state={state} />
           <IconButton
             icon="refresh"
