@@ -228,6 +228,33 @@ function uniqueStrings(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
+const ENV_SYNC_JOB_STAGES = new Set(["download", "validate"]);
+const ENV_SYNC_JOB_STATUSES = new Set(["queued", "running"]);
+
+async function queueEnvSyncForActiveDownloaders({ store, machineIds = [], requestedBy = "secrets.rebalance" } = {}) {
+  if (!store?.listJobs || !store?.queueCommand) return { queued: 0, machineIds: [] };
+  const targetMachineIds = new Set(uniqueStrings(machineIds).map((machineId) => normalizeMachineId(machineId)));
+  const jobs = await store.listJobs();
+  const queuedMachineIds = [];
+  const seen = new Set();
+  for (const job of jobs) {
+    const machineId = normalizeMachineId(job.machineId);
+    if (!machineId || seen.has(machineId)) continue;
+    if (targetMachineIds.size && !targetMachineIds.has(machineId)) continue;
+    if (!ENV_SYNC_JOB_STATUSES.has(job.status)) continue;
+    if (!ENV_SYNC_JOB_STAGES.has(job.stage)) continue;
+    await store.queueCommand({
+      machineId,
+      commandType: "sync_env",
+      payload: { reason: requestedBy },
+      requestedBy,
+    });
+    queuedMachineIds.push(machineId);
+    seen.add(machineId);
+  }
+  return { queued: queuedMachineIds.length, machineIds: queuedMachineIds };
+}
+
 async function rebalanceSecretAssignments({ store, secretVault, machineIds } = {}) {
   if (!secretVault?.rebalanceAssignments) return null;
   const [machines, settings] = await Promise.all([
@@ -781,9 +808,15 @@ export function createDashboardApp({
             })
             : { checked: 0, changed: 0 };
           const result = await rebalanceSecretAssignments({ store, secretVault, machineIds: body.machineIds });
+          const syncEnv = await queueEnvSyncForActiveDownloaders({
+            store,
+            machineIds: body.machineIds,
+            requestedBy: "secrets.rebalance",
+          });
           json(res, 200, {
             ...(result || { changed: 0, secrets: await secretVault.listSecretsForBrowser() }),
             validation,
+            syncEnv,
           });
           return;
         }
@@ -823,6 +856,11 @@ export function createDashboardApp({
               });
             }
             await rebalanceSecretAssignments({ store, secretVault, machineIds: targetMachineIds });
+            await queueEnvSyncForActiveDownloaders({
+              store,
+              machineIds: targetMachineIds,
+              requestedBy: "secrets.create",
+            });
           }
           const secret = created[0];
           json(res, 200, {

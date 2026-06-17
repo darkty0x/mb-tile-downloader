@@ -604,10 +604,18 @@ export function useDashboardState() {
         setNotice({ message: `API Key ${uniqueIds.length}개가 삭제되였습니다`, kind: "success" });
       },
       async rebalanceSecrets() {
-        const result = await api("/api/secrets/rebalance", { method: "POST" });
+        const result = await api("/api/secrets/rebalance", {
+          method: "POST",
+          body: JSON.stringify({
+            validateExisting: true,
+            secretTypes: ["mapbox_token"],
+          }),
+        });
         setSecretPool(result.secrets || []);
         await refreshMachineData();
-        setNotice({ message: `API Key/Proxy가 다시 배정되였습니다(변경 ${result.changed || 0}개)`, kind: "success" });
+        const validated = result.validation?.checked || 0;
+        const queued = result.syncEnv?.queued || 0;
+        setNotice({ message: `API Key가 재검증/재배정되였습니다(검증 ${validated}개, 변경 ${result.changed || 0}개, Env동기화 ${queued}대)`, kind: "success" });
         return result;
       },
       async validateSecret(secretId) {

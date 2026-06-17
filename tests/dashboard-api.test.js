@@ -1191,6 +1191,92 @@ test("dashboard validates assigned Mapbox keys before targeted rebalance", async
   assert.deepEqual(activeCounts, { "worker-a": 3, "worker-b": 3, "worker-c": 2 });
 });
 
+test("dashboard rebalance revalidates keys and queues env sync only for download and validate jobs", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  for (const machineId of ["download-worker", "validate-worker", "zip-worker", "upload-worker"]) {
+    store.registerMachine({ machineId, agentInstanceId: `${machineId}-agent` });
+  }
+  store.upsertJob({
+    jobId: "job-download",
+    machineId: "download-worker",
+    configId: "config-a",
+    status: "running",
+    stage: "download",
+  });
+  store.upsertJob({
+    jobId: "job-validate",
+    machineId: "validate-worker",
+    configId: "config-a",
+    status: "running",
+    stage: "validate",
+  });
+  store.upsertJob({
+    jobId: "job-zip",
+    machineId: "zip-worker",
+    configId: "config-a",
+    status: "running",
+    stage: "zip",
+  });
+  store.upsertJob({
+    jobId: "job-upload",
+    machineId: "upload-worker",
+    configId: "config-a",
+    status: "running",
+    stage: "upload",
+  });
+  const secretVault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  for (const machineId of ["download-worker", "validate-worker", "zip-worker", "upload-worker"]) {
+    secretVault.createSecret({
+      machineId,
+      secretType: "mapbox_token",
+      label: `${machineId}-token`,
+      value: `pk.${machineId}`,
+      status: "active",
+    });
+  }
+  const server = await withServer(t, {
+    store,
+    secretVault,
+    secretValidator: {
+      async validateSecret({ value }) {
+        return String(value).includes("zip-worker")
+          ? { ok: false, status: "invalid", message: "expired token" }
+          : { ok: true, status: "active", message: "valid token" };
+      },
+    },
+  });
+
+  const rebalance = await request(server, {
+    method: "POST",
+    path: "/api/secrets/rebalance",
+    body: {
+      validateExisting: true,
+      secretTypes: ["mapbox_token"],
+    },
+  });
+  const downloadCommands = store.claimCommands({ machineId: "download-worker" });
+  const validateCommands = store.claimCommands({ machineId: "validate-worker" });
+  const zipCommands = store.claimCommands({ machineId: "zip-worker" });
+  const uploadCommands = store.claimCommands({ machineId: "upload-worker" });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(rebalance.status, 200);
+  assert.equal(rebalance.body.validation.checked, 4);
+  assert.equal(rebalance.body.syncEnv.queued, 2);
+  assert.deepEqual(downloadCommands.map((command) => command.commandType), ["sync_env"]);
+  assert.deepEqual(validateCommands.map((command) => command.commandType), ["sync_env"]);
+  assert.deepEqual(zipCommands, []);
+  assert.deepEqual(uploadCommands, []);
+  assert.equal(listed.body.secrets.find((secret) => secret.label === "zip-worker-token").status, "invalid");
+});
+
 test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {
   let id = 0;
   const vault = createSecretVault({
