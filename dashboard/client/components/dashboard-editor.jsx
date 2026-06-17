@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildWindowsAgentEnv, nextServerDefaults } from "../lib/overview-model";
+import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, ModalShell, SelectInput, TextArea, TextInput } from "./ui";
 import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus, findMachineById } from "./dashboard-core";
@@ -250,7 +251,7 @@ export function EditorDrawer({ state, actions }) {
       width="w-[min(620px,calc(100vw-32px))]"
       onClose={() => actions.setEditor({ type: "summary" })}
     >
-      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} /> : null}
+      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} editor={editor} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
       {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} actions={actions} /> : null}
     </ModalShell>
@@ -351,6 +352,7 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
       <div className="ptg-scrollbar ptg-picker-list max-h-72 overflow-auto pr-1">
         {templates.map((template) => {
           const checked = selected.has(template.id);
+          const visual = configPresetVisual(template);
           return (
             <label
               key={template.id}
@@ -370,8 +372,8 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
                 type="checkbox"
                 value={template.id}
               />
-              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
-                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4 w-4" />
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl border ${checked ? visual.badge : visual.shell}`}>
+                <Icon name={visual.icon} className="h-4 w-4" />
               </span>
               <span className="min-w-0">
                 <strong className="block truncate text-[12.5px] font-[780]">{template.label}</strong>
@@ -452,11 +454,15 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
   );
 }
 
-function ConfigForm({ record, state, actions }) {
+function ConfigForm({ record, state, actions, editor }) {
   const config = record?.config || SAMPLE_CONFIG;
   const id = record?.configId || "";
   const canUseTemplates = !id && !record?.config;
-  const [selectedTemplateIds, setSelectedTemplateIds] = useState([]);
+  const initialTemplateIds = useMemo(
+    () => (Array.isArray(editor?.templateIds) ? editor.templateIds : editor?.templateId ? [editor.templateId] : []),
+    [editor?.templateId, editor?.templateIds]
+  );
+  const [selectedTemplateIds, setSelectedTemplateIds] = useState(initialTemplateIds);
   const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
   const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
   const templates = state.configTemplates || [];

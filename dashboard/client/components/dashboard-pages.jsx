@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
+import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextInput, UsageBar } from "./ui";
 import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
@@ -828,17 +829,25 @@ export function ConfigsDashboard({ state, actions }) {
           action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Create Config</AppButton>}
         />
         <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
-          {templates.length ? templates.map((template) => (
-            <div key={template.id} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
-              <span className="ptg-icon-well inline-flex h-9 w-9 items-center justify-center rounded-lg">
-                <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4.5 w-4.5" />
+          {templates.length ? templates.map((template) => {
+            const visual = configPresetVisual(template);
+            return (
+            <button
+              key={template.id}
+              type="button"
+              className="state-layer group rounded-xl border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-[var(--ptg-primary)] hover:shadow-[0_16px_36px_rgba(38,24,92,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)]"
+              onClick={() => actions.setEditor({ type: "new-config", templateIds: [template.id] })}
+            >
+              <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${visual.shell}`}>
+                <Icon name={visual.icon} className="h-5 w-5" />
               </span>
-              <strong className="mt-3 block truncate text-[13px] font-[850]">{template.label}</strong>
+              <strong className="mt-3 block truncate text-[13px] font-[850] text-[var(--ptg-on-surface)] group-hover:text-[var(--ptg-primary)]">{template.label}</strong>
               <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
                 {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
               </p>
-            </div>
-          )) : <EmptyLine>No config presets available</EmptyLine>}
+            </button>
+          );
+          }) : <EmptyLine>No config presets available</EmptyLine>}
         </div>
       </Surface>
       <ServersTable state={state} actions={actions} />
