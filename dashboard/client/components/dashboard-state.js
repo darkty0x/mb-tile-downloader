@@ -26,8 +26,12 @@ export function useDashboardState() {
   const [editor, setEditor] = useState({ type: "summary" });
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
+  const [confirmRequest, setConfirmRequest] = useState(null);
+  const [webNotificationPermission, setWebNotificationPermission] = useState("unsupported");
   const selectedMachineIdRef = useRef(selectedMachineId);
   const refreshInFlightRef = useRef(false);
+  const seenNotificationEventsRef = useRef(new Set());
+  const notificationEventsReadyRef = useRef(false);
 
   useEffect(() => {
     selectedMachineIdRef.current = selectedMachineId;
@@ -38,6 +42,14 @@ export function useDashboardState() {
     const timer = setTimeout(() => setNotice(null), 4500);
     return () => clearTimeout(timer);
   }, [notice]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) {
+      setWebNotificationPermission("unsupported");
+      return;
+    }
+    setWebNotificationPermission(window.Notification.permission);
+  }, []);
 
   async function api(path, options = {}) {
     const response = await fetch(path, {
@@ -138,6 +150,58 @@ export function useDashboardState() {
     return () => clearInterval(timer);
   }, [settings.sync?.dashboardPollMs]);
 
+  useEffect(() => {
+    if (typeof window === "undefined" || !("Notification" in window)) return;
+    const sourceEvents = globalEvents.length ? globalEvents : events;
+    const eventKeys = sourceEvents
+      .map((event, index) => event.eventId || `${event.createdAt || ""}-${event.type || ""}-${index}`)
+      .filter(Boolean);
+    if (!notificationEventsReadyRef.current) {
+      seenNotificationEventsRef.current = new Set(eventKeys);
+      notificationEventsReadyRef.current = true;
+      return;
+    }
+    if (settings.notifications?.webConsoleEnabled === false || window.Notification.permission !== "granted") {
+      seenNotificationEventsRef.current = new Set(eventKeys);
+      return;
+    }
+    const minSeverity = settings.notifications?.minSeverity || "error";
+    const rank = { debug: 0, info: 1, warn: 2, error: 3 };
+    for (const [index, event] of sourceEvents.entries()) {
+      const key = event.eventId || `${event.createdAt || ""}-${event.type || ""}-${index}`;
+      if (!key || seenNotificationEventsRef.current.has(key)) continue;
+      seenNotificationEventsRef.current.add(key);
+      if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
+      try {
+        new window.Notification(event.type || "PTG Dashboard Event", {
+          body: event.message || "New dashboard event",
+          tag: key,
+        });
+      } catch {
+        // Browser notification delivery is best-effort after permission is granted.
+      }
+    }
+  }, [events, globalEvents, settings.notifications?.webConsoleEnabled, settings.notifications?.minSeverity]);
+
+  function confirmDanger({ title = "Confirm action", message = "This action cannot be undone.", confirmLabel = "Confirm", storageKey = "delete" } = {}) {
+    if (typeof window !== "undefined" && window.localStorage?.getItem(`ptg.confirm.${storageKey}.skip`) === "true") {
+      return Promise.resolve(true);
+    }
+    return new Promise((resolve) => {
+      setConfirmRequest({ title, message, confirmLabel, storageKey, resolve });
+    });
+  }
+
+  function resolveConfirm(confirmed, askAgain = true) {
+    const request = confirmRequest;
+    if (!request) return;
+    if (confirmed && !askAgain && typeof window !== "undefined") {
+      window.localStorage?.setItem(`ptg.confirm.${request.storageKey}.skip`, "true");
+    }
+    setConfirmRequest(null);
+    request.resolve(Boolean(confirmed));
+  }
+
   const selectedMachine = useMemo(() => findMachineById(machines, selectedMachineId), [machines, selectedMachineId]);
   const activeConfig = useMemo(() => configs.find((config) => config.active) || configs[0] || null, [configs]);
   const activeEnv = useMemo(() => envProfiles.find((profile) => profile.active) || envProfiles[0] || null, [envProfiles]);
@@ -167,6 +231,8 @@ export function useDashboardState() {
       editor,
       loading,
       notice,
+      confirmRequest,
+      webNotificationPermission,
     },
     actions: {
       api,
@@ -179,6 +245,20 @@ export function useDashboardState() {
       refreshMachineData,
       refreshSecretPool,
       refreshSettings,
+      resolveConfirm,
+      async requestWebNotifications() {
+        if (typeof window === "undefined" || !("Notification" in window)) {
+          setWebNotificationPermission("unsupported");
+          throw new Error("web notifications are not supported in this browser");
+        }
+        const permission = await window.Notification.requestPermission();
+        setWebNotificationPermission(permission);
+        setNotice({
+          message: permission === "granted" ? "Web Notifications Enabled" : "Web Notifications Not Enabled",
+          kind: permission === "granted" ? "success" : "error",
+        });
+        return permission;
+      },
       async selectMachine(machineId) {
         setSelectedMachineId(machineId);
         setSelectedServerTab("control");
@@ -371,6 +451,13 @@ export function useDashboardState() {
         setNotice({ message: "Settings Saved", kind: "success" });
       },
       async deleteRecord(type, id) {
+        const confirmed = await confirmDanger({
+          title: `Delete ${type}`,
+          message: `Delete this ${type}? This cannot be undone.`,
+          confirmLabel: "Delete",
+          storageKey: "delete",
+        });
+        if (!confirmed) return;
         const paths = {
           config: `/api/configs/${encodeURIComponent(id)}`,
           env: `/api/env-profiles/${encodeURIComponent(id)}`,
@@ -384,6 +471,13 @@ export function useDashboardState() {
       async deleteSecrets(secretIds) {
         const uniqueIds = [...new Set(secretIds)].filter(Boolean);
         if (!uniqueIds.length) return;
+        const confirmed = await confirmDanger({
+          title: "Delete resource records",
+          message: `Delete ${uniqueIds.length} resource record${uniqueIds.length === 1 ? "" : "s"}? This cannot be undone.`,
+          confirmLabel: "Delete",
+          storageKey: "delete",
+        });
+        if (!confirmed) return;
         await api("/api/secrets", {
           method: "DELETE",
           body: JSON.stringify({ secretIds: uniqueIds }),

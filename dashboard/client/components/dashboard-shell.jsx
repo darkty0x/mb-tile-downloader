@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
-import { IconButton, StatusPill } from "./ui";
+import { AppButton, IconButton, StatusPill, SwitchField } from "./ui";
 import { PAGE_META, TABS, fleetState, shortDate } from "./dashboard-core";
 
 export function Notice({ notice }) {
@@ -99,7 +99,7 @@ export function Header({ state, actions }) {
             <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "Waiting"}</strong>
           </span>
           <IconButton icon="command" label="Command palette" />
-          <NotificationsMenu notifications={notifications} actions={actions} />
+          <NotificationsMenu notifications={notifications} actions={actions} state={state} />
           <IconButton
             icon="refresh"
             label="Refresh dashboard"
@@ -138,7 +138,7 @@ function buildNotifications(state, overview) {
   return [...alertItems, ...eventItems];
 }
 
-function NotificationsMenu({ notifications, actions }) {
+function NotificationsMenu({ notifications, actions, state }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
   const count = notifications.length;
@@ -187,11 +187,25 @@ function NotificationsMenu({ notifications, actions }) {
           <header className="flex items-center justify-between gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
             <span className="min-w-0">
               <strong className="block text-[13px] font-[850]">Notifications</strong>
-              <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">{count ? `${count} available` : "No active notifications"}</small>
+              <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                {state.webNotificationPermission === "granted" ? "Web alerts enabled" : count ? `${count} available` : "No active notifications"}
+              </small>
             </span>
-            <button type="button" role="menuitem" onClick={() => openTab("events")} className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]">
-              View All
-            </button>
+            <div className="flex shrink-0 items-center gap-1">
+              {state.webNotificationPermission === "default" ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => actions.requestWebNotifications().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
+                >
+                  Enable
+                </button>
+              ) : null}
+              <button type="button" role="menuitem" onClick={() => openTab("events")} className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]">
+                View All
+              </button>
+            </div>
           </header>
           <div className="ptg-scrollbar mt-2 grid max-h-[360px] gap-1 overflow-auto pr-1">
             {notifications.length ? notifications.map((notification) => (
@@ -225,6 +239,44 @@ function NotificationsMenu({ notifications, actions }) {
           </div>
         </div>
       ) : null}
+    </div>
+  );
+}
+
+export function ConfirmDialog({ request, actions }) {
+  const [askAgain, setAskAgain] = useState(true);
+
+  useEffect(() => {
+    setAskAgain(true);
+  }, [request]);
+
+  if (!request) return null;
+
+  return (
+    <div className="ptg-modal-backdrop fixed inset-0 z-40 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
+      <section className="ptg-modal-panel w-[min(460px,calc(100vw-32px))] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]">
+        <header className="grid grid-cols-[44px_minmax(0,1fr)] gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-5 py-4">
+          <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ffdad6] text-[var(--ptg-error)]">
+            <Icon name="warning" className="h-5 w-5" />
+          </span>
+          <span className="min-w-0">
+            <strong className="block truncate text-[18px] font-[850] text-[var(--ptg-on-surface)]">{request.title}</strong>
+            <small className="mt-1 block text-[12px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">{request.message}</small>
+          </span>
+        </header>
+        <div className="grid gap-4 p-5">
+          <SwitchField
+            checked={askAgain}
+            label="Ask again next time"
+            description="Keep protection enabled for future critical actions"
+            onChange={(event) => setAskAgain(event.target.checked)}
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton type="button" onClick={() => actions.resolveConfirm(false, true)}>Cancel</AppButton>
+            <AppButton type="button" variant="danger" icon="trash" onClick={() => actions.resolveConfirm(true, askAgain)}>{request.confirmLabel || "Confirm"}</AppButton>
+          </div>
+        </div>
+      </section>
     </div>
   );
 }

@@ -1324,7 +1324,6 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   async function deleteIds(secretIds, label) {
     const uniqueIds = [...new Set(secretIds)].filter(Boolean);
     if (!uniqueIds.length) return;
-    if (!window.confirm(`Delete ${uniqueIds.length} ${label}? This cannot be undone.`)) return;
     await actions.deleteSecrets(uniqueIds);
     setSelectedIds(new Set());
   }

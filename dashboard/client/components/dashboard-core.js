@@ -129,6 +129,7 @@ export function shortDate(value) {
     day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    timeZoneName: "short",
   }).format(new Date(value));
 }
 

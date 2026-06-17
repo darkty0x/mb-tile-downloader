@@ -2,7 +2,7 @@
 
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
-import { Notice, Rail, Header } from "./dashboard-shell";
+import { ConfirmDialog, Notice, Rail, Header } from "./dashboard-shell";
 import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 
 export default function DashboardApp() {
@@ -39,6 +39,7 @@ export default function DashboardApp() {
         </div>
       </section>
       <EditorDrawer state={state} actions={actions} />
+      <ConfirmDialog request={state.confirmRequest} actions={actions} />
     </main>
   );
 }
