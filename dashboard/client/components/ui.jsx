@@ -42,7 +42,7 @@ export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-3
             <h3 className="truncate text-[18px] font-[820] text-[var(--ptg-on-surface)]">{title}</h3>
             {subtitle ? <p className="mt-0.5 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{subtitle}</p> : null}
           </div>
-          <IconButton icon="close" label="Close" onClick={onClose} />
+          <IconButton icon="close" label="닫기" onClick={onClose} />
         </header>
         <div className="ptg-scrollbar max-h-[calc(100vh-104px)] overflow-auto p-5">
           {children}

@@ -61,7 +61,7 @@ export function useDashboardState() {
     });
     const text = await response.text();
     const body = text ? JSON.parse(text) : {};
-    if (!response.ok) throw new Error(body.error || `request failed: ${response.status}`);
+    if (!response.ok) throw new Error(body.error || `요청 실패: ${response.status}`);
     return body;
   }
 
@@ -173,8 +173,8 @@ export function useDashboardState() {
       seenNotificationEventsRef.current.add(key);
       if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
       try {
-        new window.Notification(event.type || "PTG Dashboard Event", {
-          body: event.message || "New dashboard event",
+        new window.Notification(event.type || "PTG 조종판 사건", {
+          body: event.message || "새 조종판 사건",
           tag: key,
         });
       } catch {
@@ -183,7 +183,7 @@ export function useDashboardState() {
     }
   }, [events, globalEvents, settings.notifications?.webConsoleEnabled, settings.notifications?.minSeverity]);
 
-  function confirmDanger({ title = "Confirm action", message = "This action cannot be undone.", confirmLabel = "Confirm", storageKey = "delete" } = {}) {
+  function confirmDanger({ title = "동작 확인", message = "이 동작은 되돌릴수 없습니다.", confirmLabel = "확인", storageKey = "delete" } = {}) {
     if (typeof window !== "undefined" && window.localStorage?.getItem(`ptg.confirm.${storageKey}.skip`) === "true") {
       return Promise.resolve(true);
     }
