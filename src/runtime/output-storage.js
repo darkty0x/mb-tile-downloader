@@ -32,6 +32,10 @@ function normalizeRoot(root, platform = process.platform) {
   return path.resolve(root);
 }
 
+function uniqueRoots(roots, platform = process.platform) {
+  return [...new Set(roots.filter(Boolean).map((root) => normalizeRoot(root, platform)))];
+}
+
 function platformJoinRoot(platform, mount, folder) {
   const cleanFolder = String(folder || DEFAULT_DYNAMIC_FOLDER).replace(/^[/\\]+/, "");
   if (platform === "win32") {
@@ -65,7 +69,6 @@ async function discoverDynamicRoots({
 } = {}) {
   const minFreeBytes = parsePositiveNumber(env.TILE_DOWNLOADER_OUTPUT_MIN_FREE_GB, DEFAULT_MIN_FREE_GB) * 1024 ** 3;
   const maxUsedPercent = parsePositiveNumber(env.TILE_DOWNLOADER_OUTPUT_MAX_USED_PERCENT, DEFAULT_MAX_USED_PERCENT);
-  const includeProjectDrive = parseBoolean(env.TILE_DOWNLOADER_OUTPUT_INCLUDE_PROJECT_DRIVE) ?? false;
   const folder = env.TILE_DOWNLOADER_OUTPUT_FOLDER || DEFAULT_DYNAMIC_FOLDER;
   const disks = await collectDiskInfoImpl({ platform, projectDir });
   const eligible = disks
@@ -73,13 +76,16 @@ async function discoverDynamicRoots({
     .filter((disk) => Number(disk.percentUsed) <= maxUsedPercent)
     .sort((a, b) => {
       if (Boolean(a.containsProject) !== Boolean(b.containsProject)) {
-        return Number(Boolean(a.containsProject)) - Number(Boolean(b.containsProject));
+        return Boolean(a.containsProject) ? -1 : 1;
       }
       return Number(b.freeBytes || 0) - Number(a.freeBytes || 0);
     });
-  const nonProject = eligible.filter((disk) => !disk.containsProject);
-  const selected = !includeProjectDrive && nonProject.length ? nonProject : eligible;
-  return selected.map((disk) => platformJoinRoot(platform, disk.mount || disk.name, folder));
+  const projectDisk = eligible.find((disk) => disk.containsProject);
+  const writeDisks = projectDisk ? [projectDisk] : eligible;
+  return {
+    writeDirs: writeDisks.map((disk) => platformJoinRoot(platform, disk.mount || disk.name, folder)),
+    searchDirs: eligible.map((disk) => platformJoinRoot(platform, disk.mount || disk.name, folder)),
+  };
 }
 
 export async function resolveOutputStorage({
@@ -92,22 +98,28 @@ export async function resolveOutputStorage({
 } = {}) {
   const explicitRoots = configuredRoots(env, configDir, platform);
   let dirs = explicitRoots;
+  let searchDirs = explicitRoots;
   let mode = explicitRoots.length > 0 ? "explicit" : "single";
   if (dirs.length === 0 && dynamicEnabled(env)) {
-    dirs = await discoverDynamicRoots({ env, platform, projectDir, collectDiskInfoImpl });
+    const discovered = await discoverDynamicRoots({ env, platform, projectDir, collectDiskInfoImpl });
+    dirs = discovered.writeDirs;
+    searchDirs = discovered.searchDirs;
     mode = dirs.length > 0 ? "dynamic" : "single";
   }
 
   if (dirs.length === 0) {
     const selected = dir || "tiles";
     dirs = [path.isAbsolute(selected) ? selected : path.resolve(configDir, selected)];
+    searchDirs = dirs;
   }
 
-  const normalizedDirs = [...new Set(dirs.map((root) => normalizeRoot(root, platform)))];
+  const normalizedDirs = uniqueRoots(dirs, platform);
+  const normalizedSearchDirs = uniqueRoots([...normalizedDirs, ...searchDirs], platform);
   return {
     dir: normalizedDirs[0],
     dirs: normalizedDirs,
-    storageMode: normalizedDirs.length > 1 ? mode : "single",
+    searchDirs: normalizedSearchDirs,
+    storageMode: mode === "dynamic" || normalizedDirs.length > 1 ? mode : "single",
     pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
   };
 }

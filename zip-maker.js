@@ -444,7 +444,7 @@ function tileRelativePath(task, x, y) {
 function tileCandidateRoots(task, x, y = task.yStart) {
   const output = outputForTask(task);
   const selected = selectOutputRoot(output, { z: task.z, x, y });
-  return uniquePaths([selected, ...(output.dirs || []), output.dir]);
+  return uniquePaths([selected, ...(output.dirs || []), ...(output.searchDirs || []), output.dir]);
 }
 
 function tileCandidatePaths(task, x, y) {

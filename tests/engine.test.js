@@ -107,7 +107,8 @@ test("download skips existing tiles from alternate output roots", async () => {
       configHash: "hash",
       output: {
         dir: rootA,
-        dirs: [rootA, rootB],
+        dirs: [rootA],
+        searchDirs: [rootA, rootB],
         pathTemplate: "{layer}/{z}/{x}/{y}.{extension}",
       },
       tile: { extension: "jpg", yScheme: "xyz" },

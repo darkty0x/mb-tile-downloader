@@ -504,7 +504,8 @@ function tileRelativePath(config, provider, z, x, y) {
 
 function outputCandidateRoots(output, selector) {
   const configured = Array.isArray(output?.dirs) && output.dirs.length ? output.dirs : [output?.dir];
-  return uniquePaths([selectOutputRoot(output, selector), ...configured, output?.dir]);
+  const searchDirs = Array.isArray(output?.searchDirs) && output.searchDirs.length ? output.searchDirs : [];
+  return uniquePaths([selectOutputRoot(output, selector), ...configured, ...searchDirs, output?.dir]);
 }
 
 function tileCandidatePaths(config, provider, z, x, y) {
