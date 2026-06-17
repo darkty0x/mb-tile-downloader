@@ -27,6 +27,13 @@ test("agent identity is created and persisted", async () => {
   assert.equal(persisted.agentInstanceId, identity.agentInstanceId);
 });
 
+test("agent identity canonicalizes machine id casing", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-id-"));
+  const identity = await loadAgentIdentity({ stateDir: dir, machineId: " SERVER-02 " });
+
+  assert.equal(identity.machineId, "server-02");
+});
+
 test("agent identity reuses the same persisted instance id", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-id-"));
   const first = await loadAgentIdentity({ stateDir: dir, machineId: "worker-a" });

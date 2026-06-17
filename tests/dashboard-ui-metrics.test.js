@@ -97,7 +97,7 @@ test("server onboarding defaults increment from saved connection profiles and ma
   assert.deepEqual(defaults, {
     number: 8,
     label: "Server 08",
-    machineId: "SERVER-08",
+    machineId: "server-08",
   });
 });
 
@@ -111,7 +111,7 @@ test("credential secret value preserves editable agent id", () => {
 
   assert.deepEqual(JSON.parse(value), {
     protocolUrl: "rdp://195.201.245.29:7777",
-    machineId: "SERVER-02",
+    machineId: "server-02",
     username: "root",
     password: "server-password",
   });
@@ -127,7 +127,7 @@ test("server onboarding builds Windows agent env instead of inline shell command
   assert.equal(env, [
     "DASHBOARD_URL=https://ptg-dashboard.example.com",
     "AGENT_TOKEN=agent-token",
-    "MACHINE_ID=SERVER-02",
+    "MACHINE_ID=server-02",
   ].join("\n"));
   assert.equal(env.includes("npm run agent"), false);
   assert.equal(env.includes("$env:"), false);

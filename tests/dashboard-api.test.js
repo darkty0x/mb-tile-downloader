@@ -258,7 +258,7 @@ test("dashboard can add and validate a server connection profile", async (t) => 
     path: "/api/server-connections",
     body: {
       label: "Server 01 RDP",
-      machineId: "server-01",
+      machineId: "SERVER-01",
       protocol: "rdp",
       host: "127.0.0.1",
       port,
@@ -947,9 +947,9 @@ test("dashboard credential update route persists edited agent id", async (t) => 
   const single = await request(server, { path: "/api/secrets/credential-a" });
 
   assert.equal(updated.status, 200);
-  assert.equal(updated.body.secret.targetMachineId, "SERVER-22");
-  assert.equal(updated.body.secret.credential.machineId, "SERVER-22");
-  assert.equal(JSON.parse(single.body.secret.value).machineId, "SERVER-22");
+  assert.equal(updated.body.secret.targetMachineId, "server-22");
+  assert.equal(updated.body.secret.credential.machineId, "server-22");
+  assert.equal(JSON.parse(single.body.secret.value).machineId, "server-22");
 });
 
 test("dashboard rejects server credential secrets without an Agent ID", async (t) => {
