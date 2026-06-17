@@ -1,8 +1,8 @@
 import "./globals.css";
 
 export const metadata = {
-  title: "PTG 관리조종판",
-  description: "PTG 관리조종판",
+  title: "PTG 관리체계",
+  description: "PTG 관리체계",
   icons: {
     icon: "/favicon.svg",
     shortcut: "/favicon.svg",

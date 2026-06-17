@@ -67,7 +67,7 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function PipelineOverview({ overview, title = "실시간 처리흐름 진행", meta = "모든 활성 구간" }) {
+function PipelineOverview({ overview, title = "실시간 공정흐름 진행", meta = "모든 활성 범위" }) {
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
@@ -127,7 +127,7 @@ function FleetHealthCard({ overview }) {
     : "conic-gradient(#dbe5f2 0 360deg)";
   return (
     <Surface className="min-h-[278px] p-4">
-      <SectionTitle title="봉사기무리 건강상태" meta={total ? `${total}개 봉사기 등록됨` : "봉사기 heartbeat 대기중"} />
+      <SectionTitle title="봉사기 상태" meta={total ? `${total}개 봉사기 등록됨` : "봉사기 heartbeat 대기중"} />
       <div className="grid grid-cols-[132px_minmax(0,1fr)] items-center gap-5 max-sm:grid-cols-1">
         <div className="relative mx-auto h-32 w-32 rounded-full p-3" style={{ background: ring }}>
           <div className="grid h-full w-full place-items-center rounded-full bg-white text-center shadow-[inset_0_0_0_1px_var(--ptg-outline)]">
@@ -164,13 +164,13 @@ function DiskCapacityCard({ state }) {
     .slice(0, 5);
   return (
     <Surface className="p-4">
-      <SectionTitle title="디스크용량" meta="봉사기별 가장 많이 사용한 드라이브" />
+      <SectionTitle title="디스크용량" meta="봉사기별 가장 많이 사용한 구동기" />
       <div className="grid gap-2">
         {rows.length ? rows.map(({ machine, peak, disk }) => (
           <div key={machine.machineId} className="grid grid-cols-[minmax(0,1fr)_92px_44px] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
             <div className="min-w-0">
               <strong className="block truncate text-[12.5px] font-[820]">{machine.displayName || machine.machineId}</strong>
-              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{disk?.mount || disk?.name || "드라이브"} | {formatBytes(disk?.freeBytes)} 남음</small>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{disk?.mount || disk?.name || "구동기"} | {formatBytes(disk?.freeBytes)} 남음</small>
             </div>
             <UsageBar percent={peak} className="w-[92px]" />
             <strong className="text-right text-[12px] font-[850]">{peak}%</strong>
@@ -184,7 +184,7 @@ function DiskCapacityCard({ state }) {
 function ActiveRangesCard({ overview }) {
   return (
     <Surface className="p-4">
-      <SectionTitle title="활성 구간" meta="가장 큰 대기/활성 내려받기구간" />
+      <SectionTitle title="활성 범위" meta="가장 큰 대기/활성 내리적재범위" />
       <div className="grid gap-2">
         {overview.activeRanges.length ? overview.activeRanges.map((range, index) => (
           <div key={`${range.name}-${index}`} className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
@@ -197,7 +197,7 @@ function ActiveRangesCard({ overview }) {
             </div>
             <StatusPill status={range.status === "queued" ? "busy" : "neutral"}>{displayStatus(range.status)}</StatusPill>
           </div>
-        )) : <EmptyLine>선택된 활성 구간이 없습니다</EmptyLine>}
+        )) : <EmptyLine>선택된 활성 범위이 없습니다</EmptyLine>}
       </div>
     </Surface>
   );
@@ -207,7 +207,7 @@ function ResourceAlertsCard({ overview, actions }) {
   return (
     <Surface className="p-4">
       <SectionTitle
-        title="자원경보"
+        title="API Key와 Proxy상태"
         meta="설정의 경계값을 리용합니다"
         action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>경계값</AppButton>}
       />
@@ -225,7 +225,7 @@ function ResourceAlertsCard({ overview, actions }) {
         )) : (
           <div className="rounded-lg border border-[rgba(11,155,114,0.18)] bg-[#edfbf6] px-3 py-3">
             <StatusPill status="success">정상</StatusPill>
-            <p className="mt-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">Mapbox 및 프록시풀이 경보선보다 높습니다.</p>
+            <p className="mt-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">Mapbox 및 Proxy 목록이 경보선보다 높습니다.</p>
           </div>
         )}
       </div>
@@ -257,7 +257,7 @@ function QuickActionsCard({ actions }) {
     ["console", "명령 실행", () => actions.setSelectedTab("events")],
     ["pause", "모두 일시중지", () => actions.setNotice({ message: "명령을 보내기전에 봉사기관리페지를 여십시오", kind: "error" })],
     ["refresh", "설정화일 동기화", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
-    ["pipelines", "처리흐름 보기", () => actions.setSelectedTab("pipelines")],
+    ["pipelines", "공정흐름 보기", () => actions.setSelectedTab("pipelines")],
     ["events", "기록 보기", () => actions.setSelectedTab("events")],
     ["alerts", "경보 추가", () => actions.setSelectedTab("alerts")],
   ];
@@ -345,7 +345,7 @@ export function OverviewDashboard({ state, actions }) {
         <div className="grid min-w-0 content-start gap-4">
           <ManagementProfilesSummary state={state} actions={actions} />
           <QuickActionsCard actions={actions} />
-          <EventStreamCard events={overview.recentEvents} title="실시간 사건콘솔" limit={7} />
+          <EventStreamCard events={overview.recentEvents} title="실시간 사건Console" limit={7} />
         </div>
       </section>
     </section>
@@ -360,7 +360,7 @@ export function ServersDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <section className="ptg-card-grid gap-3">
         <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} palette="sky" />
-        <InsightCard icon="disk" label="디스크압력" value={`${overview.diskPressure}%`} detail="관측된 최고 드라이브사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
+        <InsightCard icon="disk" label="디스크여부" value={`${overview.diskPressure}%`} detail="관측된 최고 구동기사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
         <InsightCard icon="control" label="관리프로필" value={connections.length} detail={`agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
       </section>
       <ServerConnectionsSection state={state} actions={actions} />
@@ -489,14 +489,14 @@ export function ServerManagementPage({ state, actions }) {
             <StatusPill status={machine ? statusKind(machine.status) : "neutral"}>{machine ? displayStatus(machine.status) : "Agent 등록안됨"}</StatusPill>
             {validation ? <StatusPill status={validation.valid ? "success" : "error"}>{validation.valid ? "유효" : "준비안됨"}</StatusPill> : null}
             <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton>
-            <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>접속증명 편집</AppButton>
+            <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>계정정보 편집</AppButton>
             <AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>뒤로</AppButton>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
           <MiniMetric label="Agent ID" value={displayMachineId(targetMachineId)} />
-          <MiniMetric label="플랫폼" value={machine?.platform || "대기중"} />
-          <MiniMetric label="디스크 최고값" value={machine ? `${diskPeakForMachine(machine)}%` : "--"} />
+          <MiniMetric label="체계" value={machine?.platform || "대기중"} />
+          <MiniMetric label="리용된 용량" value={machine ? `${diskPeakForMachine(machine)}%` : "--"} />
           <MiniMetric label="마지막 확인" value={machine ? shortDate(machine.lastSeenAt) : "대기중"} />
         </div>
       </Surface>
@@ -552,16 +552,16 @@ function ServerPageControl({ state, machine, overview }) {
   const localConfigCount = snapshot.configs?.length || 0;
   const localEnvCount = snapshot.envFiles?.filter((file) => file.exists).length || 0;
   const facts = [
-    ["layers", "설정화일", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `로컬 설정화일 ${localConfigCount}개` : "조종판 설정화일 배정없음")],
-    ["env", "환경변수", state.activeEnv?.name || (localEnvCount ? `로컬 환경변수화일 ${localEnvCount}개` : "조종판 환경변수 배정없음")],
-    ["key", "프록시", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `로컬 프록시 ${proxySummary.availableCount}개` : "없음"],
+    ["layers", "설정화일", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `로컬 설정화일 ${localConfigCount}개` : "관리체계 설정화일 배정없음")],
+    ["env", "환경변수", state.activeEnv?.name || (localEnvCount ? `로컬 환경변수화일 ${localEnvCount}개` : "관리체계 환경변수 배정없음")],
+    ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `로컬 Proxy ${proxySummary.availableCount}개` : "없음"],
     ["control", "마지막 확인", machine ? shortDate(machine.lastSeenAt) : "대기중"],
   ];
   return (
     <section className="grid gap-4">
       <PipelineOverview
         overview={overview}
-        title="이 봉사기 처리흐름"
+        title="이 봉사기 공정흐름"
         meta={overview.activeJob ? `작업 ${overview.activeJob.jobId}` : "대기중인 작업 또는 최근 단계자료"}
       />
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
@@ -597,7 +597,7 @@ function storageBelongsToDisk(item, disk) {
 
 function storageBreakdownForDisk(disk, storage) {
   const labels = {
-    tiles: "타일 내려받기",
+    tiles: "타일 내리적재",
     zip: "압축보관",
     state: "상태 / 임시",
     configs: "설정화일",
@@ -637,7 +637,7 @@ function ServerPageStorage({ machine }) {
   const storage = machine?.agentSnapshot?.storage || [];
   return (
     <section className="grid gap-3">
-      <SectionTitle title="드라이브용량" meta={`${disks.length}개 드라이브 | 타일, 압축, 상태, 설정화일 및 나머지 사용공간`} />
+      <SectionTitle title="구동기용량" meta={`${disks.length}개 구동기 | 타일, 압축, 상태, 설정화일 및 나머지 사용공간`} />
       <div className="grid gap-3">
         {disks.length ? disks.map((disk) => {
           const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
@@ -649,10 +649,10 @@ function ServerPageStorage({ machine }) {
                   <span className="flex min-w-0 items-center gap-2">
                     <Icon name="disk" className="h-4 w-4 text-[var(--ptg-primary)]" />
                     <strong className="block truncate text-[13px]">{disk.mount || disk.name}</strong>
-                    {disk.containsProject ? <StatusPill status="success">내려받기</StatusPill> : null}
+                    {disk.containsProject ? <StatusPill status="success">내리적재</StatusPill> : null}
                   </span>
                   <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-                    {disk.filesystem || "로컬 드라이브"} | 전체 {formatBytes(disk.totalBytes)}중 {formatBytes(disk.usedBytes)} 사용 | {formatBytes(disk.freeBytes)} 남음
+                    {disk.filesystem || "로컬 구동기"} | 전체 {formatBytes(disk.totalBytes)}중 {formatBytes(disk.usedBytes)} 사용 | {formatBytes(disk.freeBytes)} 남음
                   </small>
                 </span>
                 <strong className="text-[13px]">{pct}% 사용</strong>
@@ -668,7 +668,7 @@ function ServerPageStorage({ machine }) {
                       <span className="block h-full rounded-full" style={{ width: `${item.pctOfUsed}%`, background: item.color }} />
                     </span>
                     <span className="text-right font-[720] text-[var(--ptg-on-surface-variant)]">
-                      {formatBytes(item.sizeBytes)} | 드라이브의 {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
+                      {formatBytes(item.sizeBytes)} | 구동기의 {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
                     </span>
                   </div>
                 ))}
@@ -709,7 +709,7 @@ function ServerPageConfigs({ state, actions }) {
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{config.name}</strong>
             <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-              {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | 구간 {config.config.ranges?.length || 0}개 | v{config.version}
+              {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | 범위 {config.config.ranges?.length || 0}개 | v{config.version}
             </small>
           </div>
           <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "활성" : "비활성"}</StatusPill>
@@ -720,7 +720,7 @@ function ServerPageConfigs({ state, actions }) {
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{config.name}</strong>
             <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-              {displayStatus(config.provider || config.type)} | 구간 {config.ranges}개 | {formatBytes(config.sizeBytes)}
+              {displayStatus(config.provider || config.type)} | 범위 {config.ranges}개 | {formatBytes(config.sizeBytes)}
             </small>
           </div>
           <StatusPill status="neutral">로컬</StatusPill>
@@ -770,7 +770,7 @@ function ServerPageSecrets({ state, actions }) {
   const snapshotSecrets = state.selectedMachine?.agentSnapshot?.secrets || {};
   return (
     <section className="grid gap-2">
-      <SectionTitle title="비밀자료" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
+      <SectionTitle title="API Key" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
       {state.secrets.length ? state.secrets.map((secret) => (
         <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="min-w-0">
@@ -784,7 +784,7 @@ function ServerPageSecrets({ state, actions }) {
         <>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
             <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">프록시풀</strong>
+              <strong className="block truncate text-[12.5px]">Proxy 목록</strong>
               <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.proxy?.path || "proxy.txt"} | 로컬 항목 {snapshotSecrets.proxy?.availableCount || 0}개</small>
             </span>
             <StatusPill status={snapshotSecrets.proxy?.exists ? "active" : "neutral"}>{snapshotSecrets.proxy?.exists ? "읽음" : "없음"}</StatusPill>
@@ -797,7 +797,7 @@ function ServerPageSecrets({ state, actions }) {
             <StatusPill status={snapshotSecrets.mapboxTokenCount ? "active" : "neutral"}>{snapshotSecrets.mapboxTokenCount || 0}</StatusPill>
           </div>
         </>
-      ) : <EmptyLine>이 봉사기에 배정된 비밀자료가 없습니다</EmptyLine>}
+      ) : <EmptyLine>이 봉사기에 배정된 API Key가 없습니다</EmptyLine>}
     </section>
   );
 }
@@ -806,7 +806,7 @@ function ServerPageConsole({ state, actions }) {
   const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
   const eventLines = state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
   const sections = [
-    eventLines.length ? ["조종판 사건", eventLines] : null,
+    eventLines.length ? ["관리체계 사건", eventLines] : null,
     localLines.length ? ["Agent 기록끝부분", localLines] : null,
   ].filter(Boolean);
   const text = sections.length
@@ -815,7 +815,7 @@ function ServerPageConsole({ state, actions }) {
   return (
     <section className="grid gap-2">
       <SectionTitle
-        title="콘솔"
+        title="Console"
         meta={`사건 ${eventLines.length}개 | 기록줄 ${localLines.length}개`}
         action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>갱신</AppButton>}
       />
@@ -829,7 +829,7 @@ export function PipelinesDashboard({ state }) {
   return (
     <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
       <PipelineOverview overview={overview} />
-      <EventStreamCard events={overview.recentEvents} title="처리흐름 사건" limit={8} />
+      <EventStreamCard events={overview.recentEvents} title="공정흐름 사건" limit={8} />
       <ActiveRangesCard overview={overview} />
       <DiskCapacityCard state={state} />
     </section>
@@ -842,7 +842,7 @@ export function ConfigsDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <Surface className="p-4">
         <SectionTitle
-          title="설정화일 도서관"
+          title="설정화일 Library"
           meta={`배정가능한 설정화일 예비값 ${templates.length}개`}
           action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>설정화일 만들기</AppButton>}
         />
@@ -877,7 +877,7 @@ export function EventsDashboard({ state }) {
   const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
   return (
     <section className="screen-enter mt-4 grid gap-4">
-      <EventStreamCard events={events} title="조종판 콘솔" limit={20} />
+      <EventStreamCard events={events} title="관리체계 Console" limit={20} />
       <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
         {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "아직 사건이 없습니다"}
       </pre>
@@ -937,7 +937,7 @@ export function SecretsDashboard({ state, actions }) {
     },
     {
       type: "proxy_txt",
-      label: "프록시",
+      label: "Proxy",
       available: proxies.available,
       threshold: proxiesPerServer * serverCount,
     },
@@ -947,7 +947,7 @@ export function SecretsDashboard({ state, actions }) {
     <section className="screen-enter mt-3 grid gap-2.5">
       <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
         <MetricCard icon="key" label="Mapbox 리용가능" value={`${mapbox.available}/${mapbox.total}`} palette="sky" />
-        <MetricCard icon="secrets" label="프록시 리용가능" value={`${proxies.available}/${proxies.total}`} palette="mint" />
+        <MetricCard icon="secrets" label="Proxy 리용가능" value={`${proxies.available}/${proxies.total}`} palette="mint" />
         <MetricCard icon="servers" label="배정된 항목" value={mapbox.assigned + proxies.assigned} palette="lilac" />
         <MetricCard icon={alerts.length ? "warning" : "check"} label="풀경보" value={alerts.length || "정상"} palette={alerts.length ? "peach" : "mint"} />
       </section>
@@ -986,15 +986,15 @@ export function CredentialsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-3 grid gap-2.5">
       <section className="grid grid-cols-3 gap-2.5 max-lg:grid-cols-1">
-        <MetricCard icon="credentials" label="프로토콜" value={items.length} palette="lilac" />
+        <MetricCard icon="credentials" label="Protocol" value={items.length} palette="lilac" />
         <MetricCard icon="check" label="활성" value={active} palette="mint" />
         <MetricCard icon="stop" label="비활성" value={disabled} palette="coral" />
       </section>
 
       <Surface className="max-w-full overflow-hidden">
         <SectionTitle
-          title="접속증명관리"
-          meta={`프로토콜접속기록 ${visibleItems.length}/${items.length}`}
+          title="계정정보관리"
+          meta={`Protocol접속기록 ${visibleItems.length}/${items.length}`}
           action={
             <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full">
               <label className="relative block w-[min(360px,48vw)] max-sm:w-full">
@@ -1003,11 +1003,11 @@ export function CredentialsDashboard({ state, actions }) {
                   type="search"
                   value={credentialSearch}
                   onChange={(event) => setCredentialSearch(event.target.value)}
-                  placeholder="접속증명 검색"
+                  placeholder="계정정보 검색"
                   className="h-10 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] font-[600] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
                 />
               </label>
-              <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>접속증명 추가</AppButton>
+              <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>계정정보 추가</AppButton>
             </div>
           }
         />
@@ -1015,8 +1015,8 @@ export function CredentialsDashboard({ state, actions }) {
           <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
             <thead>
               <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">프로토콜이름</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">프로토콜 URL</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol이름</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">리용자이름</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">동작</th>
               </tr>
@@ -1045,7 +1045,7 @@ export function CredentialsDashboard({ state, actions }) {
               )) : (
                 <tr>
                   <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={4}>
-                    {items.length ? "검색에 맞는 접속증명이 없습니다" : "아직 보관된 접속증명이 없습니다"}
+                    {items.length ? "검색에 맞는 계정정보이 없습니다" : "아직 보관된 계정정보이 없습니다"}
                   </td>
                 </tr>
               )}
@@ -1093,8 +1093,8 @@ export function SettingsDashboard({ state, actions }) {
               <Icon name="settings" className="h-5 w-5" />
             </span>
             <div className="min-w-0">
-              <h3 className="text-[17px] font-[850] leading-tight">조종판설정</h3>
-              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">련결된 봉사기 {serverCount}개에 대한 폴링 및 경보경계값</p>
+              <h3 className="text-[17px] font-[850] leading-tight">관리체계설정</h3>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">련결된 봉사기 {serverCount}개에 대한 Poll 및 경보경계값</p>
             </div>
           </div>
           <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right shadow-[0_1px_1px_rgba(15,23,42,0.03)] max-sm:text-left">
@@ -1145,7 +1145,7 @@ export function SettingsDashboard({ state, actions }) {
             </div>
             <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
               <TextInput
-                label="봉사기당 프록시"
+                label="봉사기당 Proxy"
                 name="proxiesPerServer"
                 type="number"
                 min="0"
@@ -1161,14 +1161,14 @@ export function SettingsDashboard({ state, actions }) {
               <div className="min-w-0">
                 <span className="flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
                   <Icon name="sync" className="h-4 w-4 text-[var(--ptg-primary)]" />
-                  실시간 조종판 폴링
+                  실시간 관리체계 Poll
                 </span>
                 <p className="mt-1 text-[11.5px] font-[550] leading-snug text-[var(--ptg-on-surface-variant)]">
-                  열린 열람기 탭은 이 간격으로 봉사기상태, 사건, 작업, 설정화일, 환경변수, 콘솔자료를 갱신합니다.
+                  열린 열람기 탭은 이 간격으로 봉사기상태, 사건, 작업, 설정화일, 환경변수, Console자료를 갱신합니다.
                 </p>
               </div>
               <TextInput
-                label="폴링간격(ms)"
+                label="Poll간격(ms)"
                 name="dashboardPollMs"
                 type="number"
                 min="1000"
@@ -1186,7 +1186,7 @@ export function SettingsDashboard({ state, actions }) {
                 작업흐름
               </span>
               <div className="grid gap-3">
-                <SwitchField name="autoStartNextRange" label="다음 구간 자동시작" defaultChecked={Boolean(workflow.autoStartNextRange)} />
+                <SwitchField name="autoStartNextRange" label="다음 범위 자동시작" defaultChecked={Boolean(workflow.autoStartNextRange)} />
                 <SwitchField name="requirePreflightBeforeStart" label="시작전 사전검사 요구" defaultChecked={Boolean(workflow.requirePreflightBeforeStart)} />
                 <TextInput label="정지 시간초과(ms)" name="stopTimeoutMs" type="number" min="0" step="1000" defaultValue={workflow.stopTimeoutMs ?? 30000} required />
               </div>
@@ -1199,7 +1199,7 @@ export function SettingsDashboard({ state, actions }) {
               </span>
               <div className="grid gap-3">
                 <SwitchField name="telegramEnabled" label="Telegram 켜기" defaultChecked={Boolean(notifications.telegramEnabled)} />
-                <SwitchField name="webConsoleEnabled" label="웹콘솔 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
+                <SwitchField name="webConsoleEnabled" label="웹Console 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
                 <TextInput label="중복제거 시간창(ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
                 <SelectInput label="최소 심각도" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
                   <option value="debug">조사</option>
@@ -1213,11 +1213,11 @@ export function SettingsDashboard({ state, actions }) {
             <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
               <span className="mb-3 flex items-center gap-2 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
                 <Icon name="sync" className="h-4 w-4 text-[var(--ptg-primary)]" />
-                재시도 / 뒤로물림
+                재시도 / 지연시간
               </span>
               <div className="grid gap-3">
                 <TextInput label="명령 재시도한계" name="commandRetryLimit" type="number" min="0" step="1" defaultValue={retry.commandRetryLimit ?? 3} required />
-                <TextInput label="보고 뒤로물림(ms)" name="reportBackoffMs" type="number" min="0" step="500" defaultValue={retry.reportBackoffMs ?? 5000} required />
+                <TextInput label="보고 지연시간(ms)" name="reportBackoffMs" type="number" min="0" step="500" defaultValue={retry.reportBackoffMs ?? 5000} required />
               </div>
             </div>
           </div>
@@ -1231,8 +1231,8 @@ export function SettingsDashboard({ state, actions }) {
             />
             <ThresholdPreview
               icon="secrets"
-              label="프록시 경보선"
-              value={`${proxyAlertAt}개 프록시`}
+              label="Proxy 경보선"
+              value={`${proxyAlertAt}개 Proxy`}
               detail={`봉사기당 ${proxiesPerServer}개 x 봉사기 ${serverCount}개`}
             />
           </div>
@@ -1482,18 +1482,18 @@ function SecretPoolsTable({ state, actions }) {
       <ResourcePoolTypeTable
         actions={actions}
         addLabel="키 추가"
-        emptyLabel="이 보기와 맞는 Mapbox API 키가 없습니다"
+        emptyLabel="이 보기와 맞는 Mapbox API Key가 없습니다"
         secretType="mapbox_token"
         state={state}
-        title="Mapbox API 키"
+        title="Mapbox API Key"
       />
       <ResourcePoolTypeTable
         actions={actions}
-        addLabel="프록시 추가"
-        emptyLabel="이 보기와 맞는 프록시가 없습니다"
+        addLabel="Proxy 추가"
+        emptyLabel="이 보기와 맞는 Proxy가 없습니다"
         secretType="proxy_txt"
         state={state}
-        title="프록시풀"
+        title="Proxy 목록"
       />
     </div>
   );
@@ -1532,8 +1532,8 @@ function ServersTable({ state, actions }) {
             <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">봉사기</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">상태</th>
-              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">디스크 최고값</th>
-              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">플랫폼</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">리용된 용량</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">체계</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">마지막 확인</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5" />
             </tr>
@@ -1582,7 +1582,7 @@ function ServersTable({ state, actions }) {
                         className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
                         onClick={(event) => {
                           event.stopPropagation();
-                          const ok = globalThis.confirm?.(`봉사기 《${machine.displayName || machine.machineId}》을(를) 조종판에서 제거하겠습니까? 배정된 비밀자료가 풀리고 봉사기범위 설정화일/환경변수기록이 삭제됩니다.`);
+                          const ok = globalThis.confirm?.(`봉사기 《${machine.displayName || machine.machineId}》을(를) 관리체계에서 제거하겠습니까? 배정된 API Key가 풀리고 봉사기범위 설정화일/환경변수기록이 삭제됩니다.`);
                           if (!ok) return;
                           return actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}

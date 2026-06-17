@@ -26,7 +26,7 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
       type: "machine",
       icon: "servers",
       title: machine.displayName || machine.machineId,
-      detail: `${machine.machineId || "agent 없음"} | ${machine.status || "상태 없음"} | ${machine.platform || "플랫폼 없음"}`,
+      detail: `${machine.machineId || "agent 없음"} | ${machine.status || "상태 없음"} | ${machine.platform || "체계 없음"}`,
       tab: "servers",
       machineId: machine.machineId,
     }));
@@ -45,7 +45,7 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
       type: "config",
       icon: "config",
       title: config.name || "설정화일",
-      detail: `${config.machineId || "공용"} | ${config.config?.provider || "provider 없음"} | 구간 ${config.config?.ranges?.length || 0}개`,
+      detail: `${config.machineId || "공용"} | ${config.config?.provider || "provider 없음"} | 범위 ${config.config?.ranges?.length || 0}개`,
       tab: "configs",
     }));
 
@@ -60,7 +60,7 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
       id: `event-${eventId(event, index)}`,
       type: "event",
       icon: event.severity === "error" ? "warning" : "console",
-      title: event.type || "사건기록",
+      title: event.type || "Event 기록",
       detail: `${event.machineId || "공용"} | ${event.message || "내용 없음"}`,
       tab: "events",
     }));

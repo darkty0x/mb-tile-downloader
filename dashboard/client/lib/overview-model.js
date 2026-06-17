@@ -1,8 +1,8 @@
 const PIPELINE_STEPS = [
-  ["download", "내려받기"],
+  ["download", "내리적재"],
   ["validate", "검증"],
   ["zip", "압축"],
-  ["upload", "올리기"],
+  ["upload", "올리적재"],
 ];
 const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["server_rdp_credential"]);
 const RUNNING_JOB_STATUSES = new Set(["running", "queued", "claimed"]);
@@ -272,14 +272,14 @@ export function buildOverviewModel({
   const resourceAlerts = [
     {
       type: "mapbox_token",
-      label: "Mapbox API 키",
+      label: "Mapbox API Key",
       available: mapbox.available,
       threshold: mapboxThreshold,
       status: machines.length && mapbox.available <= mapboxThreshold ? "low" : "ok",
     },
     {
       type: "proxy_txt",
-      label: "프록시풀",
+      label: "Proxy 목록",
       available: proxies.available,
       threshold: proxyThreshold,
       status: machines.length && proxies.available <= proxyThreshold ? "low" : "ok",
@@ -295,11 +295,11 @@ export function buildOverviewModel({
   return {
     kpis: {
       serversOnline: { label: "련결된 봉사기", value: `${online} / ${machines.length}`, detail: machines.length ? `${Math.round((online / machines.length) * 100)}% 련결됨` : "agent 대기중" },
-      activeJobs: { label: "활성 작업", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기렬` },
-      throughput: { label: "타일 처리속도", value: "0 tiles/s", detail: "실시간 agent 지표 대기중" },
-      storagePressure: { label: "저장공간 압력", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
+      activeJobs: { label: "활성 작업", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기` },
+      throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 agent 지표 대기중" },
+      storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
       failedJobs: { label: "실패한 타일", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
-      resourceAlerts: { label: "자원경보", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
+      resourceAlerts: { label: "API Key와 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: pipelineModel.steps,
     pipelineEta: pipelineModel.etaLabel,

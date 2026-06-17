@@ -8,42 +8,42 @@ export const COMMANDS = [
 ];
 
 export const TABS = [
-  ["overview", "개요", "overview"],
+  ["overview", "첫페지", "overview"],
   ["servers", "봉사기", "servers"],
   ["configs", "설정화일", "config"],
-  ["pipelines", "처리흐름", "pipelines"],
-  ["secrets", "비밀자료", "secrets"],
-  ["credentials", "접속증명", "credentials"],
-  ["events", "사건기록", "console"],
+  ["pipelines", "공정흐름", "pipelines"],
+  ["secrets", "API Key", "secrets"],
+  ["credentials", "계정정보", "credentials"],
+  ["events", "Event 기록", "console"],
   ["alerts", "경보", "alerts"],
   ["settings", "설정", "settings"],
 ];
 
 export const PAGE_META = {
-  overview: ["개요", "분산 타일처리흐름 지휘중심"],
-  servers: ["봉사기", "봉사기무리를 감시하고 관리합니다"],
-  secrets: ["비밀자료", "Mapbox 및 프록시자원풀을 관리합니다"],
-  credentials: ["접속증명", "프로토콜접속자료와 접근권한을 관리합니다"],
-  settings: ["설정", "체계동작과 환경을 설정합니다"],
-  pipelines: ["처리흐름", "활성 구간작업단계를 추적합니다"],
-  configs: ["설정화일", "내려받기설정을 만들고 배정합니다"],
-  events: ["사건기록", "조종판 및 agent 사건을 실시간으로 살펴봅니다"],
+  overview: ["첫페지", "공정흐름을 관리합니다"],
+  servers: ["봉사기", "RDP 봉사기들을 감시하고 관리합니다"],
+  secrets: ["API Key와 Proxy", "Mapbox API Key 및 Proxy정보들을 관리합니다"],
+  credentials: ["계정정보", "웹싸이트 및 RDP 접속자료와 접근권한을 관리합니다"],
+  settings: ["설정", "체계와 환경을 설정합니다"],
+  pipelines: ["공정흐름", "활성화된 봉사기들의 작업공정흐름을 관리합니다"],
+  configs: ["설정화일", "내리적재설정을 만들고 배정합니다"],
+  events: ["Event 기록", "관리체계 및 agent event들을 실시간으로 확인합니다"],
   alerts: ["경보", "용량 및 실패상태를 검토합니다"],
 };
 
 export const SERVER_TABS = [
   ["control", "조종", "control"],
-  ["configs", "설정화일", "config"],
-  ["env", "환경변수", "env"],
-  ["secrets", "비밀자료", "secrets"],
-  ["console", "콘솔", "console"],
+  ["configs", "Config", "config"],
+  ["env", ".Env", "env"],
+  ["secrets", "API Key", "secrets"],
+  ["console", "Console", "console"],
 ];
 
 export const SECRET_LABELS = {
   mapbox_token: "Mapbox Token",
-  proxy_txt: "프록시",
+  proxy_txt: "Proxy",
   storj_access: "Storj Access",
-  credential: "접속증명",
+  credential: "계정정보",
 };
 
 export const DEFAULT_DASHBOARD_SETTINGS = {
@@ -162,7 +162,7 @@ const STATUS_LABELS = {
   ok: "정상",
   online: "련결됨",
   pending: "대기중",
-  queued: "대기렬",
+  queued: "대기",
   running: "실행중",
   success: "성공",
   warn: "경고",

@@ -247,7 +247,7 @@ function createProgressReporter(enabled) {
         `  ↳ range ${rangeIndex}/${rangeCount} row ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
           `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} s=${totals.tileFilesSkipped} ` +
           `m=${totals.tilesMissing} f=${totals.tilesFailed} skippedRows=${totals.rowsSkipped} ` +
-          `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} tiles/s eta=${formatDuration(etaSec)}`,
+          `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} 타일/초 eta=${formatDuration(etaSec)}`,
         rowsDone === rowsTotal
       );
     },

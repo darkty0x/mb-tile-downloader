@@ -189,8 +189,8 @@ export function useDashboardState() {
       seenNotificationEventsRef.current.add(key);
       if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
       try {
-        new window.Notification(event.type || "PTG 조종판 사건", {
-          body: event.message || "새 조종판 사건",
+        new window.Notification(event.type || "PTG 관리체계 사건", {
+          body: event.message || "새 관리체계 사건",
           tag: key,
         });
       } catch {
@@ -324,7 +324,7 @@ export function useDashboardState() {
           sync_config: "설정화일 동기화",
           sync_env: "환경변수 동기화",
         }[commandType] || commandType;
-        setNotice({ message: `${commandLabel} 명령이 대기렬에 들어갔습니다`, kind: "success" });
+        setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
         await refreshMachineData(targetMachineId);
       },
       async deleteMachine(machineId) {
@@ -445,7 +445,7 @@ export function useDashboardState() {
         } else if (formData.get("value")) {
           body.value = formData.get("value");
         }
-        if (!id && !body.value) throw new Error("비밀자료값이 필요합니다");
+        if (!id && !body.value) throw new Error("API Key값이 필요합니다");
         await api(id ? `/api/secrets/${encodeURIComponent(id)}` : "/api/secrets", {
           method: id ? "PUT" : "POST",
           body: JSON.stringify(body),
@@ -521,7 +521,7 @@ export function useDashboardState() {
         setEditor({ type: "summary" });
         await refreshSecretPool();
         await refreshMachineData();
-        setNotice({ message: `비밀자료 ${uniqueIds.length}개가 삭제되였습니다`, kind: "success" });
+        setNotice({ message: `API Key ${uniqueIds.length}개가 삭제되였습니다`, kind: "success" });
       },
       async rebalanceSecrets() {
         const result = await api("/api/secrets/rebalance", { method: "POST" });
@@ -535,7 +535,7 @@ export function useDashboardState() {
         await refreshSecretPool();
         await refreshMachineData();
         setNotice({
-          message: result.validation?.message || "비밀자료검증이 완료되였습니다",
+          message: result.validation?.message || "API Key검증이 완료되였습니다",
           kind: result.validation?.ok ? "success" : "warning",
         });
         return result;

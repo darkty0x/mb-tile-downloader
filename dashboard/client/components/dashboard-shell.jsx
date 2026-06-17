@@ -28,10 +28,10 @@ export function Rail({ state, actions }) {
     <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto max-md:flex-row max-md:items-center max-md:gap-3 max-md:overflow-x-auto max-md:border-b max-md:border-r-0 max-md:px-4 max-md:py-3">
       <section className="flex min-h-[76px] items-center border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[112px] max-md:border-b-0 max-md:pb-0">
         <LogoMark />
-        <span className="sr-only">PTG 관리조종판</span>
+        <span className="sr-only">PTG 관리체계</span>
       </section>
 
-      <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="조종판 구역">
+      <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="관리체계 구역">
         {TABS.map(([tab, label, icon]) => {
           const count = navCount(tab);
           return (
@@ -91,7 +91,7 @@ export function Header({ state, actions }) {
           <NotificationsMenu notifications={notifications} actions={actions} state={state} />
           <IconButton
             icon="refresh"
-            label="조종판 갱신"
+            label="관리체계 갱신"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
           <AccountMenu actions={actions} />
@@ -245,7 +245,7 @@ function buildNotifications(state, overview) {
       id: `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`,
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
       icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
-      title: event.type || "조종판 사건",
+      title: event.type || "관리체계 사건",
       message: event.message || "내용 없음",
       time: shortDate(event.createdAt),
       actionTab: "events",
@@ -484,7 +484,7 @@ function AccountMenu({ actions }) {
           <div className="mt-2 grid gap-1">
             <button type="button" role="menuitem" onClick={refresh} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
               <Icon name="refresh" className="h-4 w-4" />
-              조종판 갱신
+              관리체계 갱신
             </button>
             <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.setSelectedTab("settings"); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
               <Icon name="settings" className="h-4 w-4" />

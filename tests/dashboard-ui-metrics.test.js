@@ -55,7 +55,7 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.kpis.serversOnline.value, "1 / 2");
   assert.equal(model.kpis.failedJobs.value, 1);
   assert.equal(model.diskPressure, 92);
-  assert.deepEqual(model.pipeline.map((step) => step.label), ["내려받기", "검증", "압축", "올리기"]);
+  assert.deepEqual(model.pipeline.map((step) => step.label), ["내리적재", "검증", "압축", "올리적재"]);
   assert.equal(model.pipeline[0].status, "running");
   assert.equal(model.pipeline[1].status, "complete");
   assert.equal(model.resourceAlerts.length, 2);
