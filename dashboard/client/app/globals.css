@@ -75,6 +75,29 @@ textarea {
 
 button {
   cursor: pointer;
+  transition:
+    color 220ms var(--ptg-standard),
+    background-color 220ms var(--ptg-standard),
+    border-color 220ms var(--ptg-standard),
+    box-shadow 260ms var(--ptg-standard),
+    transform 220ms var(--ptg-emphasized);
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
+
+button[data-click-pending="true"]:not([data-pending])::before {
+  content: "";
+  display: inline-block;
+  width: 1em;
+  height: 1em;
+  flex: 0 0 auto;
+  margin-right: 0.5em;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  border-radius: 999px;
+  animation: ptg-spin 740ms linear infinite;
 }
 
 .ptg-scrollbar {
@@ -111,12 +134,13 @@ button {
 .state-layer {
   position: relative;
   overflow: hidden;
+  will-change: transform, box-shadow, background-color;
   transition:
-    color 150ms var(--ptg-standard),
-    background-color 150ms var(--ptg-standard),
-    border-color 150ms var(--ptg-standard),
-    box-shadow 150ms var(--ptg-standard),
-    transform 150ms var(--ptg-standard);
+    color 220ms var(--ptg-standard),
+    background-color 220ms var(--ptg-standard),
+    border-color 220ms var(--ptg-standard),
+    box-shadow 260ms var(--ptg-standard),
+    transform 220ms var(--ptg-emphasized);
 }
 
 .state-layer::after {
@@ -126,7 +150,7 @@ button {
   background: currentColor;
   opacity: 0;
   pointer-events: none;
-  transition: opacity 150ms var(--ptg-standard);
+  transition: opacity 220ms var(--ptg-standard);
 }
 
 .state-layer:hover::after {
@@ -134,11 +158,21 @@ button {
 }
 
 .state-layer:active {
-  transform: scale(0.985);
+  transform: scale(0.975);
 }
 
 .state-layer:active::after {
   opacity: 0.11;
+}
+
+.state-layer:focus-visible {
+  box-shadow:
+    0 0 0 3px rgba(103, 80, 164, 0.18),
+    0 0 0 1px var(--ptg-primary);
+}
+
+.state-layer[data-pending="true"] {
+  pointer-events: none;
 }
 
 .ptg-button {
@@ -149,6 +183,25 @@ button {
   line-height: 1;
   letter-spacing: 0;
   padding-inline: 18px;
+  transition:
+    color 220ms var(--ptg-standard),
+    background-color 220ms var(--ptg-standard),
+    border-color 220ms var(--ptg-standard),
+    box-shadow 260ms var(--ptg-standard),
+    transform 220ms var(--ptg-emphasized),
+    filter 220ms var(--ptg-standard);
+}
+
+.ptg-button:hover {
+  transform: translateY(-1px);
+}
+
+.ptg-button:active {
+  transform: translateY(0) scale(0.975);
+}
+
+.ptg-button[data-pending="true"] {
+  filter: saturate(1.08);
 }
 
 .ptg-button-primary {
@@ -156,6 +209,10 @@ button {
   background: var(--ptg-primary);
   color: #ffffff;
   box-shadow: 0 6px 16px rgba(103, 80, 164, 0.22);
+}
+
+.ptg-button-primary:hover {
+  box-shadow: 0 12px 28px rgba(103, 80, 164, 0.28);
 }
 
 .ptg-button-tonal {
@@ -182,6 +239,23 @@ button {
 
 .ptg-field {
   background: #ffffff;
+}
+
+.ptg-spinner {
+  display: inline-block;
+  border-radius: 999px;
+  border: 2px solid currentColor;
+  border-right-color: transparent;
+  animation: ptg-spin 740ms linear infinite;
+}
+
+.ptg-modal-backdrop {
+  animation: modal-backdrop-enter 260ms var(--ptg-standard) both;
+}
+
+.ptg-modal-panel {
+  animation: modal-panel-enter 360ms var(--ptg-emphasized) both;
+  transform-origin: center;
 }
 
 .ptg-shell {
@@ -301,7 +375,7 @@ button {
 }
 
 .screen-enter {
-  animation: material-enter 320ms var(--ptg-emphasized) both;
+  animation: material-enter 360ms var(--ptg-emphasized) both;
 }
 
 .panel-enter {
@@ -315,11 +389,43 @@ button {
 @keyframes material-enter {
   from {
     opacity: 0;
-    transform: translateY(8px) scale(0.995);
+    transform: translateY(10px) scale(0.992);
   }
   to {
     opacity: 1;
     transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes modal-backdrop-enter {
+  from {
+    opacity: 0;
+    backdrop-filter: blur(0);
+  }
+  to {
+    opacity: 1;
+    backdrop-filter: blur(4px);
+  }
+}
+
+@keyframes modal-panel-enter {
+  from {
+    opacity: 0;
+    transform: translateY(18px) scale(0.965);
+  }
+  58% {
+    opacity: 1;
+    transform: translateY(-2px) scale(1.006);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes ptg-spin {
+  to {
+    transform: rotate(360deg);
   }
 }
 

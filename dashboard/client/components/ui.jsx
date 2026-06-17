@@ -1,3 +1,6 @@
+"use client";
+
+import { useEffect, useRef, useState } from "react";
 import { Icon } from "./icons";
 
 const statusStyles = {
@@ -32,8 +35,8 @@ export function Surface({ className = "", children }) {
 
 export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-32px))]", children, onClose }) {
   return (
-    <div className="fixed inset-0 z-30 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
-      <section className={`${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]`}>
+    <div className="ptg-modal-backdrop fixed inset-0 z-30 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
+      <section className={`ptg-modal-panel ${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]`}>
         <header className="flex min-h-[72px] items-start justify-between gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-5 py-4">
           <div className="min-w-0">
             <h3 className="truncate text-[18px] font-[820] text-[var(--ptg-on-surface)]">{title}</h3>
@@ -74,6 +77,9 @@ export function MetricCard({ icon, label, value }) {
 }
 
 export function AppButton({ variant = "outlined", icon, children, className = "", ...props }) {
+  const { onClick, disabled, ...buttonProps } = props;
+  const [pending, setPending] = useState(false);
+  const pendingTimer = useRef(null);
   const variantClass = variant === "filled"
     ? "ptg-button-primary"
     : variant === "tonal"
@@ -81,23 +87,95 @@ export function AppButton({ variant = "outlined", icon, children, className = ""
       : variant === "danger"
         ? "ptg-button-danger"
         : "ptg-button-secondary";
+
+  useEffect(() => () => {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current);
+  }, []);
+
+  const showPending = () => {
+    setPending(true);
+    if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    pendingTimer.current = setTimeout(() => {
+      setPending(false);
+      pendingTimer.current = null;
+    }, 520);
+  };
+
+  const handleClick = (event) => {
+    if (disabled || pending) return;
+    showPending();
+    const result = onClick?.(event);
+    if (result && typeof result.finally === "function") {
+      result.finally(() => {
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+        pendingTimer.current = setTimeout(() => {
+          setPending(false);
+          pendingTimer.current = null;
+        }, 180);
+      });
+    }
+  };
+
   return (
     <button
-      {...props}
+      {...buttonProps}
+      disabled={disabled}
+      data-pending={pending ? "true" : "false"}
+      onClick={handleClick}
       className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 ${variantClass} ${className}`}
     >
-      {icon ? <Icon name={icon} className="h-4 w-4" /> : null}
-      {children}
+      {pending ? <LoadingSpinner /> : icon ? <Icon name={icon} className="h-4 w-4" /> : <span className="hidden" />}
+      <span className="truncate">{children}</span>
     </button>
   );
 }
 
 export function IconButton({ icon, label, className = "", ...props }) {
+  const { onClick, disabled, ...buttonProps } = props;
+  const [pending, setPending] = useState(false);
+  const pendingTimer = useRef(null);
+
+  useEffect(() => () => {
+    if (pendingTimer.current) clearTimeout(pendingTimer.current);
+  }, []);
+
+  const handleClick = (event) => {
+    if (disabled || pending) return;
+    setPending(true);
+    if (pendingTimer.current) clearTimeout(pendingTimer.current);
+    pendingTimer.current = setTimeout(() => {
+      setPending(false);
+      pendingTimer.current = null;
+    }, 520);
+    const result = onClick?.(event);
+    if (result && typeof result.finally === "function") {
+      result.finally(() => {
+        if (pendingTimer.current) clearTimeout(pendingTimer.current);
+        pendingTimer.current = setTimeout(() => {
+          setPending(false);
+          pendingTimer.current = null;
+        }, 180);
+      });
+    }
+  };
+
   return (
-    <button aria-label={label} title={label} className={`state-layer inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)] ${className}`} {...props}>
-      <Icon name={icon} className="h-4 w-4" />
+    <button
+      aria-label={label}
+      title={label}
+      data-pending={pending ? "true" : "false"}
+      disabled={disabled}
+      onClick={handleClick}
+      className={`state-layer inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)] ${className}`}
+      {...buttonProps}
+    >
+      {pending ? <LoadingSpinner /> : <Icon name={icon} className="h-4 w-4" />}
     </button>
   );
+}
+
+export function LoadingSpinner({ className = "" }) {
+  return <span aria-hidden="true" className={`ptg-spinner h-4 w-4 shrink-0 ${className}`} />;
 }
 
 export function UsageBar({ percent, className = "" }) {
