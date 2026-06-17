@@ -204,8 +204,8 @@ export function useDashboardState() {
       seenNotificationEventsRef.current.add(key);
       if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
       try {
-        new window.Notification(event.type || "PTG 관리체계 사건", {
-          body: event.message || "새 관리체계 사건",
+        new window.Notification(event.type || "PTG 관리체계 Event", {
+          body: event.message || "새 관리체계 Event",
           tag: key,
         });
       } catch {
@@ -386,7 +386,7 @@ export function useDashboardState() {
           pause_after_range: "일시중지",
           stop_pipeline: "정지",
           sync_config: "설정화일 동기화",
-          sync_env: "환경변수 동기화",
+          sync_env: ".Env 동기화",
         }[commandType] || commandType;
         setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
         await refreshMachineData(targetMachineId);

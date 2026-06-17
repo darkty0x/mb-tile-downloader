@@ -84,7 +84,7 @@ function ServerOnboardingForm({ state, actions }) {
         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
           {[
             ["credentials", "1. 접속자료 보관"],
-            ["console", "2. 환경변수 설정"],
+            ["console", "2. .Env 설정"],
             ["control", "3. 검증"],
           ].map(([icon, label]) => (
             <span key={label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--ptg-outline)] bg-white px-2">
@@ -265,13 +265,13 @@ export function EditorDrawer({ state, actions }) {
 
 function editorTitle(type, record, editor = {}) {
   if (type === "new-config") return "설정화일 추가";
-  if (type === "new-env") return "환경변수 추가";
+  if (type === "new-env") return ".Env 추가";
   if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "계정정보 추가";
   if (type === "new-secret" && (record?.secretType === "server_rdp_credential" || editor.secretType === "server_rdp_credential")) return "봉사기계정정보 추가";
   if (type === "server-onboarding") return "봉사기 추가";
   if (type === "new-secret") return "API Key 추가";
   if (type === "config") return record?.configId ? "설정화일 편집" : "설정화일 복제";
-  if (type === "env") return record?.envProfileId ? "환경변수 편집" : "환경변수 복제";
+  if (type === "env") return record?.envProfileId ? ".Env 편집" : ".Env 복제";
   if (type === "secret" && record?.secretType === "credential") return "계정정보 편집";
   if (type === "secret" && record?.secretType === "server_rdp_credential") return "봉사기계정정보 편집";
   if (type === "secret") return "API Key 편집";
@@ -605,9 +605,9 @@ function EnvForm({ record, actions }) {
     }}>
       <TextInput label="이름" name="name" defaultValue={record?.name || "default"} required />
       <SwitchField name="active" label="활성" defaultChecked={record?.active || !id} />
-      <TextArea label="환경변수 JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
+      <TextArea label=".Env JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>환경변수 보관</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>.Env 보관</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("env", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>

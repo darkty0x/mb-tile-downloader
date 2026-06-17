@@ -4,7 +4,7 @@ export const COMMANDS = [
   ["pause_after_range", "일시중지", "pause"],
   ["stop_pipeline", "정지", "stop"],
   ["sync_config", "설정화일 동기화", "sync"],
-  ["sync_env", "환경변수 동기화", "sync"],
+  ["sync_env", ".Env 동기화", "sync"],
 ];
 
 export const TABS = [
