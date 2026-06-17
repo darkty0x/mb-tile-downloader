@@ -149,8 +149,7 @@ test("Ukraine z19 split configs auto-correct TMS y ranges to XYZ without editing
   assert.equal(config.ranges[0].yEnd, 184789);
   assert.match(config.ranges[0].label, /y=tms->xyz/);
   assert.equal(config.ranges[0].autoCorrectedY, "tms-to-xyz");
-  assert.equal(config.tile.unavailableFallback.autoEnabled, true);
-  assert.equal(config.tile.unavailableFallback.source, "current");
+  assert.equal(config.tile.unavailableFallback, undefined);
 });
 
 test("loaded direct Esri configs keep requested config concurrency", async () => {

@@ -158,7 +158,8 @@ test("zip-maker exits nonzero when configured ranges are incomplete", async () =
         { cwd: path.resolve(".") }
       ),
     (err) => {
-      assert.match(err.stdout, /WAIT incomplete: tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/);
+      assert.match(err.stdout, /WAIT failed: tiles_esri-satellite_5_000027-000027_y000019-000019\.zip/);
+      assert.match(err.stdout, /failed=1/);
       assert.match(err.stdout, /Done\. archived=0 skipped=0 incomplete=1/);
       return true;
     }
@@ -388,12 +389,74 @@ test("zip-maker reports incomplete large ranges before archive-size planning", a
         { cwd: path.resolve("."), timeout: 2000 }
       ),
     (err) => {
-      assert.match(err.stdout, /WAIT incomplete: tiles_vector_5_000027-000027_y000001-2000000\.zip/);
-      assert.match(err.stdout, /missing=2000000/);
+      assert.match(err.stdout, /WAIT failed: tiles_vector_5_000027-000027_y000001-2000000\.zip/);
+      assert.match(err.stdout, /failed=2000000/);
       assert.doesNotMatch(err.stdout, /PLAN tiles_vector_5_000027-000027_y000001-2000000\.zip/);
       return true;
     }
   );
+});
+
+test("zip-maker archives Mapbox ranges with accepted source-missing tiles", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "zip-maker-"));
+  const configDir = path.join(dir, "configs");
+  const tilesDir = path.join(configDir, "downloaded-tiles");
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(path.join(tilesDir, "vector", "5", "27"), { recursive: true });
+  await writeFile(path.join(tilesDir, "vector", "5", "27", "19.vector.pbf"), "tile-present");
+
+  const configPath = path.join(configDir, "mapbox-missing.config.json");
+  await mkdir(configDir, { recursive: true });
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "mapbox-missing",
+      provider: "mapbox",
+      layer: "vector",
+      output: { dir: "./downloaded-tiles" },
+      tile: { extension: "vector.pbf" },
+      url: { template: "https://example.test/{z}/{x}/{y}.vector.pbf?access_token={token}" },
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 20 }],
+    })
+  );
+
+  const env = { MAPBOX_ACCESS_TOKENS: "pk.test" };
+  const loaded = await loadConfig(configPath, { env });
+  const db = new TileStateDb(path.join(dir, ".tile-state", "mapbox-missing.sqlite"));
+  const key = {
+    jobName: loaded.jobName,
+    configHash: loaded.configHash,
+    layer: loaded.layer,
+    z: 5,
+    x: 27,
+    yStart: 19,
+    yEnd: 20,
+  };
+  db.markRowComplete({ ...key, expected: 2, downloaded: 1, missing: 1, failed: 0 });
+  db.markRangeVerified({
+    jobName: loaded.jobName,
+    configHash: loaded.configHash,
+    layer: loaded.layer,
+    rangeIndex: 1,
+    label: loaded.ranges[0].label,
+    expected: 2,
+    present: 1,
+    missing: 1,
+    failed: 0,
+  });
+  db.close();
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    ["zip-maker.js", configPath, `--archive-dir=${archivesDir}`],
+    { cwd: path.resolve("."), env: { ...process.env, ...env } }
+  );
+
+  assert.match(stdout, /READY missing accepted: tiles_vector_5_000027-000027_y000019-000020\.zip have=1 missing=1/);
+  assert.match(stdout, /Done\. archived=1 skipped=0 incomplete=0 missingAccepted=1 failed=0/);
+  assert.doesNotMatch(stdout, /WAIT failed/);
+  const zipPath = path.join(archivesDir, "tiles_vector_5_000027-000027_y000019-000020.zip");
+  assert.deepEqual(listZipNames(await readFile(zipPath)), ["vector/5/27/19.vector.pbf"]);
 });
 
 test("zip-maker size split preserves tiles when the limit crosses x rows", async () => {

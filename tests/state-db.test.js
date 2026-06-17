@@ -54,7 +54,7 @@ test("skips complete rows only when config hash matches", async () => {
   db.close();
 });
 
-test("does not skip rows that still have missing tiles", async () => {
+test("skips complete rows that have accepted missing source tiles", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-state-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   const key = {
@@ -75,11 +75,21 @@ test("does not skip rows that still have missing tiles", async () => {
     failed: 0,
   });
 
+  assert.equal(db.shouldSkipRow(key), true);
+
+  db.markRowPartial({
+    ...key,
+    expected: 566,
+    downloaded: 565,
+    missing: 0,
+    failed: 1,
+  });
+
   assert.equal(db.shouldSkipRow(key), false);
   db.close();
 });
 
-test("tracks completed range verification by config hash and range index", async () => {
+test("tracks verified ranges with accepted missing source tiles", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-state-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
 
@@ -90,8 +100,9 @@ test("tracks completed range verification by config hash and range index", async
     rangeIndex: 49,
     label: "range 49",
     expected: 10,
-    present: 10,
-    missing: 0,
+    present: 8,
+    missing: 2,
+    failed: 0,
   });
 
   assert.equal(
@@ -107,6 +118,28 @@ test("tracks completed range verification by config hash and range index", async
     db.shouldSkipRange({
       jobName: "job",
       configHash: "hash-b",
+      layer: "vector",
+      rangeIndex: 49,
+    }),
+    false
+  );
+
+  db.markRangeVerified({
+    jobName: "job",
+    configHash: "hash-a",
+    layer: "vector",
+    rangeIndex: 49,
+    label: "range 49",
+    expected: 10,
+    present: 8,
+    missing: 1,
+    failed: 1,
+  });
+
+  assert.equal(
+    db.shouldSkipRange({
+      jobName: "job",
+      configHash: "hash-a",
       layer: "vector",
       rangeIndex: 49,
     }),

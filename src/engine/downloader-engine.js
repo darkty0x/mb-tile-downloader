@@ -4,7 +4,6 @@ import path from "node:path";
 import crypto from "node:crypto";
 import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import jpeg from "jpeg-js";
 
 import { MapboxTokenPool, loadMapboxTokensFromEnv } from "../auth/mapbox-token-pool.js";
 import { createProvider } from "../providers/index.js";
@@ -111,18 +110,6 @@ function esriCooldownEnabled(env = process.env) {
   return explicit ?? true;
 }
 
-function shouldRetryUnavailableTile(providerName, env = process.env) {
-  if (providerName !== "esri") return false;
-  const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE);
-  return explicit ?? false;
-}
-
-function shouldBlockProxyOnUnavailable(providerName, env = process.env) {
-  if (providerName !== "esri") return false;
-  const explicit = parseBoolean(env.TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE);
-  return explicit ?? false;
-}
-
 function proxyTransportRetryLimit(providerName, env = process.env) {
   if (providerName !== "esri") return 0;
   return (
@@ -135,8 +122,6 @@ function proxyTransportRetryLimit(providerName, env = process.env) {
 function proxyTransportRetryDelayMs(baseMs, attempt) {
   return Math.min(retryDelayMs(baseMs, attempt), 1_000);
 }
-
-const WAYBACK_RELEASE_CACHE = new Map();
 
 function traceEnabled(env = process.env) {
   return ["1", "true", "yes", "on"].includes(
@@ -255,7 +240,7 @@ function createProgressReporter(enabled) {
       lastRateAt = now;
       line(
         `  ↳ range ${rangeIndex}/${rangeCount} row ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
-          `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} c=${totals.tilesCreated} s=${totals.tileFilesSkipped} ` +
+          `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} s=${totals.tileFilesSkipped} ` +
           `m=${totals.tilesMissing} f=${totals.tilesFailed} skippedRows=${totals.rowsSkipped} ` +
           `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} tiles/s eta=${formatDuration(etaSec)}`,
         rowsDone === rowsTotal
@@ -310,15 +295,17 @@ function createProgressReporter(enabled) {
     verifyStart({ rangeIndex, rangeCount, rows, tiles }) {
       line(`  🔍 verifying range ${rangeIndex}/${rangeCount} rows=${rows} tiles=${tiles}`, true);
     },
-    verifyProgress({ rangeIndex, rangeCount, rowsDone, rowsTotal, present, missing }) {
+    verifyProgress({ rangeIndex, rangeCount, rowsDone, rowsTotal, present, missing, failed = 0 }) {
       line(
-        `  🔍 range ${rangeIndex}/${rangeCount} verify rows=${rowsDone}/${rowsTotal} present=${present} missing=${missing}`
+        `  🔍 range ${rangeIndex}/${rangeCount} verify rows=${rowsDone}/${rowsTotal} present=${present} missing=${missing} failed=${failed}`
       );
     },
     rangeVerified({ rangeIndex, rangeCount, verified }) {
       const elapsed = seconds(Date.now() - currentRangeStartedAt);
+      const status =
+        verified.failed > 0 ? "red" : verified.missing > 0 ? "yellow" : "green";
       line(
-        `  ✔ range ${rangeIndex}/${rangeCount} verified present=${verified.present}/${verified.expected} missing=${verified.missing} elapsed=${elapsed.toFixed(1)}s`,
+        `  ✔ range ${rangeIndex}/${rangeCount} verified present=${verified.present}/${verified.expected} missing=${verified.missing} failed=${verified.failed} status=${status} elapsed=${elapsed.toFixed(1)}s`,
         true
       );
     },
@@ -338,9 +325,6 @@ function createProviderRuntime({
       noteResponse() {
         return false;
       },
-      noteUnavailable() {
-        return false;
-      },
       noteSuccess() {},
     };
   }
@@ -350,7 +334,6 @@ function createProviderRuntime({
   const cooldownMs = esriCooldownMs(env);
   const windowMs = esriBlockWindowMs(env);
   const proxyBlockMs = esriProxyBlockMs(env);
-  const blockProxyOnUnavailable = shouldBlockProxyOnUnavailable(providerName, env);
   let blockedUntil = 0;
   const recentBlocks = [];
   const perProxyBlocks = new Map();
@@ -453,13 +436,6 @@ function createProviderRuntime({
     noteSuccess() {
       recentBlocks.length = 0;
     },
-    noteUnavailable(proxy = null, protocol = null) {
-      if (!blockProxyOnUnavailable) return false;
-      if (!proxy || !proxyRotation?.markProxyBlocked) return false;
-      proxyRotation.markProxyBlocked(protocol || proxy, proxyBlockMs, proxy);
-      const healthyCandidateProtocol = protocol || proxy;
-      return !hasHealthyCandidateFor(healthyCandidateProtocol);
-    },
   };
 }
 
@@ -537,314 +513,6 @@ async function readResponseBuffer(resp) {
   return Buffer.from(await resp.arrayBuffer());
 }
 
-function renderUrlTemplate(template, values) {
-  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (_, key) => {
-    if (values[key] === undefined || values[key] === null) {
-      throw new Error(`Missing URL template value: ${key}`);
-    }
-    return encodeURIComponent(String(values[key]));
-  });
-}
-
-function unavailableFallbackConfig(config, provider, env = process.env) {
-  if (provider.name !== "esri") return null;
-
-  const configured = config.tile?.unavailableFallback ?? config.unavailableFallback;
-  const envEnabled = parseBoolean(env.TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK);
-  if (envEnabled !== true && configured?.autoEnabled !== true) return null;
-  if (configured === false || configured?.enabled === false) return null;
-
-  const fallback = {
-    type: "parent-overzoom",
-    source: "wayback",
-    release: "latest",
-    jpegQuality: 92,
-    ...(configured && typeof configured === "object" ? configured : {}),
-  };
-  if (fallback.type !== "parent-overzoom") return null;
-  return fallback;
-}
-
-async function resolveWaybackReleases(fallback, fetchImpl, timeoutMs) {
-  const configured = fallback.release || fallback.releaseNum || fallback.waybackRelease || "latest";
-  if (String(configured).toLowerCase() !== "latest") return [String(configured)];
-
-  const configUrl =
-    fallback.releaseConfigUrl ||
-    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json";
-  if (!WAYBACK_RELEASE_CACHE.has(configUrl)) {
-    const lookup = (async () => {
-      const response = await fetchImpl(configUrl, {
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      if (!response.ok) throw new Error(`Wayback release lookup failed: HTTP ${response.status}`);
-      const data = await response.json();
-      const releases = (Array.isArray(data?.Selection) ? data.Selection : [])
-        .map((item) => item?.M)
-        .filter((item) => item !== undefined && item !== null)
-        .map(String);
-      if (releases.length === 0) throw new Error("Wayback release lookup returned no releases");
-      return releases;
-    })().catch((error) => {
-      WAYBACK_RELEASE_CACHE.delete(configUrl);
-      throw error;
-    });
-    WAYBACK_RELEASE_CACHE.set(
-      configUrl,
-      lookup
-    );
-  }
-  return WAYBACK_RELEASE_CACHE.get(configUrl);
-}
-
-function fallbackCoords({ z, x, y, offset }) {
-  const fallbackZ = z - offset;
-  const divisor = 2 ** offset;
-  return {
-    z: fallbackZ,
-    x: Math.floor(x / divisor),
-    y: Math.floor(y / divisor),
-  };
-}
-
-function buildWaybackFallbackUrl({ fallback, release, z, x, y, offset }) {
-  const coords = fallbackCoords({ z, x, y, offset });
-  const template =
-    fallback.template ||
-    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/{release}/{z}/{y}/{x}";
-  return renderUrlTemplate(template, {
-    release,
-    level: coords.z,
-    z: coords.z,
-    row: coords.y,
-    y: coords.y,
-    col: coords.x,
-    x: coords.x,
-  });
-}
-
-function buildCurrentFallbackUrl({ provider, z, x, y, offset }) {
-  const coords = fallbackCoords({ z, x, y, offset });
-  return provider.buildUrl(coords);
-}
-
-function isRetryableFallbackStatus(status) {
-  return status === 403 ||
-    status === 408 ||
-    status === 409 ||
-    status === 425 ||
-    status === 429 ||
-    status >= 500;
-}
-
-async function fetchFallbackBuffer({ url, provider, fetchImpl, timeoutMs, attempts }) {
-  for (let attempt = 0; attempt < attempts; attempt++) {
-    const response = await fetchImpl(url, {
-      signal: AbortSignal.timeout(timeoutMs),
-    });
-    if (!response.ok) {
-      if (!isRetryableFallbackStatus(response.status)) return null;
-      continue;
-    }
-    const buffer = await readResponseBuffer(response);
-    if (!buffer.length || provider.isUnavailable?.(buffer)) return null;
-    return buffer;
-  }
-  return null;
-}
-
-async function tryFallbackCandidate({
-  url,
-  provider,
-  fetchImpl,
-  timeoutMs,
-  z,
-  x,
-  y,
-  offset,
-  quality,
-  attempts,
-}) {
-  const buffer = await fetchFallbackBuffer({ url, provider, fetchImpl, timeoutMs, attempts });
-  if (!buffer) return null;
-  return overzoomJpeg(buffer, { z, x, y, offset }, quality);
-}
-
-function overzoomJpeg(buffer, { z, x, y, offset }, quality = 92) {
-  if (offset === 0) return buffer;
-  const decoded = jpeg.decode(buffer, { useTArray: true });
-  const scale = 2 ** offset;
-  const cropWidth = Math.floor(decoded.width / scale);
-  const cropHeight = Math.floor(decoded.height / scale);
-  if (cropWidth < 1 || cropHeight < 1) return null;
-
-  const startX = (x % scale) * cropWidth;
-  const startY = (y % scale) * cropHeight;
-  const outputWidth = 256;
-  const outputHeight = 256;
-  const output = Buffer.alloc(outputWidth * outputHeight * 4);
-
-  for (let outY = 0; outY < outputHeight; outY++) {
-    const srcY = startY + Math.min(cropHeight - 1, Math.floor((outY * cropHeight) / outputHeight));
-    for (let outX = 0; outX < outputWidth; outX++) {
-      const srcX = startX + Math.min(cropWidth - 1, Math.floor((outX * cropWidth) / outputWidth));
-      const srcIdx = (srcY * decoded.width + srcX) * 4;
-      const dstIdx = (outY * outputWidth + outX) * 4;
-      output[dstIdx] = decoded.data[srcIdx];
-      output[dstIdx + 1] = decoded.data[srcIdx + 1];
-      output[dstIdx + 2] = decoded.data[srcIdx + 2];
-      output[dstIdx + 3] = 255;
-    }
-  }
-
-  return Buffer.from(jpeg.encode({ data: output, width: outputWidth, height: outputHeight }, quality).data);
-}
-
-async function fetchUnavailableFallback({
-  config,
-  provider,
-  fetchImpl,
-  timeoutMs,
-  env,
-  z,
-  x,
-  y,
-}) {
-  const fallback = unavailableFallbackConfig(config, provider, env);
-  if (!fallback) return null;
-
-  const maxOffset = Math.min(z, Math.max(1, parsePositiveInt(fallback.maxParentZoomOffset) || z));
-  const quality = parsePositiveInt(fallback.jpegQuality) || 92;
-  const attempts = Math.max(1, parsePositiveInt(fallback.fallbackFetchAttempts) || 3);
-  const source = String(fallback.source || "wayback").toLowerCase();
-
-  for (let offset = 1; offset <= maxOffset; offset++) {
-    if (z - offset < 0) break;
-    if (fallback.tryCurrentParent === false) break;
-    const url = buildCurrentFallbackUrl({ provider, z, x, y, offset });
-    try {
-      const overzoomed = await tryFallbackCandidate({
-        url,
-        provider,
-        fetchImpl,
-        timeoutMs,
-        z,
-        x,
-        y,
-        offset,
-        quality,
-        attempts,
-      });
-      if (overzoomed) {
-        traceEvent(env, "tile-unavailable-fallback", {
-          provider: provider.name,
-          source: "current-parent",
-          offset,
-          url: describeTraceUrl(url),
-        });
-        return overzoomed;
-      }
-    } catch (error) {
-      traceEvent(env, "tile-unavailable-fallback-error", {
-        provider: provider.name,
-        offset,
-        url: describeTraceUrl(url),
-        error: error?.message || String(error),
-      });
-    }
-  }
-
-  let waybackReleases = [];
-  if (source === "wayback") {
-    try {
-      waybackReleases = await resolveWaybackReleases(fallback, fetchImpl, timeoutMs);
-    } catch (error) {
-      traceEvent(env, "tile-unavailable-fallback-error", {
-        provider: provider.name,
-        offset: 0,
-        url: fallback.releaseConfigUrl || "wayback-release-config",
-        error: error?.message || String(error),
-      });
-    }
-  }
-
-  if (fallback.tryExact !== false && waybackReleases.length > 0) {
-    const release = waybackReleases[0];
-    const url = buildWaybackFallbackUrl({ fallback, release, z, x, y, offset: 0 });
-    try {
-      const overzoomed = await tryFallbackCandidate({
-        url,
-        provider,
-        fetchImpl,
-        timeoutMs,
-        z,
-        x,
-        y,
-        offset: 0,
-        quality,
-        attempts,
-      });
-      if (overzoomed) {
-        traceEvent(env, "tile-unavailable-fallback", {
-          provider: provider.name,
-          source: "wayback",
-          release,
-          offset: 0,
-          url: describeTraceUrl(url),
-        });
-        return overzoomed;
-      }
-    } catch (error) {
-      traceEvent(env, "tile-unavailable-fallback-error", {
-        provider: provider.name,
-        offset: 0,
-        url: describeTraceUrl(url),
-        error: error?.message || String(error),
-      });
-    }
-  }
-
-  for (let offset = 1; offset <= maxOffset; offset++) {
-    if (z - offset < 0) break;
-    for (const release of waybackReleases) {
-      const url = buildWaybackFallbackUrl({ fallback, release, z, x, y, offset });
-      try {
-        const overzoomed = await tryFallbackCandidate({
-          url,
-          provider,
-          fetchImpl,
-          timeoutMs,
-          z,
-          x,
-          y,
-          offset,
-          quality,
-          attempts,
-        });
-        if (overzoomed) {
-          traceEvent(env, "tile-unavailable-fallback", {
-            provider: provider.name,
-            source: "wayback",
-            release,
-            offset,
-            url: describeTraceUrl(url),
-          });
-          return overzoomed;
-        }
-      } catch (error) {
-        traceEvent(env, "tile-unavailable-fallback-error", {
-          provider: provider.name,
-          offset,
-          url: describeTraceUrl(url),
-          error: error?.message || String(error),
-        });
-      }
-    }
-  }
-
-  return null;
-}
-
 async function downloadOneTile({
   config,
   provider,
@@ -870,31 +538,8 @@ async function downloadOneTile({
   const maxProxyTransportRetries = proxyTransportRetryLimit(provider.name, env);
   const backoffMs = Math.max(1, Number(config.performance?.retryBackoffMs || 150));
   const timeoutMs = Math.max(1000, Number(config.platformProfile?.requestTimeoutMs || 25_000));
-  const retryUnavailableTile = shouldRetryUnavailableTile(provider.name, env);
   let lastUnavailableTile = null;
-  let lastRetryStatus = null;
   let proxyTransportAttempts = 0;
-
-  async function writeFallbackTile() {
-    if (provider.name !== "esri") return false;
-    const fallbackBuffer = await fetchUnavailableFallback({
-      config,
-      provider,
-      fetchImpl,
-      timeoutMs,
-      env,
-      z,
-      x,
-      y,
-    });
-    if (!fallbackBuffer) return false;
-    await fsp.writeFile(tmpPath, fallbackBuffer);
-    const st = await fsp.stat(tmpPath);
-    if (!st.isFile() || st.size === 0) throw new Error("empty fallback tile");
-    await fsp.rename(tmpPath, finalPath);
-    providerRuntime.noteSuccess();
-    return true;
-  }
 
   let networkAttempt = 0;
   let requestAttempt = 0;
@@ -939,9 +584,7 @@ async function downloadOneTile({
       }
       if (classified.status === "missing") return "missing";
       if (classified.status === "retry") {
-        lastRetryStatus = resp.status;
         const blocked = provider.name === "esri" && providerRuntime.noteResponse(resp.status, proxy, protocol);
-        if ((resp.status === 403 || resp.status === 429) && await writeFallbackTile()) return "created";
         if (blocked) return "blocked";
         networkAttempt++;
         if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
@@ -965,15 +608,6 @@ async function downloadOneTile({
             sha256: lastUnavailableTile.sha256,
             url: describeTraceUrl(url),
           });
-          if (await writeFallbackTile()) return "created";
-          if (providerRuntime.noteUnavailable) {
-            providerRuntime.noteUnavailable(proxy, protocol);
-          }
-          if (retryUnavailableTile) {
-            networkAttempt++;
-            if (networkAttempt < maxRetries) await sleepImpl(retryDelayMs(backoffMs, networkAttempt));
-            continue;
-          }
           return "missing";
         }
         await fsp.writeFile(tmpPath, buffer);
@@ -1016,8 +650,6 @@ async function downloadOneTile({
     return "missing";
   }
 
-  if (provider.name === "esri" && lastRetryStatus === 404 && await writeFallbackTile()) return "created";
-
   return "failed";
 }
 
@@ -1052,8 +684,17 @@ async function processRow({
     yEnd,
   };
   const expected = yEnd - yStart + 1;
+  const existingRow = stateDb.getRow(key);
   if (!forceVerify && stateDb.shouldSkipRow(key)) {
-    return { skipped: true, expected, downloaded: 0, created: 0, skippedFiles: expected, missing: 0, failed: 0 };
+    return {
+      skipped: true,
+      expected,
+      downloaded: 0,
+      created: 0,
+      skippedFiles: existingRow?.downloaded ?? Math.max(0, expected - (existingRow?.missing || 0)),
+      missing: existingRow?.missing || 0,
+      failed: 0,
+    };
   }
 
   let downloaded = 0;
@@ -1126,7 +767,7 @@ async function processRow({
 
   const failed = pending.size;
 
-  if (failed === 0 && missing === 0) {
+  if (failed === 0) {
     stateDb.markRowComplete({
       ...key,
       expected,
@@ -1182,7 +823,6 @@ async function verifyRange({
 }) {
   let expected = 0;
   let present = 0;
-  let missing = 0;
   let repairedDownloaded = 0;
   let repairedCreated = 0;
   let providerMissing = 0;
@@ -1202,7 +842,6 @@ async function verifyRange({
           present++;
           rowPresent++;
         } else {
-          missing++;
           rowMissing++;
         }
       }
@@ -1218,8 +857,16 @@ async function verifyRange({
         yEnd: range.yEnd,
         expected: rowExpected,
       };
+      const row = stateDb.getRow(key);
+      const acceptedStoredMissing =
+        row &&
+        row.status === "complete" &&
+        row.failed === 0 &&
+        row.missing === rowMissing;
       let repairedResult = null;
-      if (rowMissing > 0) {
+      if (rowMissing > 0 && acceptedStoredMissing) {
+        providerMissing += rowMissing;
+      } else if (rowMissing > 0) {
         const repaired = await processRow({
           config,
           provider,
@@ -1247,31 +894,40 @@ async function verifyRange({
         providerMissing += repaired.missing;
         failed += repaired.failed;
         present -= rowPresent;
-        missing -= rowMissing;
         rowPresent = repaired.downloaded + repaired.created + repaired.skippedFiles;
         rowMissing = repaired.missing + repaired.failed;
         present += rowPresent;
-        missing += rowMissing;
       }
 
-      const row = stateDb.getRow(key);
-      if (row && row.failed === 0 && row.missing === 0 && rowMissing === 0) {
-        stateDb.markRowComplete({
-          ...key,
-          downloaded: rowPresent,
-          missing: rowMissing,
-          failed: 0,
-        });
-      } else if (rowMissing > 0) {
-        stateDb.markRowPartial({
-          ...key,
-          downloaded: rowPresent,
-          missing: repairedResult?.missing ?? rowMissing,
-          failed: repairedResult?.failed ?? rowMissing,
-        });
+      if (!acceptedStoredMissing) {
+        const nextMissing = repairedResult?.missing ?? rowMissing;
+        const nextFailed = repairedResult?.failed ?? 0;
+        if (nextFailed === 0) {
+          stateDb.markRowComplete({
+            ...key,
+            downloaded: rowPresent,
+            missing: nextMissing,
+            failed: 0,
+          });
+        } else {
+          stateDb.markRowPartial({
+            ...key,
+            downloaded: rowPresent,
+            missing: nextMissing,
+            failed: nextFailed,
+          });
+        }
       }
       rowsDone++;
-      progress.verifyProgress({ rangeIndex, rangeCount, rowsDone, rowsTotal, present, missing });
+      progress.verifyProgress({
+        rangeIndex,
+        rangeCount,
+        rowsDone,
+        rowsTotal,
+        present,
+        missing: providerMissing,
+        failed,
+      });
     }
   }
 
@@ -1279,7 +935,7 @@ async function verifyRange({
     label: range.label,
     expected,
     present,
-    missing,
+    missing: providerMissing,
     providerMissing,
     failed,
     repairedDownloaded,
@@ -1475,6 +1131,7 @@ export async function runDownloadJob({
           expected: verified.expected,
           present: verified.present,
           missing: verified.missing,
+          failed: verified.failed,
         });
         if (onRangeVerified) onRangeVerified(verified);
         reporter.rangeVerified({ rangeIndex, rangeCount, verified });

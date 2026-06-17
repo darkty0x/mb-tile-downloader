@@ -473,17 +473,36 @@ function assertUsableArchive(info, archivePath) {
 
 async function isRangeComplete(
   task,
-  { progressLabel = null, progressEveryRows = 100, progressEveryMs = 3000 } = {}
+  {
+    downloaderState = null,
+    progressLabel = null,
+    progressEveryRows = 100,
+    progressEveryMs = 3000,
+  } = {}
 ) {
   const { xStart, xEnd, yStart, yEnd, extension } = task;
   let files = 0;
   let missing = 0;
+  let failed = 0;
   let firstMissing = null;
   const expectedPerRow = yEnd - yStart + 1;
   const suffix = `.${extension}`;
   const totalRows = xEnd - xStart + 1;
   let checkedRows = 0;
   let lastProgressAt = 0;
+  const stateRows = downloaderState?.config?.layer === task.layer
+    ? downloaderState.db.getRowsForRange({
+        jobName: downloaderState.config.jobName,
+        configHash: downloaderState.config.configHash,
+        layer: task.layer,
+        z: task.z,
+        xStart,
+        xEnd,
+        yStart,
+        yEnd,
+      })
+    : [];
+  const rowStateByX = new Map(stateRows.map((row) => [row.x, row]));
 
   const emitProgress = (force = false) => {
     if (!progressLabel) return;
@@ -498,7 +517,7 @@ async function isRangeComplete(
     }
     lastProgressAt = now;
     console.log(
-      `  ${progressLabel}: checked ${checkedRows}/${totalRows} rows files=${files} missing=${missing}`
+      `  ${progressLabel}: checked ${checkedRows}/${totalRows} rows files=${files} missing=${missing} failed=${failed}`
     );
   };
 
@@ -509,8 +528,15 @@ async function isRangeComplete(
       names = await fsp.readdir(rowDir);
     } catch (err) {
       if (err.code !== "ENOENT") throw err;
-      missing += expectedPerRow;
-      if (!firstMissing) firstMissing = tileFilePath(task, x, yStart);
+      const rowState = rowStateByX.get(x);
+      const accepted =
+        rowState?.status === "complete" && rowState.failed === 0
+          ? Math.min(expectedPerRow, rowState.missing)
+          : 0;
+      const blocking = expectedPerRow - accepted;
+      missing += accepted;
+      failed += blocking;
+      if (blocking > 0 && !firstMissing) firstMissing = tileFilePath(task, x, yStart);
       checkedRows++;
       emitProgress();
       continue;
@@ -526,18 +552,26 @@ async function isRangeComplete(
     }
 
     files += present.size;
-    if (present.size !== expectedPerRow) {
+    const absent = expectedPerRow - present.size;
+    if (absent > 0) {
+      const rowState = rowStateByX.get(x);
+      const accepted =
+        rowState?.status === "complete" && rowState.failed === 0
+          ? Math.min(absent, rowState.missing)
+          : 0;
+      const blocking = absent - accepted;
+      missing += accepted;
+      failed += blocking;
       for (let y = yStart; y <= yEnd; y++) {
         if (present.has(y)) continue;
-        missing++;
-        if (!firstMissing) firstMissing = tileFilePath(task, x, y);
+        if (blocking > 0 && !firstMissing) firstMissing = tileFilePath(task, x, y);
       }
     }
     checkedRows++;
     emitProgress();
   }
 
-  return { complete: missing === 0, files, missing, firstMissing };
+  return { complete: failed === 0, files, missing, failed, firstMissing };
 }
 
 async function splitTaskByArchiveSize(
@@ -708,30 +742,30 @@ function makeArchiveName(baseName, partIndex, totalParts) {
   return `${baseName}.part-${String(partIndex).padStart(3, "0")}`;
 }
 
-async function listRangeFiles({ outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
-  const task = { outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension };
-  const files = [];
-  for (let x = xStart; x <= xEnd; x++) {
-    for (let y = yStart; y <= yEnd; y++) {
-      files.push({
-        filePath: tileFilePath(task, x, y),
-        zipName: `${layer}/${z}/${x}/${y}.${extension}`,
-      });
-    }
-  }
-  return files;
-}
-
 async function* iterateRangeFiles({ outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension }) {
   const task = { outputDir, outputDirs, layer, z, xStart, xEnd, yStart, yEnd, extension };
   for (let x = xStart; x <= xEnd; x++) {
     for (let y = yStart; y <= yEnd; y++) {
+      const filePath = tileFilePath(task, x, y);
+      try {
+        const st = await fsp.stat(filePath);
+        if (!st.isFile()) continue;
+      } catch (err) {
+        if (err.code === "ENOENT") continue;
+        throw err;
+      }
       yield {
-        filePath: tileFilePath(task, x, y),
+        filePath,
         zipName: `${layer}/${z}/${x}/${y}.${extension}`,
       };
     }
   }
+}
+
+async function countRangeFiles(task) {
+  let count = 0;
+  for await (const _ of iterateRangeFiles(task)) count++;
+  return count;
 }
 
 function expectedFileCount({ xStart, xEnd, yStart, yEnd }) {
@@ -1065,13 +1099,14 @@ function downloaderStateDbPath(config) {
   );
 }
 
-async function openDownloaderState(sourceConfigPath, dotEnvKeys = new Set()) {
+async function openDownloaderState(sourceConfigPath, dotEnvKeys = new Set(), { requireExisting = false } = {}) {
   try {
     const config = await loadConfig(sourceConfigPath, {
       env: envForSourceConfig(sourceConfigPath, dotEnvKeys),
       validateCredentials: false,
     });
     const dbPath = downloaderStateDbPath(config);
+    if (requireExisting && !fs.existsSync(dbPath)) return null;
     return {
       config,
       dbPath,
@@ -1161,7 +1196,7 @@ async function archiveRange({
   await fsp.rm(tmpPath, { force: true });
   await fsp.rm(`${tmpPath}.central`, { force: true });
 
-  const total = expectedFileCount(task);
+  const total = await countRangeFiles(task);
 
   if (dryRun) {
     console.log(`  DRY RUN: would zip ${total} files -> ${archivePath}`);
@@ -1201,7 +1236,7 @@ async function archiveRange({
       yEnd: task.yEnd,
       filesDone: done,
       filesTotal: total,
-      percent: Number(((done / total) * 100).toFixed(4)),
+      percent: total > 0 ? Number(((done / total) * 100).toFixed(4)) : 100,
       bytesWritten: writer.offset,
       filesPerSecond: Math.round(done / elapsed),
       currentFile,
@@ -1373,7 +1408,9 @@ async function main() {
         ? [sourceConfig.layer]
         : ["satellite"];
   const state = (await loadJsonIfExists(stateFile, { completed: [] })) || { completed: [] };
-  const downloaderState = opts.dryRun ? null : await openDownloaderState(sourceConfigPath, dotEnvKeys);
+  const downloaderState = await openDownloaderState(sourceConfigPath, dotEnvKeys, {
+    requireExisting: opts.dryRun,
+  });
 
   try {
     await fsp.mkdir(archiveDir, { recursive: true });
@@ -1425,6 +1462,8 @@ async function main() {
   let archived = 0;
   let skipped = 0;
   let incomplete = 0;
+  let missingAccepted = 0;
+  let failedTiles = 0;
   let duplicateSkipped = 0;
   const baseTaskItems = [];
   const taskByArchivePath = new Map();
@@ -1498,8 +1537,8 @@ async function main() {
       return;
     }
 
-    const files = expectedFileCount(task);
-    console.log(`ARCHIVE: ${name} files=${files} tmp=${tmpPath}`);
+    const expected = expectedFileCount(task);
+    console.log(`ARCHIVE: ${name} expected=${expected} tmp=${tmpPath}`);
     await archiveRange({
       task,
       archivePath,
@@ -1573,15 +1612,23 @@ async function main() {
       }
 
       const complete = await isRangeComplete(baseItem.task, {
+        downloaderState,
         progressLabel: `CHECK ${baseItem.name}`,
         progressEveryMs,
       });
+      missingAccepted += complete.missing;
+      failedTiles += complete.failed;
       if (!complete.complete && opts.onlyComplete) {
         console.log(
-          `WAIT incomplete: ${baseItem.name} have=${complete.files} missing=${complete.missing} first=${complete.firstMissing || "n/a"}`
+          `WAIT failed: ${baseItem.name} have=${complete.files} missing=${complete.missing} failed=${complete.failed} first=${complete.firstMissing || "n/a"}`
         );
         incomplete++;
         return;
+      }
+      if (complete.missing > 0) {
+        console.log(
+          `READY missing accepted: ${baseItem.name} have=${complete.files} missing=${complete.missing}`
+        );
       }
 
       const splitTasks = await splitTaskByArchiveSize(baseItem.task, maxArchiveSizeBytes, {
@@ -1608,7 +1655,7 @@ async function main() {
     }
 
     console.log(
-      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} state=${incomplete === 0 ? "cleaned" : stateFile}`
+      `Done. archived=${archived} skipped=${skipped} incomplete=${incomplete} missingAccepted=${missingAccepted} failed=${failedTiles} state=${incomplete === 0 ? "cleaned" : stateFile}`
     );
     if (incomplete > 0) process.exitCode = 1;
   } finally {

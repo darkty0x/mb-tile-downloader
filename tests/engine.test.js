@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
-import jpeg from "jpeg-js";
 import { mkdtemp, readFile, stat } from "node:fs/promises";
 import { writeFile, readdir, mkdir } from "node:fs/promises";
 import os from "node:os";
@@ -26,31 +25,6 @@ async function withEnv(values, fn) {
       else process.env[key] = value;
     }
   }
-}
-
-function quadrantJpeg() {
-  const width = 256;
-  const height = 256;
-  const data = Buffer.alloc(width * height * 4);
-  for (let y = 0; y < height; y++) {
-    for (let x = 0; x < width; x++) {
-      const idx = (y * width + x) * 4;
-      const top = y < 128;
-      const left = x < 128;
-      const color = top && left
-        ? [255, 0, 0]
-        : top
-          ? [0, 255, 0]
-          : left
-            ? [0, 0, 255]
-            : [255, 255, 0];
-      data[idx] = color[0];
-      data[idx + 1] = color[1];
-      data[idx + 2] = color[2];
-      data[idx + 3] = 255;
-    }
-  }
-  return jpeg.encode({ data, width, height }, 95).data;
 }
 
 test("dry run counts rows and does not create tile files", async () => {
@@ -115,7 +89,7 @@ test("download writes row tiles to deterministic output roots", async () => {
   db.close();
 });
 
-test("progress output reports created tiles and ETA", async () => {
+test("progress output reports source counters and ETA", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   const lines = [];
@@ -151,7 +125,8 @@ test("progress output reports created tiles and ETA", async () => {
   }
 
   const rowLine = lines.find((line) => line.includes(" row 1/1 "));
-  assert.match(rowLine, /d=1 c=0 s=0/);
+  assert.match(rowLine, /d=1 s=0/);
+  assert.doesNotMatch(rowLine, /\bc=/);
   assert.match(rowLine, /eta=\d+s/);
 });
 
@@ -200,6 +175,73 @@ test("engine skips rows marked complete for the same config hash", async () => {
   });
 
   assert.equal(result.rowsSkipped, 1);
+  assert.equal(fetches, 0);
+  db.close();
+});
+
+test("Mapbox missing source tiles complete rows and skip on resume", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const config = {
+    jobName: "mapbox-source-missing",
+    provider: "mapbox",
+    layer: "vector",
+    format: "pbf",
+    configHash: "hash",
+    output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+    tile: { extension: "vector.pbf", yScheme: "xyz" },
+    url: { template: "https://example.test/{z}/{x}/{y}.{extension}?access_token={token}" },
+    ranges: [{ zoomStart: 5, zoomEnd: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 20, label: "r" }],
+    platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 2, requestTimeoutMs: 1000 },
+    performance: { maxRetries: 0, retryBackoffMs: 1 },
+    verifyAfterDownload: false,
+  };
+
+  const first = await runDownloadJob({
+    config,
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    env: { MAPBOX_ACCESS_TOKENS: "pk.test" },
+    fetchImpl: async (url) => {
+      if (String(url).includes("/20.vector.pbf")) return new Response("not found", { status: 404 });
+      return new Response("tile");
+    },
+  });
+
+  assert.equal(first.tilesDownloaded, 1);
+  assert.equal(first.tilesMissing, 1);
+  assert.equal(first.tilesFailed, 0);
+  assert.equal(
+    db.shouldSkipRow({
+      jobName: config.jobName,
+      configHash: config.configHash,
+      layer: config.layer,
+      z: 5,
+      x: 27,
+      yStart: 19,
+      yEnd: 20,
+    }),
+    true
+  );
+
+  let fetches = 0;
+  const second = await runDownloadJob({
+    config,
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    env: { MAPBOX_ACCESS_TOKENS: "pk.test" },
+    fetchImpl: async () => {
+      fetches++;
+      throw new Error("complete missing rows should not refetch");
+    },
+  });
+
+  assert.equal(second.rowsSkipped, 1);
+  assert.equal(second.tileFilesSkipped, 1);
+  assert.equal(second.tilesMissing, 1);
+  assert.equal(second.tilesFailed, 0);
   assert.equal(fetches, 0);
   db.close();
 });
@@ -472,8 +514,6 @@ test("Esri retries 404 responses before accepting a tile as failed", async () =>
   await withEnv(
     {
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
-      TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE: "0",
-      TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE: "0",
       TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
     },
     async () => {
@@ -567,8 +607,6 @@ test("Configured Esri unavailable placeholder responses are missing, not proxy f
   await withEnv(
     {
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
-      TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE: "0",
-      TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE: "0",
       TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
     },
     async () => {
@@ -626,8 +664,6 @@ test("Esri unavailable placeholders are source missing tiles, not proxy failures
   await withEnv(
     {
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
-      TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE: undefined,
-      TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE: undefined,
       TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
     },
     async () => {
@@ -686,17 +722,16 @@ test("Esri unavailable placeholders are source missing tiles, not proxy failures
   db.close();
 });
 
-test("Esri unavailable child tiles can be synthesized from the correct parent quadrant", async () => {
+test("Esri unavailable placeholders stay missing even when old fallback settings are present", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   const placeholder = Buffer.from("esri unavailable placeholder");
   const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const parent = quadrantJpeg();
   const requestedUrls = [];
 
   const result = await runDownloadJob({
     config: {
-      jobName: "esri-parent-fallback",
+      jobName: "esri-no-parent-synthesis",
       provider: "esri",
       layer: "satellite",
       format: "jpg",
@@ -706,11 +741,11 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
         extension: "jpg",
         yScheme: "xyz",
         unavailableTileSha256: placeholderHash,
-        unavailableFallback: { maxParentZoomOffset: 1 },
+        unavailableFallback: { autoEnabled: true, maxParentZoomOffset: 4 },
       },
       url: { template: "https://example.test/{z}/{y}/{x}" },
       ranges: [
-        { zoomStart: 14, zoomEnd: 14, xStart: 9605, xEnd: 9605, yStart: 5825, yEnd: 5825, label: "a" },
+        { zoomStart: 19, zoomEnd: 19, xStart: 318592, xEnd: 318592, yStart: 172533, yEnd: 172533, label: "a" },
       ],
       platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
       performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
@@ -718,86 +753,6 @@ test("Esri unavailable child tiles can be synthesized from the correct parent qu
     },
     stateDb: db,
     env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
-    progress: false,
-    skipVerifyAfterDownload: true,
-    fetchImpl: async (url) => {
-      requestedUrls.push(String(url));
-      if (String(url) === "https://example.test/14/5825/9605") {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json") {
-        return Response.json({ Selection: [{ M: "10842" }] });
-      }
-      if (String(url).includes("/tile/10842/14/5825/9605")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (String(url).includes("/tile/10842/13/2912/4802")) {
-        return new Response(parent, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-
-  assert.equal(result.tilesDownloaded, 0);
-  assert.equal(result.tilesCreated, 1);
-  assert.equal(result.tilesMissing, 0);
-  assert.equal(result.tilesFailed, 0);
-  assert.deepEqual(requestedUrls, [
-    "https://example.test/14/5825/9605",
-    "https://example.test/13/2912/4802",
-    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json",
-    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/14/5825/9605",
-    "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/13/2912/4802",
-  ]);
-
-  const saved = jpeg.decode(
-    await readFile(path.join(dir, "tiles", "satellite", "14", "9605", "5825.jpg"))
-  );
-  const center = (128 * saved.width + 128) * 4;
-  assert.ok(saved.data[center] > 200, "expected red channel from bottom-right quadrant");
-  assert.ok(saved.data[center + 1] > 200, "expected green channel from bottom-right quadrant");
-  assert.ok(saved.data[center + 2] < 80, "expected low blue channel from bottom-right quadrant");
-
-  db.close();
-});
-
-test("Esri unavailable fallback is disabled by default", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
-  const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const placeholder = Buffer.from("esri unavailable placeholder");
-  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const requestedUrls = [];
-
-  const result = await runDownloadJob({
-    config: {
-      jobName: "esri-parent-fallback-disabled",
-      provider: "esri",
-      layer: "satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: {
-        extension: "jpg",
-        yScheme: "xyz",
-        unavailableTileSha256: placeholderHash,
-        unavailableFallback: { maxParentZoomOffset: 1 },
-      },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        { zoomStart: 14, zoomEnd: 14, xStart: 9605, xEnd: 9605, yStart: 5825, yEnd: 5825, label: "a" },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
-      verifyAfterDownload: false,
-    },
-    stateDb: db,
-    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: undefined },
     progress: false,
     skipVerifyAfterDownload: true,
     fetchImpl: async (url) => {
@@ -812,303 +767,19 @@ test("Esri unavailable fallback is disabled by default", async () => {
   assert.equal(result.tilesDownloaded, 0);
   assert.equal(result.tilesCreated, 0);
   assert.equal(result.tilesMissing, 1);
-  assert.deepEqual(requestedUrls, ["https://example.test/14/5825/9605"]);
-
-  db.close();
-});
-
-test("auto-corrected Ukraine Esri z19 ranges create child tiles from current parents without global synthesis env", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
-  const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const placeholder = Buffer.from("esri unavailable placeholder");
-  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const parent = quadrantJpeg();
-  const requestedUrls = [];
-
-  const result = await runDownloadJob({
-    config: {
-      jobName: "ukraine-z19-part-003-esri-satellite",
-      provider: "esri",
-      layer: "esri-satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: {
-        extension: "jpg",
-        yScheme: "xyz",
-        unavailableTileSha256: placeholderHash,
-        unavailableFallback: { autoEnabled: true, source: "current", maxParentZoomOffset: 2 },
-      },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        {
-          zoomStart: 19,
-          zoomEnd: 19,
-          xStart: 318592,
-          xEnd: 318592,
-          yStart: 172533,
-          yEnd: 172533,
-          label: "corrected",
-          autoCorrectedY: "tms-to-xyz",
-        },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
-      verifyAfterDownload: false,
-    },
-    stateDb: db,
-    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: undefined },
-    progress: false,
-    skipVerifyAfterDownload: true,
-    fetchImpl: async (url) => {
-      requestedUrls.push(String(url));
-      if (String(url) === "https://example.test/19/172533/318592") {
-        return new Response(placeholder, { status: 200, headers: { "content-type": "image/jpeg" } });
-      }
-      if (String(url) === "https://example.test/18/86266/159296") {
-        return new Response(parent, { status: 200, headers: { "content-type": "image/jpeg" } });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-
-  assert.equal(result.tilesDownloaded, 0);
-  assert.equal(result.tilesCreated, 1);
-  assert.equal(result.tilesMissing, 0);
   assert.equal(result.tilesFailed, 0);
-  assert.deepEqual(requestedUrls, [
-    "https://example.test/19/172533/318592",
-    "https://example.test/18/86266/159296",
-  ]);
-
-  db.close();
-});
-
-test("Esri unavailable fallback searches older Wayback releases before marking missing", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
-  const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const placeholder = Buffer.from("esri unavailable placeholder");
-  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const parent = quadrantJpeg();
-  const requestedUrls = [];
-  const releaseConfigUrl = "https://wayback.example.test/releases?f=json";
-
-  const result = await runDownloadJob({
-    config: {
-      jobName: "esri-older-wayback-fallback",
-      provider: "esri",
-      layer: "satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: {
-        extension: "jpg",
-        yScheme: "xyz",
-        unavailableTileSha256: placeholderHash,
-        unavailableFallback: { releaseConfigUrl, maxParentZoomOffset: 1 },
-      },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        { zoomStart: 14, zoomEnd: 14, xStart: 9605, xEnd: 9605, yStart: 5825, yEnd: 5825, label: "a" },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
-      verifyAfterDownload: false,
-    },
-    stateDb: db,
-    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
-    progress: false,
-    skipVerifyAfterDownload: true,
-    fetchImpl: async (url) => {
-      requestedUrls.push(String(url));
-      if (String(url) === "https://example.test/14/5825/9605") {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === "https://example.test/13/2912/4802") {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === releaseConfigUrl) {
-        return Response.json({
-          Selection: [
-            { M: "10842", Name: "World Imagery (Wayback 2026-05-28)" },
-            { M: "16513", Name: "World Imagery (Wayback 2014-05-14)" },
-          ],
-        });
-      }
-      if (String(url).includes("/tile/10842/14/5825/9605")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (String(url).includes("/tile/10842/13/2912/4802")) {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url).includes("/tile/16513/14/5825/9605")) {
-        return new Response("not found", { status: 404 });
-      }
-      if (String(url).includes("/tile/16513/13/2912/4802")) {
-        return new Response(parent, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-
-  assert.equal(result.tilesDownloaded, 0);
-  assert.equal(result.tilesCreated, 1);
-  assert.equal(result.tilesMissing, 0);
-  assert.equal(result.tilesFailed, 0);
-  assert.ok(
-    requestedUrls.includes(
-      "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/16513/13/2912/4802"
-    ),
-    "expected fallback to try the older Wayback parent tile"
+  assert.deepEqual(requestedUrls, ["https://example.test/19/172533/318592"]);
+  await assert.rejects(
+    () => stat(path.join(dir, "tiles", "satellite", "19", "318592", "172533.jpg")),
+    /ENOENT/
   );
 
   db.close();
 });
 
-test("Esri unavailable fallback tries deeper current parents before older Wayback scans", async () => {
+test("Esri retryable current tile errors do not synthesize from parent or Wayback", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const placeholder = Buffer.from("esri unavailable placeholder");
-  const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
-  const grandparent = quadrantJpeg();
-  const requestedUrls = [];
-
-  const result = await runDownloadJob({
-    config: {
-      jobName: "esri-deeper-current-parent-fallback",
-      provider: "esri",
-      layer: "satellite",
-      format: "jpg",
-      configHash: "hash",
-      output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-      tile: { extension: "jpg", yScheme: "xyz", unavailableTileSha256: placeholderHash },
-      url: { template: "https://example.test/{z}/{y}/{x}" },
-      ranges: [
-        { zoomStart: 15, zoomEnd: 15, xStart: 19211, xEnd: 19211, yStart: 11648, yEnd: 11648, label: "a" },
-      ],
-      platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-      performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
-      verifyAfterDownload: false,
-    },
-    stateDb: db,
-    env: { ...process.env, TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1" },
-    progress: false,
-    skipVerifyAfterDownload: true,
-    fetchImpl: async (url) => {
-      requestedUrls.push(String(url));
-      if (String(url) === "https://example.test/15/11648/19211") {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === "https://example.test/14/5824/9605") {
-        return new Response(placeholder, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === "https://example.test/13/2912/4802") {
-        return new Response(grandparent, {
-          status: 200,
-          headers: { "content-type": "image/jpeg" },
-        });
-      }
-      if (String(url) === "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json") {
-        return Response.json({ Selection: [{ M: "10842" }, { M: "16513" }] });
-      }
-      return new Response("not found", { status: 404 });
-    },
-  });
-
-  assert.equal(result.tilesDownloaded, 0);
-  assert.equal(result.tilesCreated, 1);
-  assert.equal(result.tilesMissing, 0);
-  assert.equal(result.tilesFailed, 0);
-  assert.deepEqual(requestedUrls, [
-    "https://example.test/15/11648/19211",
-    "https://example.test/14/5824/9605",
-    "https://example.test/13/2912/4802",
-  ]);
-
-  db.close();
-});
-
-test("Esri missing exact tiles can be synthesized from a current parent tile", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
-  const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const grandparent = quadrantJpeg();
-  const requestedUrls = [];
-
-  await withEnv(
-    {
-      TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "1",
-      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1",
-    },
-    async () => {
-      const result = await runDownloadJob({
-        config: {
-          jobName: "esri-404-parent-fallback",
-          provider: "esri",
-          layer: "satellite",
-          format: "jpg",
-          configHash: "hash",
-          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-          tile: { extension: "jpg", yScheme: "xyz" },
-          url: { template: "https://example.test/{z}/{y}/{x}" },
-          ranges: [
-            { zoomStart: 15, zoomEnd: 15, xStart: 19211, xEnd: 19211, yStart: 11648, yEnd: 11648, label: "a" },
-          ],
-          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-          performance: { maxRetries: 1, retryBackoffMs: 1, rowRecoveryPasses: 0 },
-          verifyAfterDownload: false,
-        },
-        stateDb: db,
-        progress: false,
-        skipVerifyAfterDownload: true,
-        fetchImpl: async (url) => {
-          requestedUrls.push(String(url));
-          if (String(url) === "https://example.test/13/2912/4802") {
-            return new Response(grandparent, {
-              status: 200,
-              headers: { "content-type": "image/jpeg" },
-            });
-          }
-          return new Response("not found", { status: 404 });
-        },
-      });
-
-      assert.equal(result.tilesDownloaded, 0);
-      assert.equal(result.tilesCreated, 1);
-      assert.equal(result.tilesMissing, 0);
-      assert.equal(result.tilesFailed, 0);
-      assert.deepEqual(requestedUrls, [
-        "https://example.test/15/11648/19211",
-        "https://example.test/14/5824/9605",
-        "https://example.test/13/2912/4802",
-      ]);
-    }
-  );
-
-  db.close();
-});
-
-test("Esri retryable current-tile blocks can fall back to Wayback instead of failing", async () => {
-  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
-  const db = new TileStateDb(path.join(dir, "state.sqlite"));
-  const parent = quadrantJpeg();
   const requestedUrls = [];
 
   await withEnv(
@@ -1120,13 +791,13 @@ test("Esri retryable current-tile blocks can fall back to Wayback instead of fai
     async () => {
       const result = await runDownloadJob({
         config: {
-          jobName: "esri-retryable-fallback",
+          jobName: "esri-no-retryable-synthesis",
           provider: "esri",
           layer: "satellite",
           format: "jpg",
           configHash: "hash",
           output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-          tile: { extension: "jpg", yScheme: "xyz" },
+          tile: { extension: "jpg", yScheme: "xyz", unavailableFallback: { maxParentZoomOffset: 4 } },
           url: { template: "https://example.test/{z}/{y}/{x}" },
           ranges: [
             { zoomStart: 14, zoomEnd: 14, xStart: 9863, xEnd: 9863, yStart: 5300, yEnd: 5300, label: "a" },
@@ -1140,38 +811,15 @@ test("Esri retryable current-tile blocks can fall back to Wayback instead of fai
         skipVerifyAfterDownload: true,
         fetchImpl: async (url) => {
           requestedUrls.push(String(url));
-          if (String(url) === "https://example.test/14/5300/9863") {
-            return new Response("blocked", { status: 403 });
-          }
-          if (String(url) === "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/MapServer?f=json") {
-            return Response.json({ Selection: [{ M: "10842" }] });
-          }
-          if (String(url).includes("/tile/10842/14/5300/9863")) {
-            return new Response("not found", { status: 404 });
-          }
-          if (String(url) === "https://example.test/13/2650/4931") {
-            return new Response("blocked", { status: 403 });
-          }
-          if (String(url).includes("/tile/10842/13/2650/4931")) {
-            return new Response(parent, {
-              status: 200,
-              headers: { "content-type": "image/jpeg" },
-            });
-          }
-          return new Response("not found", { status: 404 });
+          return new Response("blocked", { status: 403 });
         },
       });
 
       assert.equal(result.tilesDownloaded, 0);
-      assert.equal(result.tilesCreated, 1);
+      assert.equal(result.tilesCreated, 0);
       assert.equal(result.tilesMissing, 0);
-      assert.equal(result.tilesFailed, 0);
-      assert.ok(
-        requestedUrls.includes(
-          "https://wayback.maptiles.arcgis.com/arcgis/rest/services/World_Imagery/WMTS/1.0.0/default028mm/MapServer/tile/10842/13/2650/4931"
-        ),
-        "expected retryable current-tile block to use Wayback parent fallback"
-      );
+      assert.equal(result.tilesFailed, 1);
+      assert.deepEqual(requestedUrls, ["https://example.test/14/5300/9863"]);
     }
   );
 
@@ -1230,11 +878,10 @@ test("Esri existing unavailable placeholder files are redownloaded instead of sk
   db.close();
 });
 
-test("Esri unavailable placeholder responses can opt into proxy blocking and retry", async () => {
+test("Esri unavailable placeholders ignore legacy retry and proxy-block env overrides", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   const placeholder = Buffer.from("esri unavailable placeholder");
-  const replacement = Buffer.from("real imagery tile");
   const placeholderHash = crypto.createHash("sha256").update(placeholder).digest("hex");
   const marked = [];
   let fetches = 0;
@@ -1252,12 +899,12 @@ test("Esri unavailable placeholder responses can opt into proxy blocking and ret
       TILE_DOWNLOADER_ESRI_MIN_TILE_RETRIES: "2",
       TILE_DOWNLOADER_ESRI_RETRY_UNAVAILABLE: "1",
       TILE_DOWNLOADER_ESRI_BLOCK_PROXY_ON_UNAVAILABLE: "1",
-      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "0",
+      TILE_DOWNLOADER_ESRI_UNAVAILABLE_FALLBACK: "1",
     },
     async () => {
       const result = await runDownloadJob({
         config: {
-          jobName: "esri-placeholder-proxy-rotate",
+          jobName: "esri-placeholder-no-retry-or-proxy-block",
           provider: "esri",
           layer: "satellite",
           format: "jpg",
@@ -1279,12 +926,12 @@ test("Esri unavailable placeholder responses can opt into proxy blocking and ret
         proxyRotation,
         fetchImpl: async () => {
           fetches++;
-          const response = new Response(fetches === 1 ? placeholder : replacement, {
+          const response = new Response(placeholder, {
             status: 200,
             headers: { "content-type": "image/jpeg" },
           });
           response[PROXY_INFO_SYMBOL] = {
-            proxy: fetches === 1 ? "https://placeholder.proxy.example:8080" : "https://good.proxy.example:8080",
+            proxy: "https://placeholder.proxy.example:8080",
             protocol: "https:",
             url: "https://example.test/14/5824/9603",
           };
@@ -1292,17 +939,18 @@ test("Esri unavailable placeholder responses can opt into proxy blocking and ret
         },
       });
 
-      assert.equal(result.tilesDownloaded, 1);
-      assert.equal(result.tilesMissing, 0);
+      assert.equal(result.tilesDownloaded, 0);
+      assert.equal(result.tilesMissing, 1);
       assert.equal(result.tilesFailed, 0);
     }
   );
 
-  assert.equal(fetches, 2);
-  assert.equal(marked.length, 1);
-  assert.equal(marked[0].proxy, "https://placeholder.proxy.example:8080");
-  const saved = await stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg"));
-  assert.equal(saved.size, replacement.length);
+  assert.equal(fetches, 1);
+  assert.deepEqual(marked, []);
+  await assert.rejects(
+    () => stat(path.join(dir, "tiles", "satellite", "14", "9603", "5824.jpg")),
+    /ENOENT/
+  );
 
   db.close();
 });
@@ -1389,6 +1037,13 @@ test("range verification reports final failed tiles once", async () => {
     assert.equal(result.tilesDownloaded, 0);
     assert.equal(result.tilesFailed, 1);
     assert.equal(fetches, 2);
+    const rangeState = db.db
+      .prepare(
+        `SELECT missing, failed, status FROM ranges
+         WHERE job_name=? AND config_hash=? AND layer=? AND range_index=?`
+      )
+      .get("verify-failure-count", "hash", "satellite", 1);
+    assert.deepEqual(rangeState, { missing: 0, failed: 1, status: "partial" });
   });
 
   db.close();

@@ -168,7 +168,7 @@ test("downloader accepts deprecated --proxy-trace as a compatibility no-op", asy
   assert.ok(stdout.includes("Mode: dry-run"), stdout);
 });
 
-test("downloader disables missing tile synthesis unless explicitly requested", async () => {
+test("downloader disables missing tile synthesis and rejects the removed synthesis flag", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-downloader-synthesis-"));
   const configPath = path.join(dir, "esri.config.json");
   await writeFile(configPath, JSON.stringify(esriConfig(path.join(dir, "download"))));
@@ -178,14 +178,17 @@ test("downloader disables missing tile synthesis unless explicitly requested", a
     ["downloader.js", configPath, "--dry-run"],
     { cwd: process.cwd(), env: process.env }
   );
-  const enabled = await execFileAsync(
-    process.execPath,
-    ["downloader.js", configPath, "--dry-run", "--synthesize-missing"],
-    { cwd: process.cwd(), env: process.env }
-  );
-
   assert.ok(disabled.stdout.includes("Synthesis: disabled"), disabled.stdout);
-  assert.ok(enabled.stdout.includes("Synthesis: enabled (--synthesize-missing)"), enabled.stdout);
+  assert.ok(disabled.stdout.includes("Completion status: green"), disabled.stdout);
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        ["downloader.js", configPath, "--dry-run", "--synthesize-missing"],
+        { cwd: process.cwd(), env: process.env }
+      ),
+    /--synthesize-missing has been removed/
+  );
 });
 
 test("downloader enables paid proxy list from environment", async () => {

@@ -195,17 +195,6 @@ export async function loadConfig(configPath, options = {}) {
   const tile = { ...defaults.tile, ...(raw.tile || {}) };
   const url = { ...defaults.url, ...(raw.url || {}) };
   const ranges = normalizeRanges(raw);
-  const hasAutoCorrectedUkraineY = ranges.some((range) => range.autoCorrectedY === "tms-to-xyz");
-  if (provider === "esri" && hasAutoCorrectedUkraineY) {
-    tile.unavailableFallback = {
-      source: "current",
-      maxParentZoomOffset: 4,
-      autoEnabled: true,
-      ...(tile.unavailableFallback && typeof tile.unavailableFallback === "object"
-        ? tile.unavailableFallback
-        : {}),
-    };
-  }
   const output = await resolveOutputStorage({
     dir: resolvePlatformPath(
       {

@@ -49,6 +49,7 @@ export class TileStateDb {
         expected INTEGER NOT NULL,
         present INTEGER NOT NULL DEFAULT 0,
         missing INTEGER NOT NULL DEFAULT 0,
+        failed INTEGER NOT NULL DEFAULT 0,
         status TEXT NOT NULL,
         verified_at TEXT,
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
@@ -62,6 +63,13 @@ export class TileStateDb {
         updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
       );
     `);
+
+    const rangeColumns = new Set(
+      this.db.prepare("PRAGMA table_info(ranges)").all().map((column) => column.name)
+    );
+    if (!rangeColumns.has("failed")) {
+      this.db.exec("ALTER TABLE ranges ADD COLUMN failed INTEGER NOT NULL DEFAULT 0");
+    }
   }
 
   upsertJob({ jobName, provider, configHash }) {
@@ -100,17 +108,17 @@ export class TileStateDb {
 
   shouldSkipRow(key) {
     const row = this.getRow(key);
-    return Boolean(row && row.status === "complete" && row.missing === 0 && row.failed === 0);
+    return Boolean(row && row.status === "complete" && row.failed === 0);
   }
 
   shouldSkipRange({ jobName, configHash, layer, rangeIndex }) {
     const row = this.db
       .prepare(
-        `SELECT status, missing FROM ranges
+        `SELECT status, failed FROM ranges
          WHERE job_name=? AND config_hash=? AND layer=? AND range_index=?`
       )
       .get(jobName, configHash, layer, rangeIndex);
-    return Boolean(row && row.status === "verified" && row.missing === 0);
+    return Boolean(row && row.status === "verified" && row.failed === 0);
   }
 
   markRangeVerified(range) {
@@ -118,15 +126,16 @@ export class TileStateDb {
       .prepare(
         `INSERT INTO ranges (
            job_name, config_hash, layer, range_index, label,
-           expected, present, missing, status, verified_at, updated_at
+           expected, present, missing, failed, status, verified_at, updated_at
          )
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
          ON CONFLICT(job_name, config_hash, layer, range_index)
          DO UPDATE SET
            label=excluded.label,
            expected=excluded.expected,
            present=excluded.present,
            missing=excluded.missing,
+           failed=excluded.failed,
            status=excluded.status,
            verified_at=excluded.verified_at,
            updated_at=CURRENT_TIMESTAMP`
@@ -140,8 +149,9 @@ export class TileStateDb {
         range.expected,
         range.present,
         range.missing,
-        range.missing === 0 ? "verified" : "partial",
-        range.missing === 0 ? new Date().toISOString() : null
+        range.failed || 0,
+        (range.failed || 0) === 0 ? "verified" : "partial",
+        (range.failed || 0) === 0 ? new Date().toISOString() : null
       );
   }
 
@@ -151,14 +161,15 @@ export class TileStateDb {
         .prepare(
           `INSERT INTO ranges (
              job_name, config_hash, layer, range_index, label,
-             expected, present, missing, status, verified_at, updated_at
+             expected, present, missing, failed, status, verified_at, updated_at
            )
-           VALUES (?, ?, ?, ?, ?, ?, 0, ?, 'archived', NULL, CURRENT_TIMESTAMP)
+           VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, 'archived', NULL, CURRENT_TIMESTAMP)
            ON CONFLICT(job_name, config_hash, layer, range_index)
            DO UPDATE SET
              status='archived',
              present=0,
              missing=excluded.missing,
+             failed=excluded.failed,
              verified_at=NULL,
              updated_at=CURRENT_TIMESTAMP`
         )
@@ -168,6 +179,7 @@ export class TileStateDb {
           range.layer,
           range.rangeIndex,
           range.label,
+          range.expected,
           range.expected,
           range.expected
         );
@@ -211,6 +223,23 @@ export class TileStateDb {
 
   markRowFailed(row) {
     this.#upsertRow({ ...row, status: "failed", verifiedAt: null });
+  }
+
+  getRowsForRange({ jobName, configHash, layer, z, xStart, xEnd, yStart, yEnd }) {
+    return this.db
+      .prepare(
+        `SELECT *
+         FROM rows
+         WHERE job_name=?
+           AND config_hash=?
+           AND layer=?
+           AND z=?
+           AND x BETWEEN ? AND ?
+           AND y_start=?
+           AND y_end=?
+         ORDER BY x ASC`
+      )
+      .all(jobName, configHash, layer, z, xStart, xEnd, yStart, yEnd);
   }
 
   #upsertRow(row) {
