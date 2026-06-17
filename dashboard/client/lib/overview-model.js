@@ -6,6 +6,10 @@ const PIPELINE_STEPS = [
 ];
 const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["server_rdp_credential"]);
 const RUNNING_JOB_STATUSES = new Set(["running", "queued", "claimed"]);
+const CONTROL_UTILITY_COMMANDS = [
+  ["sync_config", "Config 화일 동기화", "sync"],
+  ["sync_env", ".Env 동기화", "sync"],
+];
 
 function shellQuote(value) {
   const text = String(value || "");
@@ -125,6 +129,48 @@ function jobMachineMatches(job, machineId) {
   const normalizedMachineId = normalizeMachineId(machineId);
   if (!normalizedMachineId) return true;
   return normalizeMachineId(job.machineId) === normalizedMachineId;
+}
+
+function eventMachineMatches(event, machineId) {
+  const normalizedMachineId = normalizeMachineId(machineId);
+  if (!normalizedMachineId) return true;
+  return normalizeMachineId(event.machineId || event.data?.machineId) === normalizedMachineId;
+}
+
+function newestFirst(a, b) {
+  return String(b.createdAt || b.startedAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.startedAt || a.updatedAt || ""));
+}
+
+export function buildMachineCommandRows({ jobs = [], events = [], machineId } = {}) {
+  if (!normalizeMachineId(machineId)) return [];
+  const scopedJobs = jobs.filter((job) => jobMachineMatches(job, machineId)).sort(newestFirst);
+  const activeJob = scopedJobs.find((job) => RUNNING_JOB_STATUSES.has(job.status));
+  if (activeJob) {
+    return [
+      ["pause_after_range", "일시중지", "pause"],
+      ["stop_pipeline", "정지", "stop"],
+      ...CONTROL_UTILITY_COMMANDS,
+    ];
+  }
+
+  const latestJob = scopedJobs[0] || null;
+  const latestPause = events
+    .filter((event) => event.type === "pipeline.paused" && eventMachineMatches(event, machineId))
+    .sort(newestFirst)[0] || null;
+  const latestPauseTime = String(latestPause?.createdAt || "");
+  const latestJobTime = String(latestJob?.finishedAt || latestJob?.updatedAt || latestJob?.startedAt || "");
+  const isPaused = latestPause && (!latestJob || latestPauseTime >= latestJobTime || latestJob.status === "completed");
+  const lifecycleCommands = isPaused
+    ? [
+        ["resume_pipeline", "재개", "play"],
+        ["stop_pipeline", "정지", "stop"],
+      ]
+    : [["start_pipeline", "시작", "play"]];
+
+  return [
+    ...lifecycleCommands,
+    ...CONTROL_UTILITY_COMMANDS,
+  ];
 }
 
 function stageIndex(stage) {
@@ -299,7 +345,7 @@ export function buildOverviewModel({
       throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 Agent 지표 대기중" },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
       failedJobs: { label: "실패한 타일수", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
-      resourceAlerts: { label: "API Key및 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
+      resourceAlerts: { label: "API Key 및 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: pipelineModel.steps,
     pipelineEta: pipelineModel.etaLabel,

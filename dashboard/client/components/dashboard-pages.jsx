@@ -1,11 +1,11 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { buildOverviewModel } from "../lib/overview-model";
+import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-model";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
-import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers", "sky"],
@@ -210,7 +210,7 @@ function ResourceAlertsCard({ overview, actions }) {
   return (
     <Surface className="p-4">
       <SectionTitle
-        title="API Key및 Proxy상태"
+        title="API Key 및 Proxy상태"
         meta="설정의 림계값을 리용합니다"
         action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>림계값</AppButton>}
       />
@@ -259,7 +259,7 @@ function QuickActionsCard({ actions }) {
   const items = [
     ["console", "명령실행", () => actions.setSelectedTab("events")],
     ["pause", "모두 일시중지", () => actions.setNotice({ message: "명령을 보내기전에 봉사기관리페지를 여십시오", kind: "error" })],
-    ["refresh", "설정화일 동기화", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
+    ["refresh", "Config 화일 동기화", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
     ["pipelines", "공정흐름보기", () => actions.setSelectedTab("pipelines")],
     ["events", "기록보기", () => actions.setSelectedTab("events")],
     ["alerts", "경보추가", () => actions.setSelectedTab("alerts")],
@@ -475,6 +475,11 @@ export function ServerManagementPage({ state, actions }) {
     settings: state.settings,
     machineId: targetMachineId,
   });
+  const commandRows = buildMachineCommandRows({
+    jobs: state.jobs,
+    events: state.events,
+    machineId: targetMachineId,
+  });
   const counts = {
     configs: serverState.configs.length || snapshot.configs?.length || 0,
     env: serverState.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
@@ -511,10 +516,10 @@ export function ServerManagementPage({ state, actions }) {
       </Surface>
 
       <section className="grid grid-cols-6 gap-2 max-lg:grid-cols-3 max-sm:grid-cols-2">
-        {COMMANDS.map(([type, label, icon]) => (
+        {commandRows.map(([type, label, icon]) => (
           <AppButton
             key={type}
-            variant={type === "start_pipeline" ? "filled" : "outlined"}
+            variant={type === "start_pipeline" || type === "resume_pipeline" ? "filled" : "outlined"}
             icon={icon}
             className={type === "stop_pipeline" ? "danger-button" : ""}
             disabled={!targetMachineId}
@@ -561,7 +566,7 @@ function ServerPageControl({ state, machine, overview }) {
   const localConfigCount = snapshot.configs?.length || 0;
   const localEnvCount = snapshot.envFiles?.filter((file) => file.exists).length || 0;
   const facts = [
-    ["layers", "설정화일", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `Local 설정화일 ${localConfigCount}개` : "관리체계 설정화일 배정없음")],
+    ["layers", "Config 화일", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `Local Config 화일 ${localConfigCount}개` : "관리체계 Config 화일 배정없음")],
     ["env", ".Env", state.activeEnv?.name || (localEnvCount ? `Local .Env화일 ${localEnvCount}개` : "관리체계 .Env 배정없음")],
     ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `Local Proxy ${proxySummary.availableCount}개` : "없음"],
     ["control", "마지막 확인", machine ? shortDate(machine.lastSeenAt) : "대기중"],
@@ -608,20 +613,16 @@ function storageBreakdownForDisk(disk, storage) {
   const labels = {
     tiles: "타일 내리적재",
     zip: "압축보관",
-    state: "상태",
-    configs: "설정화일",
   };
   const colors = {
     tiles: "var(--ptg-primary)",
     zip: "var(--ptg-success)",
-    state: "var(--ptg-warning)",
-    configs: "var(--ptg-secondary)",
     other: "#9aa8bd",
   };
   const usedBytes = Math.max(0, Number(disk.usedBytes) || 0);
   const totalBytes = Math.max(0, Number(disk.totalBytes) || 0);
   const byType = new Map();
-  for (const item of storage.filter((entry) => entry.exists && storageBelongsToDisk(entry, disk))) {
+  for (const item of storage.filter((entry) => ["tiles", "zip"].includes(entry.type) && entry.exists && storageBelongsToDisk(entry, disk))) {
     const current = byType.get(item.type) || { type: item.type, label: labels[item.type] || item.label, sizeBytes: 0, truncated: false };
     current.sizeBytes += Number(item.sizeBytes) || 0;
     current.truncated = current.truncated || Boolean(item.truncated);
@@ -643,10 +644,10 @@ function storageBreakdownForDisk(disk, storage) {
 
 function ServerPageStorage({ machine }) {
   const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
-  const storage = machine?.agentSnapshot?.storage || [];
+  const storage = (machine?.agentSnapshot?.storage || []).filter((item) => ["tiles", "zip"].includes(item.type));
   return (
     <section className="grid gap-3">
-      <SectionTitle title="구동기용량" meta={`${disks.length}개 구동기 | 타일, 압축, 상태, 설정화일 및 나머지 사용공간`} />
+      <SectionTitle title="구동기용량" meta={`${disks.length}개 구동기 | 사용공간`} />
       <div className="grid gap-3">
         {disks.length ? disks.map((disk) => {
           const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
@@ -661,7 +662,7 @@ function ServerPageStorage({ machine }) {
                     {disk.containsProject ? <StatusPill status="success">내리적재</StatusPill> : null}
                   </span>
                   <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-                    {disk.filesystem || "Local 구동기"} | 전체 {formatBytes(disk.totalBytes)}중 {formatBytes(disk.usedBytes)} 사용 | {formatBytes(disk.freeBytes)} 남음
+                    {disk.filesystem || "Local 구동기"} | 전체 {formatBytes(disk.totalBytes)} 중 {formatBytes(disk.usedBytes)} 사용 | {formatBytes(disk.freeBytes)} 남음
                   </small>
                 </span>
                 <strong className="text-[13px]">{pct}% 사용</strong>
@@ -677,21 +678,21 @@ function ServerPageStorage({ machine }) {
                       <span className="block h-full rounded-full" style={{ width: `${item.pctOfUsed}%`, background: item.color }} />
                     </span>
                     <span className="text-right font-[720] text-[var(--ptg-on-surface-variant)]">
-                      {formatBytes(item.sizeBytes)} | 구동기의 {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
+                      {formatBytes(item.sizeBytes)} | {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
                     </span>
                   </div>
                 ))}
               </div>
             </div>
           );
-        }) : <EmptyLine>아직 구동기사용량과 관련한 자료가 없습니다</EmptyLine>}
+        }) : <EmptyLine>아직 구동기사용량과 관련한 정보가 없습니다</EmptyLine>}
       </div>
       {storage.length ? (
         <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2 shadow-sm">
           {storage.map((item) => (
             <div key={`${item.type}-${item.path}`} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2.5 hover:bg-[var(--ptg-surface-container)]">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]">
-                <Icon name={item.type === "zip" ? "upload" : item.type === "configs" ? "config" : item.type === "state" ? "settings" : "layers"} className="h-3.5 w-3.5" />
+                <Icon name={item.type === "zip" ? "zip" : "layers"} className="h-3.5 w-3.5" />
               </span>
               <span className="min-w-0">
                 <strong className="block truncate text-[12.5px]">{item.label}</strong>
@@ -712,7 +713,7 @@ function ServerPageConfigs({ state, actions }) {
   const localConfigs = state.selectedMachine?.agentSnapshot?.configs || [];
   return (
     <section className="grid gap-2">
-      <SectionTitle title="설정화일" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>} />
+      <SectionTitle title="Config 화일" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>} />
       {state.configs.length ? state.configs.map((config) => (
         <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
           <div className="min-w-0">
@@ -734,26 +735,17 @@ function ServerPageConfigs({ state, actions }) {
           </div>
           <StatusPill status="neutral">Local</StatusPill>
         </div>
-      )) : <EmptyLine>이 봉사기에 배정된 설정화일이 없습니다</EmptyLine>}
+      )) : <EmptyLine>이 봉사기에 배정된 Config 화일이 없습니다</EmptyLine>}
     </section>
   );
 }
 
-function ServerPageEnv({ state, actions }) {
+function ServerPageEnv({ state }) {
   const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
   return (
     <section className="grid gap-2">
-      <SectionTitle title=".Env" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-env" })}>추가</AppButton>} />
-      {state.envProfiles.length ? state.envProfiles.map((profile) => (
-        <div key={profile.envProfileId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="min-w-0">
-            <strong className="block truncate text-[12.5px]">{profile.name}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">변수 {Object.keys(profile.env || {}).length}개 | v{profile.version}</small>
-          </div>
-          <StatusPill status={profile.active ? "active" : "neutral"}>{profile.active ? "활성" : "비활성"}</StatusPill>
-          <TableActions type="env" id={profile.envProfileId} duplicate actions={actions} />
-        </div>
-      )) : envFiles.length ? envFiles.map((file) => (
+      <SectionTitle title=".Env" meta="Project root .env 화일" />
+      {envFiles.length ? envFiles.map((file) => (
         <div key={file.path} className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0">
@@ -763,14 +755,14 @@ function ServerPageEnv({ state, actions }) {
             <StatusPill status={file.exists ? "active" : "neutral"}>{file.exists ? "Local" : "없음"}</StatusPill>
           </div>
           {file.variables?.length ? (
-            <div className="mt-2 grid grid-cols-2 gap-1.5 max-lg:grid-cols-1">
-              {file.variables.slice(0, 8).map((item) => (
+            <div className="mt-2 grid gap-1.5">
+              {file.variables.map((item) => (
                 <code key={`${file.path}-${item.name}`} className="truncate rounded-md bg-[var(--ptg-surface-container)] px-2 py-1 text-[11px] text-[var(--ptg-on-surface-variant)]">{item.name}={item.value}</code>
               ))}
             </div>
           ) : null}
         </div>
-      )) : <EmptyLine>이 봉사기에 배정된 .Env Profile이 없습니다</EmptyLine>}
+      )) : <EmptyLine>이 봉사기의 project root .env 화일을 아직 읽지 못했습니다</EmptyLine>}
     </section>
   );
 }
@@ -851,9 +843,9 @@ export function ConfigsDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <Surface className="p-4">
         <SectionTitle
-          title="설정화일 Library"
-          meta={`배정가능한 설정화일 Template ${templates.length}개`}
-          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>설정화일 작성</AppButton>}
+          title="Config 화일 Library"
+          meta={`배정가능한 Config 화일 Template ${templates.length}개`}
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Config 화일 작성</AppButton>}
         />
         <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
           {templates.length ? templates.map((template) => {
@@ -874,7 +866,7 @@ export function ConfigsDashboard({ state, actions }) {
               </p>
             </button>
           );
-          }) : <EmptyLine>리용가능한 설정화일 예비가 없습니다</EmptyLine>}
+          }) : <EmptyLine>리용가능한 Config 화일 예비가 없습니다</EmptyLine>}
         </div>
       </Surface>
       <ServersTable state={state} actions={actions} />
@@ -1228,7 +1220,7 @@ export function SettingsDashboard({ state, actions }) {
                   실시간 관리체계 Poll
                 </span>
                 <p className="mt-1 text-[11.5px] font-[550] leading-snug text-[var(--ptg-on-surface-variant)]">
-                  이 시간간격으로 봉사기상태, Event, 작업상태, 설정화일, .Env, Console자료를 갱신합니다.
+                  이 시간간격으로 봉사기상태, Event, 작업상태, Config 화일, .Env, Console자료를 갱신합니다.
                 </p>
               </div>
               <TextInput
@@ -1639,7 +1631,7 @@ function ServersTable({ state, actions }) {
                         className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
                         onClick={(event) => {
                           event.stopPropagation();
-                          const ok = globalThis.confirm?.(`봉사기 《${machine.displayName || machine.machineId}》을(를) 관리체계에서 제거하겠습니까? 배정된 API Key가 풀리고 봉사기범위 설정화일/.Env기록이 삭제됩니다.`);
+                          const ok = globalThis.confirm?.(`봉사기 《${machine.displayName || machine.machineId}》을(를) 관리체계에서 제거하겠습니까? 배정된 API Key가 풀리고 봉사기범위 Config 화일/.Env기록이 삭제됩니다.`);
                           if (!ok) return;
                           return actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}

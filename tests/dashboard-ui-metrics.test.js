@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
-import { buildCredentialSecretValue, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
+import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -102,6 +102,30 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   assert.equal(model.pipelineStage, "압축");
   assert.equal(model.pipelineProgress, "63%");
   assert.equal(model.pipelineEta, "10초");
+});
+
+test("server command rows follow selected machine lifecycle state", () => {
+  assert.deepEqual(
+    buildMachineCommandRows({ machineId: "server-01" }).map(([type]) => type),
+    ["start_pipeline", "sync_config", "sync_env"]
+  );
+
+  assert.deepEqual(
+    buildMachineCommandRows({
+      machineId: "SERVER-01",
+      jobs: [{ machineId: "server-01", status: "running", startedAt: "2026-06-18T01:00:00.000Z" }],
+    }).map(([type]) => type),
+    ["pause_after_range", "stop_pipeline", "sync_config", "sync_env"]
+  );
+
+  assert.deepEqual(
+    buildMachineCommandRows({
+      machineId: "server-01",
+      jobs: [{ machineId: "server-01", status: "completed", finishedAt: "2026-06-18T01:10:00.000Z" }],
+      events: [{ machineId: "server-01", type: "pipeline.paused", createdAt: "2026-06-18T01:10:00.000Z" }],
+    }).map(([type]) => type),
+    ["resume_pipeline", "stop_pipeline", "sync_config", "sync_env"]
+  );
 });
 
 test("global search returns navigable servers configs and events", () => {

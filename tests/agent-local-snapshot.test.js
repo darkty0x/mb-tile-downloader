@@ -11,11 +11,11 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   await mkdir(path.join(dir, "configs"), { recursive: true });
   await mkdir(path.join(dir, ".tile-state", "dashboard", "configs"), { recursive: true });
   await mkdir(path.join(dir, "tiles", "esri", "14", "9600"), { recursive: true });
-  await mkdir(path.join(dir, "zips"), { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
   await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nAGENT_TOKEN=secret-token\n");
   await writeFile(path.join(dir, "proxy.txt"), "http://proxy-a:8080\nhttp://proxy-b:8080\n");
   await writeFile(path.join(dir, "tiles", "esri", "14", "9600", "5824.jpg"), "tile");
-  await writeFile(path.join(dir, "zips", "range.zip"), "zip");
+  await writeFile(path.join(dir, "archives", "range.zip"), "zip");
   await writeFile(
     path.join(dir, "configs", "1-ukraine-esri-satellite.config.json"),
     JSON.stringify({ provider: "esri", layer: "satellite", ranges: [{ zoom: 1 }] })
@@ -39,11 +39,36 @@ test("local snapshot reports local configs env files proxy counts and bounded st
 
   assert.equal(snapshot.managed.activeConfigName, "Ukraine Range");
   assert.equal(snapshot.configs[0].type, "esri-satellite");
-  assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "AGENT_TOKEN").value, "********");
+  assert.equal(snapshot.envFiles.length, 1);
+  assert.equal(snapshot.envFiles[0].path, ".env");
+  assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "AGENT_TOKEN").value, "secret-token");
   assert.equal(snapshot.secrets.proxy.availableCount, 2);
   assert.equal(snapshot.secrets.mapboxTokenCount, 2);
   assert.equal(snapshot.storage.find((item) => item.type === "tiles").fileCount, 1);
   assert.equal(snapshot.storage.find((item) => item.type === "tiles").dirCount, 3);
   assert.match(snapshot.storage.find((item) => item.type === "tiles").absolutePath, /tiles$/);
   assert.equal(snapshot.storage.find((item) => item.type === "zip").fileCount, 1);
+  assert.match(snapshot.storage.find((item) => item.type === "zip").absolutePath, /archives$/);
+  assert.equal(snapshot.storage.some((item) => item.type === "state"), false);
+  assert.equal(snapshot.storage.some((item) => item.type === "configs"), false);
+});
+
+test("local snapshot reports exact tile storage beyond shallow scan limits", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-large-"));
+  const tileDir = path.join(dir, "tiles", "vector", "17", "76642");
+  await mkdir(tileDir, { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\n");
+
+  await Promise.all(
+    Array.from({ length: 2005 }, (_, index) =>
+      writeFile(path.join(tileDir, `${index}.pbf`), "tile")
+    )
+  );
+
+  const snapshot = await collectLocalSnapshot({ projectDir: dir, stateDir: path.join(dir, ".tile-state") });
+  const tiles = snapshot.storage.find((item) => item.type === "tiles");
+  assert.equal(tiles.fileCount, 2005);
+  assert.equal(tiles.sizeBytes, 2005 * 4);
+  assert.equal(tiles.truncated, false);
 });

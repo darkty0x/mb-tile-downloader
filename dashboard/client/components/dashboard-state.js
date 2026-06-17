@@ -383,7 +383,7 @@ export function useDashboardState() {
         if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
-          if (!activeConfig) throw new Error("활성 설정화일이 필요합니다");
+          if (!activeConfig) throw new Error("활성 Config 화일이 필요합니다");
           payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
         }
         await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
@@ -396,7 +396,7 @@ export function useDashboardState() {
           resume_pipeline: "재개",
           pause_after_range: "일시중지",
           stop_pipeline: "정지",
-          sync_config: "설정화일 동기화",
+          sync_config: "Config 화일 동기화",
           sync_env: ".Env 동기화",
         }[commandType] || commandType;
         setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
@@ -467,7 +467,7 @@ export function useDashboardState() {
             }),
           });
           setEditor({ type: "summary" });
-          setNotice({ message: `설정화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
+          setNotice({ message: `Config 화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
           await refreshMachineData();
           return;
         }

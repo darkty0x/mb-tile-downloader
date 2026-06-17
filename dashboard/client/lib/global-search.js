@@ -44,7 +44,7 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
       id: `config-${config.configId || config.name}`,
       type: "config",
       icon: "config",
-      title: config.name || "설정화일",
+      title: config.name || "Config 화일",
       detail: `${config.machineId || "공용"} | ${config.config?.provider || "provider 없음"} | 범위 ${config.config?.ranges?.length || 0}개`,
       tab: "configs",
     }));

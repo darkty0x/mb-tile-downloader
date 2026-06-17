@@ -263,13 +263,13 @@ export function EditorDrawer({ state, actions }) {
 }
 
 function editorTitle(type, record, editor = {}) {
-  if (type === "new-config") return "설정화일 추가";
+  if (type === "new-config") return "Config 화일 추가";
   if (type === "new-env") return ".Env 추가";
   if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "계정정보 추가";
   if (type === "new-secret" && (record?.secretType === "server_rdp_credential" || editor.secretType === "server_rdp_credential")) return "봉사기계정정보 추가";
   if (type === "server-onboarding") return "봉사기 추가";
   if (type === "new-secret") return "API Key 추가";
-  if (type === "config") return record?.configId ? "설정화일 편집" : "설정화일 복제";
+  if (type === "config") return record?.configId ? "Config 화일 편집" : "Config 화일 복제";
   if (type === "env") return record?.envProfileId ? ".Env 편집" : ".Env 복제";
   if (type === "secret" && record?.secretType === "credential") return "계정정보 편집";
   if (type === "secret" && record?.secretType === "server_rdp_credential") return "봉사기계정정보 편집";
@@ -345,8 +345,8 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
     <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">설정화일 류형</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length}개 설정화일 예비값 리용가능</p>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Config 화일 류형</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length}개 Config 화일 예비값 리용가능</p>
         </div>
         <div className="flex gap-1.5">
           <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>모두</AppButton>
@@ -423,7 +423,7 @@ function ConfigRangeBuilder({ actions }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">범위</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">선택한 설정화일 류형에 필요합니다. 예비값에는 범위이 들어있지 않습니다.</p>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">선택한 Config 화일 류형에 필요합니다. 예비값에는 범위이 들어있지 않습니다.</p>
         </div>
         <AppButton type="button" icon="check" onClick={validate}>범위 검증</AppButton>
       </div>
@@ -591,14 +591,14 @@ function ConfigForm({ record, state, actions, editor }) {
         <>
           <ConfigRangeBuilder actions={actions} />
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
-            선택된 Template {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 설정화일로 작성됩니다.
+            선택된 Template {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 Config 화일로 작성됩니다.
           </div>
         </>
       ) : (
-        <TextArea label="설정화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
+        <TextArea label="Config 화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 작성` : "설정화일 보관"}</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 작성` : "Config 화일 보관"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>

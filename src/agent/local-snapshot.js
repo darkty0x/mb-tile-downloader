@@ -3,10 +3,10 @@ import { opendir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import readline from "node:readline";
 
+import { collectDiskInfo } from "./disk.js";
 import { resolveOutputStorage } from "../runtime/output-storage.js";
 
 const MAX_DIR_ENTRIES = 80;
-const MAX_SCAN_ENTRIES = 2_000;
 const MAX_CONSOLE_LINES = 80;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL|PASS)/i;
 
@@ -69,13 +69,6 @@ async function listJsonConfigs(configDir) {
   return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-function redactEnvValue(name, value) {
-  if (SECRET_NAME_PATTERN.test(name)) return "********";
-  const text = String(value ?? "");
-  if (text.length <= 12) return text;
-  return `${text.slice(0, 4)}...${text.slice(-4)}`;
-}
-
 async function summarizeEnvFile(projectDir, filePath) {
   const fileStat = await existsStat(filePath);
   if (!fileStat?.isFile()) {
@@ -99,7 +92,7 @@ async function summarizeEnvFile(projectDir, filePath) {
       const value = line.slice(index + 1);
       return {
         name,
-        value: redactEnvValue(name, value),
+        value,
         secret: SECRET_NAME_PATTERN.test(name),
       };
     });
@@ -152,18 +145,11 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
   let sizeBytes = 0;
   let fileCount = 0;
   let dirCount = 0;
-  let scanned = 0;
-  let truncated = false;
   const pendingDirs = [fullPath];
 
   while (pendingDirs.length) {
     const currentDir = pendingDirs.shift();
     for await (const entry of await opendir(currentDir)) {
-      scanned += 1;
-      if (scanned > MAX_SCAN_ENTRIES) {
-        truncated = true;
-        break;
-      }
       const childPath = path.join(currentDir, entry.name);
       const childStat = await existsStat(childPath);
       if (!childStat) continue;
@@ -184,7 +170,6 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
         });
       }
     }
-    if (truncated) break;
   }
 
   return {
@@ -196,9 +181,61 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
     sizeBytes,
     fileCount,
     dirCount,
-    truncated,
+    truncated: false,
     entries,
   };
+}
+
+function selectPlatformPath(config = {}, baseKey, platform = process.platform) {
+  if (platform === "win32" && config[`${baseKey}Windows`]) return config[`${baseKey}Windows`];
+  if (platform === "darwin" && config[`${baseKey}Mac`]) return config[`${baseKey}Mac`];
+  return config[baseKey];
+}
+
+function archiveDirForConfig(config, projectDir, platform = process.platform) {
+  const archiveConfig = config?.archive || config?.zip || config || {};
+  const rawArchiveDir = selectPlatformPath(archiveConfig, "archiveDir", platform);
+  return rawArchiveDir ? path.resolve(projectDir, rawArchiveDir) : path.join(projectDir, "archives");
+}
+
+async function safeCollectDiskInfo({ platform, projectDir }) {
+  try {
+    return await collectDiskInfo({ platform, projectDir });
+  } catch {
+    return [];
+  }
+}
+
+function uniquePaths(paths, platform = process.platform) {
+  const seen = new Set();
+  const result = [];
+  for (const candidate of paths.filter(Boolean)) {
+    const normalized = platform === "win32"
+      ? path.win32.resolve(candidate).toLowerCase()
+      : path.resolve(candidate);
+    if (seen.has(normalized)) continue;
+    seen.add(normalized);
+    result.push(candidate);
+  }
+  return result;
+}
+
+function tileDirsForDisks({ disks = [], projectDir, platform = process.platform }) {
+  if (platform === "win32") {
+    const parsed = path.win32.parse(projectDir);
+    const relativeProject = path.win32.relative(parsed.root, projectDir);
+    if (!relativeProject || relativeProject.startsWith("..")) return [];
+    return disks.map((disk) => {
+      const mount = String(disk.mount || disk.name || "").replace(/[\\/]+$/, "");
+      return mount ? path.win32.resolve(`${mount}\\`, relativeProject, "tiles") : null;
+    }).filter(Boolean);
+  }
+
+  const projectDisk = disks.find((disk) => disk.containsProject);
+  if (!projectDisk?.mount) return [];
+  const relativeProject = path.relative(projectDisk.mount, projectDir);
+  if (!relativeProject || relativeProject.startsWith("..")) return [];
+  return disks.map((disk) => disk.mount ? path.resolve(disk.mount, relativeProject, "tiles") : null).filter(Boolean);
 }
 
 async function readRecentLines(filePath, limit = MAX_CONSOLE_LINES) {
@@ -233,24 +270,26 @@ export async function collectLocalSnapshot({
     projectDir: resolvedProject,
   });
   const proxyInfo = await countNonEmptyLines(path.join(resolvedProject, "proxy.txt"));
-  const envFiles = await Promise.all([
-    summarizeEnvFile(resolvedProject, path.join(resolvedProject, ".env")),
-    summarizeEnvFile(resolvedProject, path.join(resolvedState, "dashboard", "env.generated")),
-    summarizeEnvFile(resolvedProject, path.join(resolvedState, "dashboard", "secrets.env.generated")),
-  ]);
+  const envFiles = [
+    await summarizeEnvFile(resolvedProject, path.join(resolvedProject, ".env")),
+  ];
+  const disks = await safeCollectDiskInfo({ platform, projectDir: resolvedProject });
 
+  const tileRoots = uniquePaths([
+    ...(outputStorage.searchDirs?.length ? outputStorage.searchDirs : (outputStorage.dirs || [outputStorage.dir])),
+    path.join(resolvedProject, "tiles"),
+    ...tileDirsForDisks({ disks, projectDir: resolvedProject, platform }),
+  ], platform);
   const tileStorage = await Promise.all(
-    (outputStorage.dirs || [outputStorage.dir]).map((root, index) =>
+    tileRoots.map((root, index) =>
       shallowDirSummary(resolvedProject, root, {
-        label: (outputStorage.dirs || []).length > 1 ? `Tile Content ${index + 1}` : "Tile Content",
+        label: tileRoots.length > 1 ? `Tile Content ${index + 1}` : "Tile Content",
         type: "tiles",
       })
     )
   );
   const storage = await Promise.all([
-    shallowDirSummary(resolvedProject, "zips", { label: "Zip Archives", type: "zip" }),
-    shallowDirSummary(resolvedProject, ".tile-state", { label: "State DB / Temp", type: "state" }),
-    shallowDirSummary(resolvedProject, "configs", { label: "Config Files", type: "configs" }),
+    shallowDirSummary(resolvedProject, archiveDirForConfig(activeConfig, resolvedProject, platform), { label: "Zip Archives", type: "zip" }),
   ]);
 
   return {
