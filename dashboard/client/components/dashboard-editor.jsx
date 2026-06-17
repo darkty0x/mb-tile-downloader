@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWindowsAgentEnv, nextServerDefaults } from "../lib/overview-model";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
-import { AppButton, ModalShell, SelectInput, TextArea, TextInput } from "./ui";
+import { AppButton, ModalShell, SelectInput, SwitchField, TextArea, TextInput } from "./ui";
 import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus, findMachineById } from "./dashboard-core";
 
 function EmptyLine({ children }) {
@@ -509,18 +509,15 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
           );
         }) : <EmptyLine>No registered servers</EmptyLine>}
       </div>
-      <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-[700] ${
-        splitEnabled ? "border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary-dark)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)] text-[var(--ptg-on-surface-variant)]"
-      }`}>
-        <input
-          checked={splitEnabled && splitAcrossMachines}
-          disabled={!splitEnabled}
-          name="splitAcrossMachines"
-          onChange={(event) => onSplitChange(event.target.checked)}
-          type="checkbox"
-        />
-        Split ranges across selected servers
-      </label>
+      <SwitchField
+        checked={splitEnabled && splitAcrossMachines}
+        className={splitEnabled ? "border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)]" : "bg-[var(--ptg-background)]"}
+        description={splitEnabled ? "Balanced ranges across assigned servers" : "Select at least two servers"}
+        disabled={!splitEnabled}
+        label="Split ranges across selected servers"
+        name="splitAcrossMachines"
+        onChange={(event) => onSplitChange(event.target.checked)}
+      />
     </section>
   );
 }
@@ -554,7 +551,7 @@ function ConfigForm({ record, state, actions, editor }) {
       }
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
-      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={defaultActive} /> Active</label>
+      <SwitchField name="active" label="Active" defaultChecked={defaultActive} />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}
@@ -607,7 +604,7 @@ function EnvForm({ record, actions }) {
       }
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "default"} required />
-      <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={record?.active || !id} /> Active</label>
+      <SwitchField name="active" label="Active" defaultChecked={record?.active || !id} />
       <TextArea label="Env JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
       <div className="flex flex-wrap gap-2">
         <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Env</AppButton>

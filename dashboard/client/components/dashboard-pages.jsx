@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
-import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextInput, UsageBar } from "./ui";
+import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
 import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
@@ -316,17 +316,17 @@ export function OverviewDashboard({ state, actions }) {
           );
         })}
       </section>
-      <section className="grid grid-cols-[minmax(0,1fr)_360px] gap-4 max-2xl:grid-cols-1">
-        <div className="grid gap-4">
+      <section className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4 max-2xl:grid-cols-1">
+        <div className="grid min-w-0 gap-4">
           <PipelineOverview overview={overview} />
-          <section className="grid grid-cols-[minmax(260px,0.7fr)_minmax(320px,0.85fr)_minmax(320px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
+          <section className="grid min-w-0 grid-cols-[minmax(220px,0.7fr)_minmax(260px,0.85fr)_minmax(260px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
             <FleetHealthCard overview={overview} />
             <DiskCapacityCard state={state} />
             <ResourceAlertsCard overview={overview} actions={actions} />
           </section>
           <ActiveRangesCard overview={overview} />
         </div>
-        <div className="grid content-start gap-4">
+        <div className="grid min-w-0 content-start gap-4">
           <ManagementProfilesSummary state={state} actions={actions} />
           <QuickActionsCard actions={actions} />
           <EventStreamCard events={overview.recentEvents} title="Live Event Console" limit={7} />
@@ -363,14 +363,6 @@ function ServerConnectionsSection({ state, actions }) {
         meta={`${connections.length} Saved Remote Login${connections.length === 1 ? "" : "s"} | ${onlineAgents}/${state.machines.length} Agents Online`}
         action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>}
       />
-      <div className="mb-3 grid grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-xl border border-[rgba(96,64,239,0.16)] bg-[var(--ptg-primary-soft)] px-3 py-2.5">
-        <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[var(--ptg-primary)] shadow-[0_1px_2px_rgba(10,26,51,0.06)]">
-          <Icon name="control" className="h-4 w-4" />
-        </span>
-        <p className="text-[12px] font-[650] leading-5 text-[var(--ptg-primary-dark)]">
-          Validation checks the remote endpoint plus the matching local downloader agent. Dashboard commands are queued for the agent; RDP, SSH, and WinRM profiles are never used for arbitrary remote execution.
-        </p>
-      </div>
       <div className="grid gap-2">
         {connections.length ? connections.map((connection) => {
           const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
@@ -1163,14 +1155,8 @@ export function SettingsDashboard({ state, actions }) {
                 Workflow
               </span>
               <div className="grid gap-3">
-                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
-                  <input name="autoStartNextRange" type="checkbox" defaultChecked={Boolean(workflow.autoStartNextRange)} />
-                  Auto start next range
-                </label>
-                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
-                  <input name="requirePreflightBeforeStart" type="checkbox" defaultChecked={Boolean(workflow.requirePreflightBeforeStart)} />
-                  Require preflight before start
-                </label>
+                <SwitchField name="autoStartNextRange" label="Auto start next range" defaultChecked={Boolean(workflow.autoStartNextRange)} />
+                <SwitchField name="requirePreflightBeforeStart" label="Require preflight before start" defaultChecked={Boolean(workflow.requirePreflightBeforeStart)} />
                 <TextInput label="Stop timeout (ms)" name="stopTimeoutMs" type="number" min="0" step="1000" defaultValue={workflow.stopTimeoutMs ?? 30000} required />
               </div>
             </div>
@@ -1181,14 +1167,8 @@ export function SettingsDashboard({ state, actions }) {
                 Notifications
               </span>
               <div className="grid gap-3">
-                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
-                  <input name="telegramEnabled" type="checkbox" defaultChecked={Boolean(notifications.telegramEnabled)} />
-                  Telegram enabled
-                </label>
-                <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]">
-                  <input name="webConsoleEnabled" type="checkbox" defaultChecked={notifications.webConsoleEnabled !== false} />
-                  Web console enabled
-                </label>
+                <SwitchField name="telegramEnabled" label="Telegram enabled" defaultChecked={Boolean(notifications.telegramEnabled)} />
+                <SwitchField name="webConsoleEnabled" label="Web console enabled" defaultChecked={notifications.webConsoleEnabled !== false} />
                 <TextInput label="Dedupe window (ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
                 <SelectInput label="Minimum severity" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
                   <option value="debug">Debug</option>
@@ -1364,7 +1344,6 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AppButton icon="trash" onClick={() => deleteIds([...selectedIds], "selected records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!selectedIds.size}>Delete Selected</AppButton>
-            <AppButton icon="trash" onClick={() => deleteIds(pageIds, "records on this page").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!pageIds.length}>Delete Page</AppButton>
             <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(filteredIds, "filtered records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!filteredIds.length}>Delete All</AppButton>
             <AppButton variant="tonal" icon="sync" onClick={() => actions.rebalanceSecrets().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Rebalance</AppButton>
             <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: addSecretType })}>{addLabel}</AppButton>
@@ -1458,9 +1437,9 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
         <span>Showing {startLabel}-{endLabel} of {filteredItems.length} | {selectedVisibleCount} selected</span>
         <div className="flex items-center gap-2">
-          <AppButton onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>Previous</AppButton>
+          <AppButton icon="chevronLeft" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>Previous</AppButton>
           <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 font-[800] text-[var(--ptg-on-surface)]">Page {safePage} / {totalPages}</span>
-          <AppButton onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages}>Next</AppButton>
+          <AppButton icon="chevronRight" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages}>Next</AppButton>
         </div>
       </div>
     </Surface>
@@ -1503,7 +1482,6 @@ function ServersTable({ state, actions }) {
         meta={`${online}/${state.machines.length} Online`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full">
-            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>
             <label className="relative block w-[min(320px,42vw)] max-sm:w-full">
               <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
               <input
@@ -1514,6 +1492,7 @@ function ServersTable({ state, actions }) {
                 className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
               />
             </label>
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>
           </div>
         }
       />

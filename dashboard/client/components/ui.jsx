@@ -54,12 +54,12 @@ export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-3
 
 export function SectionTitle({ title, meta, action }) {
   return (
-    <div className="mb-3 flex min-h-8 items-center justify-between gap-3">
+    <div className="mb-3 flex min-h-8 flex-wrap items-center justify-between gap-3">
       <div className="min-w-0">
         <h3 className="truncate text-[14px] font-[850] text-[var(--ptg-on-surface)]">{title}</h3>
         {meta ? <p className="mt-1 text-[11.5px] font-[600] leading-snug text-[var(--ptg-on-surface-variant)]">{meta}</p> : null}
       </div>
-      {action}
+      {action ? <div className="max-w-full shrink-0">{action}</div> : null}
     </div>
   );
 }
@@ -195,6 +195,26 @@ export function SelectInput({ label, children, className = "", ...props }) {
           {children}
         </select>
         <Icon name="chevronDown" className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+      </span>
+    </label>
+  );
+}
+
+export function SwitchField({ label, description, className = "", inputClassName = "", ...props }) {
+  return (
+    <label className={`state-layer flex min-h-12 items-center justify-between gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white px-3 py-2.5 text-left transition hover:border-[var(--ptg-outline-strong)] ${props.disabled ? "opacity-60" : "cursor-pointer"} ${className}`}>
+      <span className="min-w-0">
+        <span className="block truncate text-[12px] font-[780] text-[var(--ptg-on-surface)]">{label}</span>
+        {description ? <span className="mt-0.5 block truncate text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{description}</span> : null}
+      </span>
+      <span className="relative inline-flex h-7 w-12 shrink-0">
+        <input
+          className={`peer absolute inset-0 z-10 cursor-pointer opacity-0 disabled:cursor-not-allowed ${inputClassName}`}
+          type="checkbox"
+          {...props}
+        />
+        <span className="absolute inset-0 rounded-full bg-[#dfe5ee] transition peer-checked:bg-[var(--ptg-primary)] peer-focus-visible:shadow-[0_0_0_3px_rgba(96,64,239,0.2)]" />
+        <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-[0_1px_4px_rgba(10,26,51,0.24)] transition peer-checked:translate-x-5" />
       </span>
     </label>
   );
