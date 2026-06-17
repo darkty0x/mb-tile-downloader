@@ -319,7 +319,8 @@ export function useDashboardState() {
           const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
           const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || machineId !== existingMachineId || username !== existingUsername;
           if (!id || password || changedCredentialIdentity) {
-            if (!password) throw new Error("credential password is required when creating or changing URL, Agent ID, or username");
+            const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID, or username" : "URL or username";
+            if (!password) throw new Error(`credential password is required when creating or changing ${changedFields}`);
             body.value = buildCredentialSecretValue({ protocolUrl, machineId, username, password });
           }
         } else if (formData.get("value")) {

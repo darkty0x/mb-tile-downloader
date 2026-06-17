@@ -467,7 +467,7 @@ export function createDashboardApp({
           if (!secretVault?.getSecretForDashboard) throw new Error("secret vault is not configured");
           const secretId = decodeURIComponent(serverConnectionValidateMatch[1]);
           const connection = await secretVault.getSecretForDashboard(secretId);
-          if (!["credential", SERVER_CONNECTION_SECRET_TYPE].includes(connection.secretType)) throw new Error("server connection must be a server credential secret");
+          if (connection.secretType !== SERVER_CONNECTION_SECRET_TYPE) throw new Error("server connection must be a server credential secret");
           const endpoint = endpointFromCredentialValue(connection.value);
           const network = await checkTcpEndpoint(endpoint);
           const targetMachineId = endpoint.machineId || normalizeMachineId(connection.machineId);

@@ -4,7 +4,7 @@ const PIPELINE_STEPS = [
   ["zip", "Zip"],
   ["upload", "Upload"],
 ];
-const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
+const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["server_rdp_credential"]);
 
 function shellQuote(value) {
   const text = String(value || "");

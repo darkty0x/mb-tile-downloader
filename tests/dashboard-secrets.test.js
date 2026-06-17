@@ -73,7 +73,7 @@ test("credential secrets expose browser metadata without the password", () => {
   assert.equal(agentSecrets[0].value, value);
 });
 
-test("credential secrets support server connection protocols", () => {
+test("server credential secrets support server connection protocols", () => {
   const vault = createSecretVault({
     appSecret: "test-secret",
     idGenerator: () => "credential-rdp",
@@ -81,7 +81,7 @@ test("credential secrets support server connection protocols", () => {
 
   vault.createSecret({
     machineId: "server-01",
-    secretType: "credential",
+    secretType: "server_rdp_credential",
     label: "Server 01 RDP",
     value: JSON.stringify({
       protocolUrl: "rdp://203.0.113.10:7777",
@@ -106,14 +106,38 @@ test("credential secrets support server connection protocols", () => {
   assert.equal(JSON.stringify(credential).includes("server-password"), false);
 });
 
-test("dashboard can read an encrypted credential for server validation", () => {
+test("generic credentials are standalone even for remote protocols", () => {
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => "credential-ssh",
+  });
+
+  vault.createSecret({
+    secretType: "credential",
+    label: "PowerVPS",
+    value: JSON.stringify({
+      protocolUrl: "ssh://203.0.113.10:22",
+      username: "root",
+      password: "server-password",
+    }),
+  });
+
+  const [credential] = vault.listSecretsForBrowser();
+
+  assert.equal(credential.secretId, "credential-ssh");
+  assert.equal(credential.secretType, "credential");
+  assert.equal(credential.targetMachineId, undefined);
+  assert.equal(credential.credential.machineId, undefined);
+});
+
+test("dashboard can read an encrypted server credential for server validation", () => {
   const vault = createSecretVault({
     appSecret: "test-secret",
     idGenerator: () => "credential-rdp",
   });
   vault.createSecret({
     machineId: "server-01",
-    secretType: "credential",
+    secretType: "server_rdp_credential",
     label: "Server 01 RDP",
     value: JSON.stringify({
       protocolUrl: "rdp://203.0.113.10:7777",

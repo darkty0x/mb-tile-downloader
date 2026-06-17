@@ -288,8 +288,7 @@ function EventStreamCard({ events, title = "Event Stream", limit = 6 }) {
 }
 
 function isServerConnection(secret) {
-  if (secret.secretType === "server_rdp_credential") return true;
-  return secret.secretType === "credential" && ["rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol);
+  return secret.secretType === "server_rdp_credential";
 }
 
 function machineNameForId(state, machineId) {
@@ -953,10 +952,15 @@ export function SecretsDashboard({ state, actions }) {
 }
 
 export function CredentialsDashboard({ state, actions }) {
+  const [credentialSearch, setCredentialSearch] = useState("");
   const items = state.secretPool
-    .filter((secret) => secret.secretType === "credential" && !isServerConnection(secret))
+    .filter((secret) => secret.secretType === "credential")
     .slice()
     .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
+  const query = credentialSearch.trim().toLowerCase();
+  const visibleItems = query
+    ? items.filter((secret) => `${secret.label} ${secret.credential?.protocolUrl || ""} ${secret.credential?.username || ""}`.toLowerCase().includes(query))
+    : items;
   const active = items.filter((secret) => secret.status === "active").length;
   const disabled = items.filter((secret) => secret.status !== "active").length;
 
@@ -971,42 +975,64 @@ export function CredentialsDashboard({ state, actions }) {
       <Surface className="max-w-full overflow-hidden">
         <SectionTitle
           title="Credentials Manager"
-          meta="Protocol login records stored in the encrypted secret vault"
-          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>Add Credential</AppButton>}
+          meta={`${visibleItems.length}/${items.length} protocol login records`}
+          action={
+            <div className="flex flex-wrap items-center justify-end gap-2 max-sm:w-full">
+              <label className="relative block w-[min(360px,48vw)] max-sm:w-full">
+                <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+                <input
+                  type="search"
+                  value={credentialSearch}
+                  onChange={(event) => setCredentialSearch(event.target.value)}
+                  placeholder="Search credentials"
+                  className="h-10 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] font-[600] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+                />
+              </label>
+              <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "credential" })}>Add Credential</AppButton>
+            </div>
+          }
         />
-        {items.length ? (
-          <div className="grid gap-2">
-            {items.map((secret) => (
-              <div
-                key={secret.secretId}
-                className="grid grid-cols-[32px_minmax(0,1fr)_auto] items-center gap-2.5 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[32px_minmax(0,1fr)]"
-              >
-                <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
-                  <Icon name="credentials" className="h-4 w-4" />
-                </span>
-                <div className="min-w-0">
-                  <div className="flex min-w-0 flex-wrap items-center gap-1.5">
-                    <strong className="min-w-0 truncate text-[12.5px] font-[780]">{secret.label}</strong>
-                    <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
-                  </div>
-                  <div className="mt-1 grid grid-cols-2 gap-2 text-[11.5px] max-xl:grid-cols-1">
-                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
-                      <span className="font-[750] text-[var(--ptg-on-surface)]">URL</span> {secret.credential?.protocolUrl || "Missing"}
-                    </span>
-                    <span className="min-w-0 truncate text-[var(--ptg-on-surface-variant)]">
-                      <span className="font-[750] text-[var(--ptg-on-surface)]">User</span> {secret.credential?.username || "Missing"}
-                    </span>
-                  </div>
-                </div>
-                <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
-                  <TableActions type="secret" id={secret.secretId} actions={actions} />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : (
-          <EmptyLine>No credentials stored yet</EmptyLine>
-        )}
+        <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
+          <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
+            <thead>
+              <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol Name</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Username</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {visibleItems.length ? visibleItems.map((secret) => (
+                <tr key={secret.secretId} className="bg-white transition hover:bg-[var(--ptg-surface-container)]">
+                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+                    <div className="flex min-w-0 items-center gap-2.5">
+                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                        <Icon name="credentials" className="h-4 w-4" />
+                      </span>
+                      <strong className="min-w-0 truncate text-[12.5px] font-[800] text-[var(--ptg-on-surface)]">{secret.label}</strong>
+                    </div>
+                  </td>
+                  <td className="max-w-[360px] border-b border-[var(--ptg-outline)] px-3 py-3">
+                    <span className="block truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.credential?.protocolUrl || "Missing"}</span>
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                    {secret.credential?.username || "Missing"}
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+                    <TableActions type="secret" id={secret.secretId} actions={actions} />
+                  </td>
+                </tr>
+              )) : (
+                <tr>
+                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={4}>
+                    {items.length ? "No credentials match this search" : "No credentials stored yet"}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </Surface>
     </section>
   );

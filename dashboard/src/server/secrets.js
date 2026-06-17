@@ -6,7 +6,6 @@ const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"])
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error", "invalid", "exhausted"]);
 const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
-const SERVER_CREDENTIAL_PROTOCOLS = new Set(["rdp:", "ssh:", "winrm:", "winrms:"]);
 const DEFAULT_CREDENTIAL_PORTS = {
   "http:": 80,
   "https:": 443,
@@ -53,7 +52,7 @@ function redact(value) {
   return `${text.slice(0, 4)}...${text.slice(-4)}`;
 }
 
-function parseCredentialValue(value, { requireMachineId = false, requireMachineIdForServerProtocol = false } = {}) {
+function parseCredentialValue(value, { requireMachineId = false } = {}) {
   const payload = typeof value === "string" ? JSON.parse(value) : value;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("credential value must be a JSON object");
@@ -69,7 +68,7 @@ function parseCredentialValue(value, { requireMachineId = false, requireMachineI
   if (!VALID_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol)) {
     throw new Error("credential protocol URL must use http, https, rdp, ssh, winrm, or winrms");
   }
-  if ((requireMachineId || (requireMachineIdForServerProtocol && SERVER_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol))) && !machineId) {
+  if (requireMachineId && !machineId) {
     throw new Error("server credential Agent ID is required");
   }
   return {
@@ -115,7 +114,6 @@ function normalizeSecretValue(secretType, value) {
   if (CREDENTIAL_SECRET_TYPES.has(secretType)) {
     return normalizeCredentialValue(value, {
       requireMachineId: secretType === "server_rdp_credential",
-      requireMachineIdForServerProtocol: secretType === "credential",
     });
   }
   const text = String(value || "").trim();

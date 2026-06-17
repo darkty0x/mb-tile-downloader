@@ -535,6 +535,7 @@ function SecretForm({ record, editor, actions }) {
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
   const [credentialPasswordLoaded, setCredentialPasswordLoaded] = useState(!id);
   const isCredential = ["credential", "server_rdp_credential"].includes(selectedSecretType);
+  const isServerCredential = selectedSecretType === "server_rdp_credential";
   const lockSecretType = Boolean(id || editor?.secretType || record?.secretType);
 
   useEffect(() => {
@@ -581,10 +582,19 @@ function SecretForm({ record, editor, actions }) {
           {Object.entries(SECRET_LABELS).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </SelectInput>
       )}
-      <TextInput label={isCredential ? "Server Name" : "Label"} name="label" defaultValue={record?.label || ""} placeholder={isCredential ? "Server 02" : "Primary"} />
-      <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
-        {SECRET_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
-      </SelectInput>
+      <TextInput
+        label={isCredential ? isServerCredential ? "Server Name" : "Protocol Name" : "Label"}
+        name="label"
+        defaultValue={record?.label || ""}
+        placeholder={isCredential ? isServerCredential ? "Server 02" : "Storj Account" : "Primary"}
+      />
+      {isCredential && !isServerCredential ? (
+        <input type="hidden" name="status" value={record?.status || "active"} />
+      ) : (
+        <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
+          {SECRET_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
+        </SelectInput>
+      )}
       {isCredential ? (
         <>
           <input type="hidden" name="existingCredentialProtocolUrl" value={credential.protocolUrl || ""} />
@@ -595,17 +605,21 @@ function SecretForm({ record, editor, actions }) {
             name="credentialProtocolUrl"
             type="url"
             defaultValue={credential.protocolUrl || ""}
-            placeholder="rdp://203.0.113.10:7777"
+            placeholder={isServerCredential ? "rdp://203.0.113.10:7777" : "https://dashboard.example.com"}
             required
           />
-          <TextInput
-            label="Agent ID"
-            name="credentialMachineId"
-            value={credentialMachineId}
-            onChange={(event) => setCredentialMachineId(event.target.value)}
-            placeholder="SERVER-02"
-            required
-          />
+          {isServerCredential ? (
+            <TextInput
+              label="Agent ID"
+              name="credentialMachineId"
+              value={credentialMachineId}
+              onChange={(event) => setCredentialMachineId(event.target.value)}
+              placeholder="SERVER-02"
+              required
+            />
+          ) : (
+            <input type="hidden" name="credentialMachineId" value="" />
+          )}
           <TextInput
             label="Username"
             name="credentialUsername"

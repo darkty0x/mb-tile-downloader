@@ -95,9 +95,9 @@ test("server onboarding defaults increment from saved connection profiles and ma
   });
 
   assert.deepEqual(defaults, {
-    number: 8,
-    label: "Server 08",
-    machineId: "server-08",
+    number: 4,
+    label: "Server 04",
+    machineId: "server-04",
   });
 });
 
