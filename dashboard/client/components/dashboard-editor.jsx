@@ -130,7 +130,7 @@ function ServerOnboardingForm({ state, actions }) {
         }}
       >
         <div>
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">접속프로필</h4>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">접속Profile</h4>
           <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">관리체계 API Key금고에 암호화되여 보관됩니다.</p>
         </div>
         {formNotice ? (
@@ -177,16 +177,16 @@ function ServerOnboardingForm({ state, actions }) {
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
         <TextInput label="리용자이름" name="username" defaultValue="root" autoComplete="username" required />
         <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속프로필 보관</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속Profile 보관</AppButton>
       </form>
 
       <TextInput label="관리체계 URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
 
       <section className="grid gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3">
-        <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent 토큰</h4>
+        <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent Token</h4>
         <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_auto]">
           <TextInput
-            label="봉인된 토큰"
+            label="봉인된 Token"
             value={agentSetup.loading ? "읽는중..." : agentSetup.agentTokenConfigured ? agentSetup.agentToken : "설정되지 않음"}
             type="text"
             style={agentSetup.agentTokenConfigured && !showAgentToken ? { WebkitTextSecurity: "disc" } : undefined}
@@ -225,7 +225,7 @@ export function EditorDrawer({ state, actions }) {
     return (
       <ModalShell
         title={connection.label || "봉사기상세"}
-      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "접속프로필"}
+      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "접속Profile"}
         width="w-[min(680px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
@@ -758,7 +758,7 @@ function SecretForm({ record, editor, actions }) {
           label="값"
           name="value"
           spellCheck="false"
-          placeholder={id ? "현재 값을 유지하려면 비워두십시오" : selectedSecretType === "proxy_txt" ? "Proxy URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API 키를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
+          placeholder={id ? "현재 값을 유지하려면 비워두십시오" : selectedSecretType === "proxy_txt" ? "Proxy URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API Key를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
         />
       )}
       <div className="mt-1 grid gap-2 border-t border-[var(--ptg-outline)] pt-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">

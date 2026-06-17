@@ -140,7 +140,7 @@ function FleetHealthCard({ overview }) {
         <div className="grid gap-2">
           {[
             ["healthy", "정상", overview.health.healthy, "success"],
-            ["warning", "감시", overview.health.warning, "warn"],
+            ["warning", "경고", overview.health.warning, "warn"],
             ["critical", "위험", overview.health.critical, "error"],
             ["offline", "련결안됨", overview.health.offline, "neutral"],
           ].map(([key, label, value, status]) => (
@@ -242,7 +242,7 @@ function ManagementProfilesSummary({ state, actions }) {
         <span className="ptg-icon-well mx-auto inline-flex h-12 w-12 items-center justify-center rounded-[12px]">
           <Icon name="control" className="h-6 w-6" />
         </span>
-        <h3 className="mt-4 text-[16px] font-[850]">관리프로필</h3>
+        <h3 className="mt-4 text-[16px] font-[850]">관리Profile</h3>
         <p className="mx-auto mt-2 max-w-[260px] text-[12px] font-[600] leading-5 text-[var(--ptg-on-surface-variant)]">
           원격접속 {connections.length}개 | agent {onlineAgents}/{state.machines.length} 련결됨
         </p>
@@ -361,7 +361,7 @@ export function ServersDashboard({ state, actions }) {
       <section className="ptg-card-grid gap-3">
         <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} palette="sky" />
         <InsightCard icon="disk" label="디스크여부" value={`${overview.diskPressure}%`} detail="관측된 최고 구동기사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
-        <InsightCard icon="control" label="관리프로필" value={connections.length} detail={`agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
+        <InsightCard icon="control" label="관리Profile" value={connections.length} detail={`agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
       </section>
       <ServerConnectionsSection state={state} actions={actions} />
       <ServersTable state={state} actions={actions} />
@@ -375,7 +375,7 @@ function ServerConnectionsSection({ state, actions }) {
   return (
     <Surface className="p-4">
       <SectionTitle
-        title="접속프로필"
+        title="접속Profile"
         meta={`보관된 원격접속 ${connections.length}개 | agent ${onlineAgents}/${state.machines.length} 련결됨`}
         action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>봉사기 추가</AppButton>}
       />
@@ -421,7 +421,7 @@ function ServerConnectionsSection({ state, actions }) {
             </div>
           );
         }) : (
-          <EmptyLine>보관된 접속프로필이 없습니다. IP, 포트, 리용자이름, 암호로 하나 추가하십시오.</EmptyLine>
+          <EmptyLine>보관된 접속Profile이 없습니다. IP, 포트, 리용자이름, 암호로 하나 추가하십시오.</EmptyLine>
         )}
       </div>
     </Surface>
@@ -435,7 +435,7 @@ export function ServerManagementPage({ state, actions }) {
       <section className="screen-enter mt-4 grid gap-4">
         <Surface className="p-5">
           <SectionTitle title="봉사기관리" action={<AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>봉사기로 돌아가기</AppButton>} />
-          <EmptyLine>접속프로필을 찾을수 없습니다.</EmptyLine>
+          <EmptyLine>접속Profile을 찾을수 없습니다.</EmptyLine>
         </Surface>
       </section>
     );
@@ -761,7 +761,7 @@ function ServerPageEnv({ state, actions }) {
             </div>
           ) : null}
         </div>
-      )) : <EmptyLine>이 봉사기에 배정된 환경변수프로필이 없습니다</EmptyLine>}
+      )) : <EmptyLine>이 봉사기에 배정된 환경변수Profile이 없습니다</EmptyLine>}
     </section>
   );
 }
@@ -791,7 +791,7 @@ function ServerPageSecrets({ state, actions }) {
           </div>
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
             <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">Mapbox 토큰</strong>
+              <strong className="block truncate text-[12.5px]">Mapbox Token</strong>
               <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.generatedEnvPath || "generated env"} | 가리움</small>
             </span>
             <StatusPill status={snapshotSecrets.mapboxTokenCount ? "active" : "neutral"}>{snapshotSecrets.mapboxTokenCount || 0}</StatusPill>
@@ -931,7 +931,7 @@ export function SecretsDashboard({ state, actions }) {
   const alerts = [
     {
       type: "mapbox_token",
-      label: "Mapbox 키",
+      label: "Mapbox Key",
       available: mapbox.available,
       threshold: mapboxPerServer * serverCount,
     },
@@ -1189,7 +1189,7 @@ export function SettingsDashboard({ state, actions }) {
           <div className="grid grid-cols-2 gap-3 max-sm:grid-cols-1">
             <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
               <TextInput
-                label="봉사기당 Mapbox 키"
+                label="봉사기당 Mapbox Key"
                 name="mapboxTokensPerServer"
                 type="number"
                 min="0"
@@ -1281,7 +1281,7 @@ export function SettingsDashboard({ state, actions }) {
             <ThresholdPreview
               icon="key"
               label="Mapbox 경보선"
-              value={`${mapboxAlertAt}개 키`}
+              value={`${mapboxAlertAt}개 Key`}
               detail={`봉사기당 ${mapboxPerServer}개 x 봉사기 ${serverCount}개`}
             />
             <ThresholdPreview
@@ -1536,7 +1536,7 @@ function SecretPoolsTable({ state, actions }) {
     <div className="grid gap-4">
       <ResourcePoolTypeTable
         actions={actions}
-        addLabel="키 추가"
+        addLabel="Key 추가"
         emptyLabel="이 보기와 맞는 Mapbox API Key가 없습니다"
         secretType="mapbox_token"
         state={state}
@@ -1621,7 +1621,7 @@ function ServersTable({ state, actions }) {
                         onClick={(event) => {
                           event.stopPropagation();
                           if (!connection) {
-                            actions.setNotice({ message: "이 봉사기를 관리하기전에 접속프로필을 추가하십시오.", kind: "error" });
+                            actions.setNotice({ message: "이 봉사기를 관리하기전에 접속Profile을 추가하십시오.", kind: "error" });
                             return;
                           }
                           return actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));

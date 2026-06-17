@@ -21,7 +21,7 @@ export const TABS = [
 
 export const PAGE_META = {
   overview: ["첫페지", "공정흐름을 관리합니다"],
-  servers: ["봉사기", "RDP 봉사기들을 감시하고 관리합니다"],
+  servers: ["봉사기", "RDP 봉사기들을 경고하고 관리합니다"],
   secrets: ["API Key와 Proxy", "Mapbox API Key 및 Proxy정보들을 관리합니다"],
   credentials: ["계정정보", "웹싸이트 및 RDP 접속자료와 접근권한을 관리합니다"],
   settings: ["설정", "체계와 환경을 설정합니다"],
