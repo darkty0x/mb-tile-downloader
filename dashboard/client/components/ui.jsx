@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { Icon } from "./icons";
 
 const statusStyles = {
@@ -76,10 +76,10 @@ export function MetricCard({ icon, label, value }) {
   );
 }
 
-export function AppButton({ variant = "outlined", icon, children, className = "", ...props }) {
+export function AppButton({ variant = "outlined", icon, children, className = "", loading = false, ...props }) {
   const { onClick, disabled, ...buttonProps } = props;
   const [pending, setPending] = useState(false);
-  const pendingTimer = useRef(null);
+  const busy = Boolean(loading || pending);
   const variantClass = variant === "filled"
     ? "ptg-button-primary"
     : variant === "tonal"
@@ -88,74 +88,46 @@ export function AppButton({ variant = "outlined", icon, children, className = ""
         ? "ptg-button-danger"
         : "ptg-button-secondary";
 
-  useEffect(() => () => {
-    if (pendingTimer.current) clearTimeout(pendingTimer.current);
-  }, []);
-
-  const showPending = () => {
-    setPending(true);
-    if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    pendingTimer.current = setTimeout(() => {
-      setPending(false);
-      pendingTimer.current = null;
-    }, 520);
-  };
-
   const handleClick = (event) => {
-    if (disabled || pending) return;
-    showPending();
+    if (disabled || busy) {
+      event.preventDefault();
+      return;
+    }
     const result = onClick?.(event);
     if (result && typeof result.finally === "function") {
-      result.finally(() => {
-        if (pendingTimer.current) clearTimeout(pendingTimer.current);
-        pendingTimer.current = setTimeout(() => {
-          setPending(false);
-          pendingTimer.current = null;
-        }, 180);
-      });
+      setPending(true);
+      result.finally(() => setPending(false));
     }
   };
 
   return (
     <button
       {...buttonProps}
-      disabled={disabled}
-      data-pending={pending ? "true" : "false"}
+      disabled={disabled || busy}
+      data-pending={busy ? "true" : "false"}
       onClick={handleClick}
       className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 ${variantClass} ${className}`}
     >
-      {pending ? <LoadingSpinner /> : icon ? <Icon name={icon} className="h-4 w-4" /> : <span className="hidden" />}
+      {busy ? <LoadingSpinner /> : icon ? <Icon name={icon} className="h-4 w-4" /> : null}
       <span className="truncate">{children}</span>
     </button>
   );
 }
 
-export function IconButton({ icon, label, className = "", ...props }) {
+export function IconButton({ icon, label, className = "", loading = false, ...props }) {
   const { onClick, disabled, ...buttonProps } = props;
   const [pending, setPending] = useState(false);
-  const pendingTimer = useRef(null);
-
-  useEffect(() => () => {
-    if (pendingTimer.current) clearTimeout(pendingTimer.current);
-  }, []);
+  const busy = Boolean(loading || pending);
 
   const handleClick = (event) => {
-    if (disabled || pending) return;
-    setPending(true);
-    if (pendingTimer.current) clearTimeout(pendingTimer.current);
-    pendingTimer.current = setTimeout(() => {
-      setPending(false);
-      pendingTimer.current = null;
-    }, 520);
+    if (disabled || busy) {
+      event.preventDefault();
+      return;
+    }
     const result = onClick?.(event);
     if (result && typeof result.finally === "function") {
-      result.finally(() => {
-        if (pendingTimer.current) clearTimeout(pendingTimer.current);
-        pendingTimer.current = setTimeout(() => {
-          setPending(false);
-          pendingTimer.current = null;
-        }, 180);
-      });
+      setPending(true);
+      result.finally(() => setPending(false));
     }
   };
 
@@ -163,13 +135,13 @@ export function IconButton({ icon, label, className = "", ...props }) {
     <button
       aria-label={label}
       title={label}
-      data-pending={pending ? "true" : "false"}
-      disabled={disabled}
+      data-pending={busy ? "true" : "false"}
+      disabled={disabled || busy}
       onClick={handleClick}
       className={`state-layer inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)] ${className}`}
       {...buttonProps}
     >
-      {pending ? <LoadingSpinner /> : <Icon name={icon} className="h-4 w-4" />}
+      {busy ? <LoadingSpinner /> : <Icon name={icon} className="h-4 w-4" />}
     </button>
   );
 }

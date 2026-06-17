@@ -87,19 +87,6 @@ button:disabled {
   cursor: not-allowed;
 }
 
-button[data-click-pending="true"]:not([data-pending])::before {
-  content: "";
-  display: inline-block;
-  width: 1em;
-  height: 1em;
-  flex: 0 0 auto;
-  margin-right: 0.5em;
-  border: 2px solid currentColor;
-  border-right-color: transparent;
-  border-radius: 999px;
-  animation: ptg-spin 740ms linear infinite;
-}
-
 .ptg-scrollbar {
   scrollbar-width: thin;
   scrollbar-color: rgba(96, 112, 138, 0.42) transparent;

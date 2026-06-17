@@ -23,6 +23,7 @@ function ServerOnboardingForm({ state, actions }) {
   const [agentSetup, setAgentSetup] = useState({ agentTokenConfigured: false, agentToken: "", loading: true });
   const [showAgentToken, setShowAgentToken] = useState(false);
   const [formNotice, setFormNotice] = useState(null);
+  const [submitting, setSubmitting] = useState(false);
   const windowsEnv = buildWindowsAgentEnv({ machineId, dashboardUrl, agentToken: agentSetup.agentToken });
   const copy = async (text, label = "Value") => {
     try {
@@ -100,6 +101,7 @@ function ServerOnboardingForm({ state, actions }) {
         className="grid gap-3 rounded-[14px] border border-[var(--ptg-outline)] bg-white p-3"
         onSubmit={async (event) => {
           event.preventDefault();
+          if (submitting) return;
           const formData = new FormData(event.currentTarget);
           const validationError = validateServerForm(formData);
           if (validationError) {
@@ -107,6 +109,7 @@ function ServerOnboardingForm({ state, actions }) {
             return;
           }
           try {
+            setSubmitting(true);
             setFormNotice(null);
             const connection = await actions.saveServerConnection(formData);
             const nextDefaults = nextServerDefaults({
@@ -121,6 +124,8 @@ function ServerOnboardingForm({ state, actions }) {
             setFormNotice({ message: `${connection.label} Saved. Next Server Is Ready.`, kind: "success" });
           } catch (err) {
             setFormNotice({ message: err.message, kind: "error" });
+          } finally {
+            setSubmitting(false);
           }
         }}
       >
@@ -172,7 +177,7 @@ function ServerOnboardingForm({ state, actions }) {
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
         <TextInput label="Username" name="username" defaultValue="root" autoComplete="username" required />
         <TextInput label="Password" name="password" type="password" autoComplete="new-password" required />
-        <AppButton variant="filled" icon="check" type="submit">Save Connection Profile</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Connection Profile</AppButton>
       </form>
 
       <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
@@ -465,13 +470,22 @@ function ConfigForm({ record, state, actions, editor }) {
   const [selectedTemplateIds, setSelectedTemplateIds] = useState(initialTemplateIds);
   const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
   const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
   const defaultActive = record?.active ?? !id;
   return (
-    <form className="grid gap-3" onSubmit={(event) => {
+    <form className="grid gap-3" onSubmit={async (event) => {
       event.preventDefault();
-      actions.saveConfig(new FormData(event.currentTarget), id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+      if (submitting) return;
+      try {
+        setSubmitting(true);
+        await actions.saveConfig(new FormData(event.currentTarget), id);
+      } catch (err) {
+        actions.setNotice({ message: err.message, kind: "error" });
+      } finally {
+        setSubmitting(false);
+      }
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
       <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={defaultActive} /> Active</label>
@@ -499,7 +513,7 @@ function ConfigForm({ record, state, actions, editor }) {
         <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit">{templateMode ? `Create ${selectedTemplateIds.length}` : "Save Config"}</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>{templateMode ? `Create ${selectedTemplateIds.length}` : "Save Config"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
       </div>
     </form>
@@ -509,16 +523,25 @@ function ConfigForm({ record, state, actions, editor }) {
 function EnvForm({ record, actions }) {
   const env = record?.env || { TILE_DOWNLOADER_MAX_CONCURRENCY: 64 };
   const id = record?.envProfileId || "";
+  const [submitting, setSubmitting] = useState(false);
   return (
-    <form className="grid gap-3" onSubmit={(event) => {
+    <form className="grid gap-3" onSubmit={async (event) => {
       event.preventDefault();
-      actions.saveEnv(new FormData(event.currentTarget), id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+      if (submitting) return;
+      try {
+        setSubmitting(true);
+        await actions.saveEnv(new FormData(event.currentTarget), id);
+      } catch (err) {
+        actions.setNotice({ message: err.message, kind: "error" });
+      } finally {
+        setSubmitting(false);
+      }
     }}>
       <TextInput label="Name" name="name" defaultValue={record?.name || "default"} required />
       <label className="flex items-center gap-2 text-[12px] font-[700] text-[var(--ptg-on-surface-variant)]"><input name="active" type="checkbox" defaultChecked={record?.active || !id} /> Active</label>
       <TextArea label="Env JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit">Save Env</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Env</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("env", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
       </div>
     </form>
@@ -534,6 +557,7 @@ function SecretForm({ record, editor, actions }) {
   const [credentialPassword, setCredentialPassword] = useState("");
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
   const [credentialPasswordLoaded, setCredentialPasswordLoaded] = useState(!id);
+  const [submitting, setSubmitting] = useState(false);
   const isCredential = ["credential", "server_rdp_credential"].includes(selectedSecretType);
   const isServerCredential = selectedSecretType === "server_rdp_credential";
   const lockSecretType = Boolean(id || editor?.secretType || record?.secretType);
@@ -565,9 +589,17 @@ function SecretForm({ record, editor, actions }) {
   }, [id, isCredential]);
 
   return (
-    <form className="grid gap-3" onSubmit={(event) => {
+    <form className="grid gap-3" onSubmit={async (event) => {
       event.preventDefault();
-      actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+      if (submitting) return;
+      try {
+        setSubmitting(true);
+        await actions.saveSecret(new FormData(event.currentTarget), id, record?.secretType);
+      } catch (err) {
+        actions.setNotice({ message: err.message, kind: "error" });
+      } finally {
+        setSubmitting(false);
+      }
     }}>
       <input type="hidden" name="machineId" value={record?.machineId || ""} />
       {lockSecretType ? (
@@ -668,7 +700,7 @@ function SecretForm({ record, editor, actions }) {
           <AppButton className="danger-button justify-self-start" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton>
         ) : <span />}
         <span className="hidden sm:block" />
-        <AppButton className="max-sm:w-full" variant="filled" icon="check" type="submit">{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
+        <AppButton className="max-sm:w-full" variant="filled" icon="check" type="submit" loading={submitting}>{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
       </div>
     </form>
   );

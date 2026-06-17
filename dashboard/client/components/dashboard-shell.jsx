@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { IconButton, StatusPill } from "./ui";
@@ -71,7 +71,8 @@ export function Rail({ state, actions }) {
 export function Header({ state, actions }) {
   const online = state.machines.filter((machine) => machine.status === "online").length;
   const [title, subtitle] = PAGE_META[state.selectedTab] || PAGE_META.overview;
-  const alerts = buildOverviewModel(fleetState(state)).resourceAlerts.length;
+  const overview = buildOverviewModel(fleetState(state));
+  const notifications = useMemo(() => buildNotifications(state, overview), [state, overview]);
   const lastSeen = state.globalEvents[0]?.createdAt || state.events[0]?.createdAt;
   return (
     <header className="sticky top-0 z-10 border-b border-[var(--ptg-outline)] bg-[rgba(255,251,255,0.88)] px-6 py-5 backdrop-blur-xl max-md:px-4">
@@ -98,10 +99,7 @@ export function Header({ state, actions }) {
             <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "Waiting"}</strong>
           </span>
           <IconButton icon="command" label="Command palette" />
-          <span className="relative">
-            <IconButton icon="bell" label="Notifications" />
-            {alerts ? <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--ptg-primary)] px-1 text-[9px] font-[800] text-white">{alerts}</span> : null}
-          </span>
+          <NotificationsMenu notifications={notifications} actions={actions} />
           <IconButton
             icon="refresh"
             label="Refresh dashboard"
@@ -111,6 +109,123 @@ export function Header({ state, actions }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function buildNotifications(state, overview) {
+  const alertItems = overview.resourceAlerts.map((alert) => ({
+    id: `alert-${alert.type}`,
+    kind: "warning",
+    icon: "warning",
+    title: `${alert.label} low`,
+    message: `${alert.available} available, threshold ${alert.threshold}`,
+    time: "Now",
+    actionTab: "alerts",
+  }));
+  const eventItems = [...(state.globalEvents.length ? state.globalEvents : state.events)]
+    .slice()
+    .reverse()
+    .slice(0, 10)
+    .map((event, index) => ({
+      id: `event-${event.eventId || event.createdAt || index}-${index}`,
+      kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
+      icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
+      title: event.type || "Dashboard event",
+      message: event.message || "No message",
+      time: shortDate(event.createdAt),
+      actionTab: "events",
+    }));
+  return [...alertItems, ...eventItems];
+}
+
+function NotificationsMenu({ notifications, actions }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const count = notifications.length;
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const openTab = (tab) => {
+    setOpen(false);
+    actions.setSelectedTab(tab);
+  };
+
+  return (
+    <div ref={menuRef} className="relative">
+      <IconButton
+        icon="bell"
+        label="Notifications"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+      />
+      {count ? (
+        <span className="pointer-events-none absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-[var(--ptg-primary)] px-1 text-[9px] font-[800] text-white">
+          {count > 99 ? "99+" : count}
+        </span>
+      ) : null}
+
+      {open ? (
+        <div
+          role="menu"
+          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-[min(380px,calc(100vw-32px))] overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
+        >
+          <header className="flex items-center justify-between gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
+            <span className="min-w-0">
+              <strong className="block text-[13px] font-[850]">Notifications</strong>
+              <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">{count ? `${count} available` : "No active notifications"}</small>
+            </span>
+            <button type="button" role="menuitem" onClick={() => openTab("events")} className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]">
+              View All
+            </button>
+          </header>
+          <div className="ptg-scrollbar mt-2 grid max-h-[360px] gap-1 overflow-auto pr-1">
+            {notifications.length ? notifications.map((notification) => (
+              <button
+                key={notification.id}
+                type="button"
+                role="menuitem"
+                onClick={() => openTab(notification.actionTab)}
+                className="state-layer grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left hover:bg-[var(--ptg-primary-soft)]"
+              >
+                <span className={`mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full ${
+                  notification.kind === "error"
+                    ? "bg-[#fff0ef] text-[var(--ptg-error)]"
+                    : notification.kind === "warning"
+                      ? "bg-[#fff7e7] text-[var(--ptg-warning)]"
+                      : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"
+                }`}>
+                  <Icon name={notification.icon} className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <strong className="block truncate text-[12px] font-[820]">{notification.title}</strong>
+                  <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{notification.message}</small>
+                </span>
+                <time className="pt-1 text-[10.5px] font-[750] text-[var(--ptg-on-surface-variant)]">{notification.time}</time>
+              </button>
+            )) : (
+              <div className="rounded-[14px] border border-dashed border-[var(--ptg-outline)] px-3 py-6 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                No notifications yet
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 

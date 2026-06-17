@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect } from "react";
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
 import { Notice, Rail, Header } from "./dashboard-shell";
@@ -8,7 +7,6 @@ import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboar
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
-  useGlobalButtonFeedback();
 
   return (
     <main className={`ptg-shell grid min-h-screen grid-cols-[244px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
@@ -43,24 +41,4 @@ export default function DashboardApp() {
       <EditorDrawer state={state} actions={actions} />
     </main>
   );
-}
-
-function useGlobalButtonFeedback() {
-  useEffect(() => {
-    const timers = new WeakMap();
-    const handleClick = (event) => {
-      const button = event.target?.closest?.("button");
-      if (!button || button.disabled || button.dataset.pending || button.dataset.noClickFeedback === "true") return;
-      button.dataset.clickPending = "true";
-      const existingTimer = timers.get(button);
-      if (existingTimer) clearTimeout(existingTimer);
-      timers.set(button, setTimeout(() => {
-        delete button.dataset.clickPending;
-        timers.delete(button);
-      }, 520));
-    };
-
-    document.addEventListener("click", handleClick, true);
-    return () => document.removeEventListener("click", handleClick, true);
-  }, []);
 }
