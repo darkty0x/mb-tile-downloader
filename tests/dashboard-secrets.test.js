@@ -214,6 +214,34 @@ test("secret pool rebalance assigns new resources to the least-filled machines",
   assert.deepEqual(mapboxCounts, { "worker-a": 1, "worker-b": 1, "worker-c": 0 });
 });
 
+test("secret pool rebalance distributes all active pool items fairly", () => {
+  let id = 0;
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+  });
+  for (let index = 1; index <= 10; index++) {
+    vault.createSecret({
+      secretType: "proxy_txt",
+      label: `proxy-${index}`,
+      value: `http://proxy-${index}.example:8080`,
+    });
+  }
+
+  const result = vault.rebalanceAssignments({
+    machineIds: ["worker-a", "worker-b", "worker-c"],
+    targets: { proxy_txt: 2, mapbox_token: 1 },
+  });
+  const browserSecrets = vault.listSecretsForBrowser();
+  const counts = ["worker-a", "worker-b", "worker-c"].map((machineId) =>
+    browserSecrets.filter((secret) => secret.secretType === "proxy_txt" && secret.machineId === machineId).length
+  );
+
+  assert.equal(result.changed, 10);
+  assert.deepEqual(counts.sort((a, b) => a - b), [3, 3, 4]);
+  assert.equal(browserSecrets.filter((secret) => secret.secretType === "proxy_txt" && secret.usage === "available").length, 0);
+});
+
 test("secret vault marks an assigned proxy unavailable by runtime-normalized value hash", () => {
   const vault = createSecretVault({
     appSecret: "test-secret",

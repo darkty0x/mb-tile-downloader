@@ -132,3 +132,60 @@ test("proxy blocked events mark assigned dashboard proxy secrets unavailable", a
   assert.equal(browser.body.secrets[0].usage, "disabled");
   assert.deepEqual(agent.body.secrets, []);
 });
+
+test("mapbox unusable token events mark assigned dashboard keys unavailable", async (t) => {
+  let secretId = 0;
+  const secretVault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `mapbox-${++secretId}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  secretVault.createSecret({
+    machineId: "worker-a",
+    secretType: "mapbox_token",
+    label: "mapbox-a",
+    value: "pk.bad-token",
+  });
+  secretVault.createSecret({
+    secretType: "mapbox_token",
+    label: "mapbox-b",
+    value: "pk.replacement-token",
+  });
+  const server = createDashboardApp({
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => "evt-1",
+    }),
+    agentToken: "agent-token",
+    secretVault,
+  });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const tokenHash = createHash("sha256").update("pk.bad-token").digest("hex");
+  const posted = await request(server, {
+    method: "POST",
+    path: "/api/agents/events",
+    headers: { authorization: "Bearer agent-token" },
+    body: {
+      machineId: "worker-a",
+      severity: "warn",
+      type: "mapbox.token_unusable",
+      message: "mapbox token marked invalid",
+      data: { tokenHash, status: "invalid", providerStatus: 401 },
+    },
+  });
+  const browser = await request(server, {
+    path: "/api/secrets?machineId=worker-a",
+  });
+  const agent = await request(server, {
+    path: "/api/agents/secrets?machineId=worker-a",
+    headers: { authorization: "Bearer agent-token" },
+  });
+
+  assert.equal(posted.status, 200);
+  assert.equal(posted.body.secret.status, "invalid");
+  assert.equal(browser.body.secrets.find((secret) => secret.label === "mapbox-a").status, "invalid");
+  assert.equal(browser.body.secrets.find((secret) => secret.label === "mapbox-a").usage, "disabled");
+  assert.deepEqual(agent.body.secrets.map((secret) => secret.label), ["mapbox-b"]);
+});

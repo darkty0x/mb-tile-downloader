@@ -151,6 +151,10 @@ function proxyValueHash(proxy) {
   return crypto.createHash("sha256").update(String(proxy || "").trim()).digest("hex");
 }
 
+function secretValueHash(value) {
+  return crypto.createHash("sha256").update(String(value || "").trim()).digest("hex");
+}
+
 function normalizeProxyProtocol(candidate) {
   if (typeof candidate !== "string") return "";
   const normalized = candidate.trim();
@@ -174,6 +178,7 @@ function createProgressReporter(enabled) {
       rangeStart() {},
       rowDone() {},
       rowRetry() {},
+      mapboxTokenUnusable() {},
       providerBlocked() {},
       verifyStart() {},
       verifyProgress() {},
@@ -250,6 +255,21 @@ function createProgressReporter(enabled) {
       line(
         `  ↻ range ${rangeIndex}/${rangeCount} z=${z} x=${x} retrying ${failed} failed tiles pass=${pass}/${maxPasses}`,
         true
+      );
+    },
+    mapboxTokenUnusable({ status, tokenHash, providerStatus }) {
+      if (!tokenHash) return;
+      console.log(
+        `[event] ${JSON.stringify({
+          severity: "warn",
+          type: "mapbox.token_unusable",
+          message: `mapbox token marked ${status}`,
+          data: {
+            tokenHash,
+            status,
+            providerStatus,
+          },
+        })}`
       );
     },
     providerBlocked({ provider, status, count, threshold, cooldownMs, proxy, proxyHash, healthyProxies, totalProxies }) {
@@ -517,6 +537,7 @@ async function downloadOneTile({
   config,
   provider,
   providerRuntime,
+  progress,
   tokenPool,
   fetchImpl,
   sleepImpl,
@@ -574,11 +595,17 @@ async function downloadOneTile({
       const classified = provider.classifyResponse(resp);
 
       if (classified.status === "token-invalid" || classified.status === "token-exhausted") {
+        const unusableStatus = classified.status === "token-invalid" ? "invalid" : "exhausted";
         tokenPool.markTokenUnusable(
           tokenUsed,
-          classified.status === "token-invalid" ? "invalid" : "exhausted",
+          unusableStatus,
           `HTTP ${resp.status}`
         );
+        progress.mapboxTokenUnusable({
+          status: unusableStatus,
+          tokenHash: secretValueHash(tokenUsed),
+          providerStatus: resp.status,
+        });
         tokenPool.current();
         continue;
       }
@@ -746,6 +773,7 @@ async function processRow({
           config,
           provider,
           providerRuntime,
+          progress,
           tokenPool,
           fetchImpl,
           sleepImpl,

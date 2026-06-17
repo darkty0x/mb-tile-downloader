@@ -346,37 +346,50 @@ test("verification repairs missing files from stale complete rows", async () => 
 test("token state is persisted when all Mapbox tokens become unusable", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (message) => {
+    lines.push(String(message));
+  };
 
-  await assert.rejects(
-    () =>
-      runDownloadJob({
-        config: {
-          jobName: "token-fatal",
-          provider: "mapbox",
-          layer: "vector",
-          format: "pbf",
-          configHash: "hash",
-          output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
-          tile: { extension: "vector.pbf", yScheme: "xyz" },
-          url: { tileset: "mapbox.test", extension: "vector.pbf" },
-          ranges: [
-            { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
-          ],
-          platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
-          performance: { maxRetries: 1, retryBackoffMs: 1 },
-          verifyAfterDownload: true,
-        },
-        stateDb: db,
-        progress: false,
-        env: { MAPBOX_ACCESS_TOKENS: "bad-token" },
-        fetchImpl: async () => new Response("forbidden", { status: 403 }),
-      }),
-    /All Mapbox access tokens are unusable/
-  );
+  try {
+    await assert.rejects(
+      () =>
+        runDownloadJob({
+          config: {
+            jobName: "token-fatal",
+            provider: "mapbox",
+            layer: "vector",
+            format: "pbf",
+            configHash: "hash",
+            output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+            tile: { extension: "vector.pbf", yScheme: "xyz" },
+            url: { tileset: "mapbox.test", extension: "vector.pbf" },
+            ranges: [
+              { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "a" },
+            ],
+            platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+            performance: { maxRetries: 1, retryBackoffMs: 1 },
+            verifyAfterDownload: true,
+          },
+          stateDb: db,
+          progress: true,
+          env: { MAPBOX_ACCESS_TOKENS: "bad-token" },
+          fetchImpl: async () => new Response("forbidden", { status: 403 }),
+        }),
+      /All Mapbox access tokens are unusable/
+    );
+  } finally {
+    console.log = originalLog;
+  }
 
   assert.deepEqual(db.loadMapboxTokenState(["bad-token"]), [
     { token: "bad-token", status: "exhausted", reason: "HTTP 403" },
   ]);
+  const tokenEvent = lines.map((line) => /^\[event\]\s+(.+)$/.exec(line)?.[1]).filter(Boolean).map(JSON.parse).find((event) => event.type === "mapbox.token_unusable");
+  assert.equal(tokenEvent?.data.status, "exhausted");
+  assert.equal(tokenEvent?.data.providerStatus, 403);
+  assert.equal(tokenEvent?.data.tokenHash, crypto.createHash("sha256").update("bad-token").digest("hex"));
   db.close();
 });
 

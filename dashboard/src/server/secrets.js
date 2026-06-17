@@ -2,7 +2,7 @@ import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID }
 
 const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
-const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error"]);
+const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error", "invalid", "exhausted"]);
 const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
 const SERVER_CREDENTIAL_PROTOCOLS = new Set(["rdp:", "ssh:", "winrm:", "winrms:"]);
 const DEFAULT_CREDENTIAL_PORTS = {
@@ -249,7 +249,12 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
   }
 
   function rebalanceType({ machineIds, secretType, targetCount }) {
-    if (!machineIds.length || !targetCount) return 0;
+    if (!machineIds.length) return 0;
+    const activeTotal = [...records.values()].filter(
+      (record) => record.secretType === secretType && record.status === "active"
+    ).length;
+    const fairTarget = Math.ceil(activeTotal / machineIds.length);
+    const target = Math.max(Number(targetCount || 0), fairTarget);
     let changed = 0;
     while (true) {
       const available = [...records.values()].find(
@@ -263,7 +268,7 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
         ).length,
       ]));
       const targetMachineId = machineIds
-        .filter((machineId) => (counts.get(machineId) || 0) < targetCount)
+        .filter((machineId) => (counts.get(machineId) || 0) < target)
         .sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b))[0];
       if (!targetMachineId) return changed;
       available.machineId = targetMachineId;
@@ -457,14 +462,21 @@ export function createPostgresSecretVault({
   }
 
   async function rebalanceType({ machineIds, secretType, targetCount }) {
-    if (!machineIds.length || !targetCount) return 0;
+    if (!machineIds.length) return 0;
     const counts = await assignedCounts({ machineIds, secretType });
-    const capacity = machineIds.reduce((sum, machineId) => sum + Math.max(0, targetCount - (counts.get(machineId) || 0)), 0);
+    const activeCount = await db.query(
+      "SELECT count(*)::int AS count FROM secrets WHERE secret_type=$1 AND status='active'",
+      [secretType]
+    );
+    const activeTotal = Number(activeCount.rows[0]?.count || 0);
+    const fairTarget = Math.ceil(activeTotal / machineIds.length);
+    const target = Math.max(Number(targetCount || 0), fairTarget);
+    const capacity = machineIds.reduce((sum, machineId) => sum + Math.max(0, target - (counts.get(machineId) || 0)), 0);
     const secretIds = await availableSecretIds({ secretType, limit: capacity });
     let changed = 0;
     for (const secretId of secretIds) {
       const targetMachineId = machineIds
-        .filter((machineId) => (counts.get(machineId) || 0) < targetCount)
+        .filter((machineId) => (counts.get(machineId) || 0) < target)
         .sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b))[0];
       if (!targetMachineId) return changed;
       const result = await db.query(

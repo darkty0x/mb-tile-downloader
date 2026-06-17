@@ -303,6 +303,20 @@ export function createDashboardApp({
               status: body.data.status === "disabled" ? "disabled" : "error",
             });
           }
+          if (
+            secretVault?.updateAssignedSecretStatusByValueHash &&
+            body.type === "mapbox.token_unusable" &&
+            body.machineId &&
+            body.data?.tokenHash
+          ) {
+            secret = await secretVault.updateAssignedSecretStatusByValueHash({
+              machineId: body.machineId,
+              secretType: "mapbox_token",
+              valueHash: body.data.tokenHash,
+              status: body.data.status === "exhausted" ? "exhausted" : "invalid",
+            });
+          }
+          if (secret) await rebalanceSecretAssignments({ store, secretVault });
           const telegram = telegramNotifier ? await telegramNotifier.notifyEvent(event, await store.getSettings()) : null;
           json(res, 200, { event, telegram, ...(secret ? { secret } : {}) });
           return;
@@ -339,6 +353,7 @@ export function createDashboardApp({
             return;
           }
           const machineId = url.searchParams.get("machineId") || undefined;
+          await rebalanceSecretAssignments({ store, secretVault });
           json(res, 200, { secrets: await secretVault.listSecretsForAgent({ machineId }) });
           return;
         }

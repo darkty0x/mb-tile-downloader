@@ -71,7 +71,7 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
   },
 };
 
-export const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
+export const SECRET_STATUSES = ["active", "disabled", "inactive", "error", "invalid", "exhausted"];
 export const SAMPLE_CONFIG = {
   provider: "esri",
   layer: "esri-satellite",

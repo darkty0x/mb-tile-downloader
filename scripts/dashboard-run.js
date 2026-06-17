@@ -65,7 +65,7 @@ function printUsage(exitCode = 0) {
       "Run a local downloader command with dashboard-managed config/env/secrets.",
       "",
       "Usage:",
-      "  node scripts/dashboard-run.js [--watchdog] -- command [args...]",
+      "  node scripts/dashboard-run.js -- command [args...]",
       "",
       "When DASHBOARD_URL, AGENT_TOKEN, and MACHINE_ID are present, the command uses",
       "the active dashboard config, env profile, Mapbox tokens, and proxy pool.",
@@ -79,12 +79,10 @@ export function parseDashboardRunArgs(argv = process.argv.slice(2)) {
   const separator = argv.indexOf("--");
   if (separator === -1) throw new Error("dashboard-run requires -- before the command");
   const opts = {
-    watchdog: false,
     command: argv.slice(separator + 1),
   };
   for (const arg of argv.slice(0, separator)) {
-    if (arg === "--watchdog") opts.watchdog = true;
-    else throw new Error(`Unknown dashboard-run option: ${arg}`);
+    throw new Error(`Unknown dashboard-run option: ${arg}`);
   }
   if (opts.command.length === 0) throw new Error("dashboard-run command is empty");
   return opts;
@@ -183,13 +181,6 @@ export function buildManagedEnv(baseEnv, synced) {
     ...(synced?.secretEnv || {}),
     ...(synced?.synced ? { [DASHBOARD_MANAGED_RUN_ENV]: "1" } : {}),
   };
-}
-
-function watchdogCommand(command) {
-  return [
-    process.execPath,
-    [path.join(path.dirname(__filename), "watchdog.js"), "--", ...command],
-  ];
 }
 
 function plainCommand(command) {
@@ -331,7 +322,7 @@ export async function runDashboardCommand({
 
   assertManagedCommandHasCompleteDashboardEnv(opts.command, env);
   const command = withDashboardConfig(opts.command, synced.configPath);
-  const [runner, runnerArgs] = opts.watchdog ? watchdogCommand(command) : plainCommand(command);
+  const [runner, runnerArgs] = plainCommand(command);
   const outputTee = createOutputTee({ agentLogPath: dashboardLogPath(stateDir) });
   const result = await new Promise((resolve) => {
     const child = spawn(runner, runnerArgs, {
