@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
+import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
 import { buildCredentialSecretValue, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
@@ -101,6 +102,32 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   assert.equal(model.pipelineStage, "압축");
   assert.equal(model.pipelineProgress, "63%");
   assert.equal(model.pipelineEta, "10초");
+});
+
+test("global search returns navigable servers configs and events", () => {
+  const state = {
+    machines: [
+      { machineId: "server-09", displayName: "Server 09", status: "online", platform: "win32" },
+    ],
+    globalConfigs: [
+      {
+        configId: "cfg-1",
+        machineId: "server-09",
+        name: "ukraine-pbf",
+        config: { provider: "mapbox", layer: "vector", ranges: [{ zoom: 17 }] },
+      },
+    ],
+    globalEvents: [
+      { eventId: "event-1", machineId: "server-09", type: "download.started", message: "range started", severity: "info" },
+    ],
+  };
+
+  assert.deepEqual(
+    buildGlobalSearchResults(state, "server-09").map((result) => result.type),
+    ["machine", "config", "event"]
+  );
+  assert.equal(buildGlobalSearchResults(state, "ukraine")[0].tab, "configs");
+  assert.equal(buildGlobalSearchResults(state, "range")[0].tab, "events");
 });
 
 test("server onboarding explains agent registration instead of manual dashboard rows", () => {

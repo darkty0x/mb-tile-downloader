@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { buildGlobalSearchResults } from "../lib/global-search";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { AppButton, IconButton, StatusPill, SwitchField } from "./ui";
@@ -84,15 +85,7 @@ export function Header({ state, actions }) {
           </div>
           <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
         </div>
-        <label className="relative block max-xl:hidden">
-          <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
-          <input
-            type="search"
-            placeholder="봉사기, 설정화일, 사건 검색..."
-            className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
-          />
-          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
-        </label>
+        <GlobalSearch state={state} actions={actions} />
         <div className="flex items-center justify-end gap-2 max-md:justify-between">
           <span className="hidden items-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex">
             <span>마지막 갱신:</span>
@@ -108,6 +101,97 @@ export function Header({ state, actions }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function GlobalSearch({ state, actions }) {
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+  const inputRef = useRef(null);
+  const results = useMemo(() => buildGlobalSearchResults(state, query), [state, query]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      const isShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+      if (!isShortcut) return;
+      event.preventDefault();
+      inputRef.current?.focus();
+      setOpen(true);
+    };
+    document.addEventListener("keydown", handleKeyDown);
+    return () => document.removeEventListener("keydown", handleKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const activateResult = async (result) => {
+    setOpen(false);
+    setQuery("");
+    if (result.machineId) {
+      await actions.selectMachine(result.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+      return;
+    }
+    actions.setSelectedTab(result.tab);
+  };
+
+  return (
+    <div ref={menuRef} className="relative block max-xl:hidden">
+      <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+      <input
+        ref={inputRef}
+        type="search"
+        value={query}
+        onChange={(event) => {
+          setQuery(event.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        placeholder="봉사기, 설정화일, 사건 검색..."
+        className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+      />
+      <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
+      {open && query.trim() ? (
+        <div className="screen-enter absolute left-0 top-[calc(100%+10px)] z-30 w-full overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]">
+          <div className="ptg-scrollbar grid max-h-[360px] gap-1 overflow-auto pr-1">
+            {results.length ? results.map((result) => (
+              <button
+                key={result.id}
+                type="button"
+                onClick={() => activateResult(result)}
+                className="state-layer grid grid-cols-[34px_minmax(0,1fr)] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left hover:bg-[var(--ptg-primary-soft)]"
+              >
+                <span className="mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                  <Icon name={result.icon} className="h-4 w-4" />
+                </span>
+                <span className="min-w-0">
+                  <strong className="block truncate text-[12px] font-[820]">{result.title}</strong>
+                  <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{result.detail}</small>
+                </span>
+              </button>
+            )) : (
+              <div className="rounded-[14px] border border-dashed border-[var(--ptg-outline)] px-3 py-6 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                맞는 항목이 없습니다
+              </div>
+            )}
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
 
