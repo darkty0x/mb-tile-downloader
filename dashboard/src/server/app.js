@@ -19,6 +19,7 @@ import { createPostgresSecretVault, createSecretVault, splitSecretValues } from 
 import { createDashboardStore } from "./store.js";
 import { createTelegramNotifier } from "./telegram.js";
 import { splitConfigByRows } from "../../../src/config/config-splitter.js";
+import { normalizeMachineId } from "../../../src/runtime/machine-id.js";
 
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const DASHBOARD_DIR = path.resolve(SERVER_DIR, "../..");
@@ -116,7 +117,7 @@ function normalizeServerConnectionInput(body = {}) {
   if (!username) throw new Error("server username is required");
   const password = String(body.password || "");
   if (!password.trim()) throw new Error("server password is required");
-  const machineId = String(body.machineId || "").trim() || null;
+  const machineId = normalizeMachineId(body.machineId) || null;
   if (!machineId) throw new Error("server Agent ID is required");
   return {
     machineId,
@@ -138,9 +139,18 @@ function endpointFromCredentialValue(value) {
     protocol,
     host: url.hostname,
     port: url.port ? Number.parseInt(url.port, 10) : SERVER_CONNECTION_DEFAULT_PORTS[protocol],
-    machineId: String(credential.machineId || "").trim() || null,
+    machineId: normalizeMachineId(credential.machineId) || null,
     username: credential.username,
   };
+}
+
+async function findMachineById(store, machineId) {
+  const normalizedMachineId = normalizeMachineId(machineId);
+  if (!normalizedMachineId) return null;
+  const direct = await store.getMachine(normalizedMachineId);
+  if (direct) return direct;
+  const machines = await store.listMachines();
+  return machines.find((machine) => normalizeMachineId(machine.machineId) === normalizedMachineId) || null;
 }
 
 function checkTcpEndpoint({ host, port, timeoutMs = 3000 }) {
@@ -439,11 +449,11 @@ export function createDashboardApp({
           if (!["credential", SERVER_CONNECTION_SECRET_TYPE].includes(connection.secretType)) throw new Error("server connection must be a server credential secret");
           const endpoint = endpointFromCredentialValue(connection.value);
           const network = await checkTcpEndpoint(endpoint);
-          const targetMachineId = endpoint.machineId || connection.machineId;
-          const machine = targetMachineId ? await store.getMachine(targetMachineId) : null;
+          const targetMachineId = endpoint.machineId || normalizeMachineId(connection.machineId);
+          const machine = targetMachineId ? await findMachineById(store, targetMachineId) : null;
           const agent = {
             ok: Boolean(machine && machine.status !== "offline"),
-            machineId: targetMachineId || null,
+            machineId: machine?.machineId || targetMachineId || null,
             status: machine?.status || "missing",
             lastSeenAt: machine?.lastSeenAt || null,
           };

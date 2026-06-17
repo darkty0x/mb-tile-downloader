@@ -30,7 +30,7 @@ export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}
 export function buildWindowsAgentEnv({ dashboardUrl = "", agentToken = "", machineId = "" } = {}) {
   const normalizedDashboardUrl = String(dashboardUrl || "https://your-railway-app.up.railway.app").trim() || "https://your-railway-app.up.railway.app";
   const normalizedAgentToken = String(agentToken || "").trim();
-  const normalizedMachineId = (String(machineId || "SERVER-01").trim() || "SERVER-01").toUpperCase();
+  const normalizedMachineId = (String(machineId || "server-01").trim() || "server-01").toLowerCase();
   return [
     `DASHBOARD_URL=${normalizedDashboardUrl}`,
     `AGENT_TOKEN=${normalizedAgentToken}`,
@@ -70,7 +70,7 @@ export function nextServerDefaults(source = {}) {
   return {
     number,
     label: `Server ${suffix}`,
-    machineId: `SERVER-${suffix}`,
+    machineId: `server-${suffix}`,
   };
 }
 
@@ -80,7 +80,7 @@ export function buildCredentialSecretValue({
   username = "",
   password = "",
 } = {}) {
-  const normalizedMachineId = String(machineId || "").trim().toUpperCase();
+  const normalizedMachineId = String(machineId || "").trim().toLowerCase();
   return JSON.stringify({
     protocolUrl: String(protocolUrl || "").trim(),
     ...(normalizedMachineId ? { machineId: normalizedMachineId } : {}),

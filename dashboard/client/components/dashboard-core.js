@@ -159,6 +159,20 @@ export function displayMachineId(value) {
   return text ? text.toUpperCase() : "No Agent ID";
 }
 
+export function normalizeMachineId(value) {
+  return String(value || "").trim().toLowerCase();
+}
+
+export function sameMachineId(a, b) {
+  const left = normalizeMachineId(a);
+  const right = normalizeMachineId(b);
+  return Boolean(left && right && left === right);
+}
+
+export function findMachineById(machines = [], machineId) {
+  return machines.find((machine) => sameMachineId(machine.machineId, machineId)) || null;
+}
+
 export function fleetState(state) {
   return {
     ...state,

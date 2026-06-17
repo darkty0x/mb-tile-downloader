@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextInput, UsageBar } from "./ui";
-import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, fleetState, formatBytes, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers"],
@@ -293,7 +293,7 @@ function isServerConnection(secret) {
 
 function machineNameForId(state, machineId) {
   if (!machineId) return "No Agent ID";
-  const machine = state.machines.find((item) => item.machineId === machineId);
+  const machine = findMachineById(state.machines, machineId);
   return machine?.displayName || displayMachineId(machineId);
 }
 
@@ -437,11 +437,11 @@ export function ServerManagementPage({ state, actions }) {
     );
   }
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
-  const machine = targetMachineId ? state.machines.find((item) => item.machineId === targetMachineId) : null;
+  const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const snapshot = machine?.agentSnapshot || {};
   const validation = state.serverValidationResults[connection.secretId];
   const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
-  const selectedMatchesTarget = Boolean(targetMachineId && state.selectedMachineId === targetMachineId);
+  const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const serverState = {
     ...state,
     selectedMachine: machine,
@@ -883,7 +883,7 @@ export function AlertsDashboard({ state, actions }) {
 
 function machineLabel(state, machineId) {
   if (!machineId) return "Available";
-  const machine = state.machines.find((item) => item.machineId === machineId);
+  const machine = findMachineById(state.machines, machineId);
   return machine?.displayName || displayMachineId(machineId);
 }
 
@@ -1449,7 +1449,7 @@ function ServersTable({ state, actions }) {
     `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
   );
   const online = state.machines.filter((machine) => machine.status === "online").length;
-  const connectionForMachine = (machineId) => state.secretPool.find((secret) => isServerConnection(secret) && (secret.targetMachineId || secret.credential?.machineId || secret.machineId) === machineId);
+  const connectionForMachine = (machineId) => state.secretPool.find((secret) => isServerConnection(secret) && sameMachineId(secret.targetMachineId || secret.credential?.machineId || secret.machineId, machineId));
   return (
     <Surface className="min-h-[500px] max-w-full overflow-hidden">
       <SectionTitle

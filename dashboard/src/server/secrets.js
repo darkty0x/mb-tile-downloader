@@ -1,5 +1,7 @@
 import { createCipheriv, createDecipheriv, createHash, randomBytes, randomUUID } from "node:crypto";
 
+import { normalizeMachineId } from "../../../src/runtime/machine-id.js";
+
 const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error", "invalid", "exhausted"]);
@@ -59,7 +61,7 @@ function parseCredentialValue(value, { requireMachineId = false, requireMachineI
   const protocolUrl = String(payload.protocolUrl || "").trim();
   const username = String(payload.username || "").trim();
   const password = String(payload.password ?? "");
-  const machineId = String(payload.machineId || "").trim() || null;
+  const machineId = normalizeMachineId(payload.machineId) || null;
   if (!protocolUrl) throw new Error("credential protocol URL is required");
   if (!username) throw new Error("credential username is required");
   if (!password.trim()) throw new Error("credential password is required");
@@ -178,7 +180,7 @@ function validateStatus(status = "active") {
 }
 
 function uniqueMachineIds(machineIds = []) {
-  return [...new Set(machineIds.map((machineId) => String(machineId || "").trim()).filter(Boolean))].sort();
+  return [...new Set(machineIds.map((machineId) => normalizeMachineId(machineId)).filter(Boolean))].sort();
 }
 
 function normalizedTargets(targets = SECRET_POOL_TARGETS) {
@@ -288,7 +290,7 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
       const at = now().toISOString();
       const record = {
         secretId: idGenerator(),
-        machineId: input.machineId || null,
+        machineId: normalizeMachineId(input.machineId) || null,
         secretType: input.secretType,
         label: input.label || input.secretType,
         encryptedValue: encrypt(normalizedValue, appSecret),
@@ -311,7 +313,7 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
       if (duplicate) throw new Error(`duplicate ${existing.secretType} secret value`);
       const next = {
         ...existing,
-        machineId: input.machineId === undefined ? existing.machineId : input.machineId || null,
+        machineId: input.machineId === undefined ? existing.machineId : normalizeMachineId(input.machineId) || null,
         label: input.label === undefined ? existing.label : input.label || existing.secretType,
         encryptedValue: input.value === undefined
           ? existing.encryptedValue
@@ -337,20 +339,22 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
     },
 
     listSecretsForBrowser({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : normalizeMachineId(machineId);
       return [...records.values()]
-        .filter((record) => machineId === undefined || record.machineId === machineId)
+        .filter((record) => normalizedMachineId === undefined || record.machineId === normalizedMachineId)
         .map((record) => normalizeSecret(record, { appSecret }));
     },
 
     listSecretsForAgent({ machineId } = {}) {
-      if (machineId) {
+      const normalizedMachineId = machineId === undefined ? undefined : normalizeMachineId(machineId);
+      if (normalizedMachineId) {
         for (const [secretType, targetCount] of Object.entries(SECRET_POOL_TARGETS)) {
-          assignAvailable({ machineId, secretType, targetCount });
+          assignAvailable({ machineId: normalizedMachineId, secretType, targetCount });
         }
       }
       return [...records.values()]
         .filter((record) => record.status === "active")
-        .filter((record) => machineId === undefined || record.machineId === machineId)
+        .filter((record) => normalizedMachineId === undefined || record.machineId === normalizedMachineId)
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
     },
 
@@ -368,11 +372,12 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
 
     updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {
       validateStatus(status);
-      if (!machineId) throw new Error("machineId is required");
+      const normalizedMachineId = normalizeMachineId(machineId);
+      if (!normalizedMachineId) throw new Error("machineId is required");
       if (!VALID_SECRET_TYPES.has(secretType)) throw new Error(`invalid secret type: ${secretType}`);
       if (!valueHash) throw new Error("valueHash is required");
       for (const record of records.values()) {
-        if (record.machineId !== machineId || record.secretType !== secretType) continue;
+        if (record.machineId !== normalizedMachineId || record.secretType !== secretType) continue;
         const value = decrypt(record.encryptedValue, appSecret);
         if (!candidateSecretValueHashes(secretType, value).has(valueHash)) continue;
         const next = { ...record, status, updatedAt: now().toISOString() };
@@ -393,9 +398,10 @@ export function createPostgresSecretVault({
   if (!db?.query) throw new Error("db.query is required");
 
   async function listRows({ machineId } = {}) {
+    const normalizedMachineId = machineId === undefined ? undefined : normalizeMachineId(machineId);
     const result = machineId === undefined
       ? await db.query("SELECT * FROM secrets ORDER BY created_at ASC", [])
-      : await db.query("SELECT * FROM secrets WHERE machine_id=$1 ORDER BY created_at ASC", [machineId]);
+      : await db.query("SELECT * FROM secrets WHERE machine_id=$1 ORDER BY created_at ASC", [normalizedMachineId]);
     return result.rows.map(normalizeSecretRow);
   }
 
@@ -507,7 +513,7 @@ export function createPostgresSecretVault({
         RETURNING *`,
         [
           idGenerator(),
-          input.machineId || null,
+          normalizeMachineId(input.machineId) || null,
           input.secretType,
           input.label || input.secretType,
           encrypt(normalizedValue, appSecret),
@@ -539,7 +545,7 @@ export function createPostgresSecretVault({
         WHERE secret_id=$6
         RETURNING *`,
         [
-          input.machineId === undefined ? row.machine_id : input.machineId || null,
+          input.machineId === undefined ? row.machine_id : normalizeMachineId(input.machineId) || null,
           input.label === undefined ? row.label : input.label || row.secret_type,
           input.value === undefined ? row.encrypted_value : encrypt(nextValue, appSecret),
           input.status === undefined ? row.status : validateStatus(input.status),
@@ -567,12 +573,13 @@ export function createPostgresSecretVault({
     },
 
     async listSecretsForAgent({ machineId } = {}) {
-      if (machineId) {
+      const normalizedMachineId = machineId === undefined ? undefined : normalizeMachineId(machineId);
+      if (normalizedMachineId) {
         for (const [secretType, targetCount] of Object.entries(SECRET_POOL_TARGETS)) {
-          await assignAvailable({ machineId, secretType, targetCount });
+          await assignAvailable({ machineId: normalizedMachineId, secretType, targetCount });
         }
       }
-      return (await listRows({ machineId }))
+      return (await listRows({ machineId: normalizedMachineId }))
         .filter((record) => record.status === "active")
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
     },
@@ -592,17 +599,18 @@ export function createPostgresSecretVault({
 
     async updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {
       validateStatus(status);
-      if (!machineId) throw new Error("machineId is required");
+      const normalizedMachineId = normalizeMachineId(machineId);
+      if (!normalizedMachineId) throw new Error("machineId is required");
       if (!VALID_SECRET_TYPES.has(secretType)) throw new Error(`invalid secret type: ${secretType}`);
       if (!valueHash) throw new Error("valueHash is required");
-      const rows = await listRows({ machineId });
+      const rows = await listRows({ machineId: normalizedMachineId });
       for (const record of rows) {
         if (record.secretType !== secretType) continue;
         const value = decrypt(record.encryptedValue, appSecret);
         if (!candidateSecretValueHashes(secretType, value).has(valueHash)) continue;
         const result = await db.query(
           "UPDATE secrets SET status=$1, updated_at=$2 WHERE secret_id=$3 AND machine_id=$4 RETURNING *",
-          [status, now().toISOString(), record.secretId, machineId]
+          [status, now().toISOString(), record.secretId, normalizedMachineId]
         );
         return result.rows[0]
           ? normalizeSecret(normalizeSecretRow(result.rows[0]), { appSecret })

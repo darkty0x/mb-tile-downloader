@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
-import { DEFAULT_DASHBOARD_SETTINGS, mergeDashboardSettings } from "./dashboard-core";
+import { DEFAULT_DASHBOARD_SETTINGS, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
 export function useDashboardState() {
   const [machineSearch, setMachineSearch] = useState("");
@@ -101,7 +101,7 @@ export function useDashboardState() {
       ]);
       const nextMachines = snapshot.machines || [];
       const currentSelected = selectedMachineIdRef.current;
-      const nextSelected = currentSelected && nextMachines.some((machine) => machine.machineId === currentSelected)
+      const nextSelected = currentSelected && nextMachines.some((machine) => sameMachineId(machine.machineId, currentSelected))
         ? currentSelected
         : null;
       setMachines(nextMachines);
@@ -138,7 +138,7 @@ export function useDashboardState() {
     return () => clearInterval(timer);
   }, [settings.sync?.dashboardPollMs]);
 
-  const selectedMachine = useMemo(() => machines.find((machine) => machine.machineId === selectedMachineId) || null, [machines, selectedMachineId]);
+  const selectedMachine = useMemo(() => findMachineById(machines, selectedMachineId), [machines, selectedMachineId]);
   const activeConfig = useMemo(() => configs.find((config) => config.active) || configs[0] || null, [configs]);
   const activeEnv = useMemo(() => envProfiles.find((profile) => profile.active) || envProfiles[0] || null, [envProfiles]);
 
@@ -187,15 +187,17 @@ export function useDashboardState() {
       },
       async manageServerConnection(secretId) {
         const connection = secretPool.find((item) => item.secretId === secretId);
-        const targetMachineId = connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId || null;
-        setSelectedMachineId(targetMachineId);
+        const targetMachineId = normalizeMachineId(connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId);
+        const matchingMachine = findMachineById(machines, targetMachineId);
+        const selectedId = matchingMachine?.machineId || targetMachineId || null;
+        setSelectedMachineId(selectedId);
         setSelectedServerTab("control");
         setSelectedTab("servers");
         setEditor({ type: "server-management", id: secretId });
-        await refreshMachineData(targetMachineId);
+        await refreshMachineData(selectedId);
       },
       async sendCommand(commandType) {
-        const machine = machines.find((item) => item.machineId === selectedMachineId);
+        const machine = findMachineById(machines, selectedMachineId);
         if (!machine) throw new Error("open a server management page first");
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
@@ -211,7 +213,7 @@ export function useDashboardState() {
       },
       async deleteMachine(machineId) {
         await api(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" });
-        if (selectedMachineId === machineId) {
+        if (sameMachineId(selectedMachineId, machineId)) {
           setSelectedMachineId(null);
           setSelectedServerTab("control");
           setEditor({ type: "summary" });
@@ -234,11 +236,12 @@ export function useDashboardState() {
           body: JSON.stringify(payload),
         });
         await refreshSecretPool();
-        const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
-        if (targetMachineId && machines.some((machine) => machine.machineId === targetMachineId)) {
-          setSelectedMachineId(targetMachineId);
+        const targetMachineId = normalizeMachineId(connection.targetMachineId || connection.credential?.machineId || connection.machineId);
+        const matchingMachine = findMachineById(machines, targetMachineId);
+        if (targetMachineId && matchingMachine) {
+          setSelectedMachineId(matchingMachine.machineId);
           setSelectedServerTab("control");
-          await refreshMachineData(targetMachineId);
+          await refreshMachineData(matchingMachine.machineId);
         }
         setSelectedTab("servers");
         setNotice({ message: `${connection.label} Saved. Validate It After The Matching Agent Is Online.`, kind: "success" });

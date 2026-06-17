@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { normalizeRanges } from "../../../src/config/config-loader.js";
+import { normalizeMachineId } from "../../../src/runtime/machine-id.js";
 import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
@@ -23,6 +24,16 @@ function requireNonEmpty(value, name) {
     throw new Error(`${name} is required`);
   }
   return value.trim();
+}
+
+function requireStoredMachineId(value, name = "machineId") {
+  const machineId = normalizeMachineId(value);
+  if (!machineId) throw new Error(`${name} is required`);
+  return machineId;
+}
+
+function optionalStoredMachineId(value) {
+  return normalizeMachineId(value) || null;
 }
 
 function iso(date) {
@@ -180,7 +191,7 @@ export function createDashboardStore({
     },
 
     registerMachine(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");
       const at = now();
       const leaseExpiresAt = iso(addMs(at, leaseMs));
@@ -236,7 +247,7 @@ export function createDashboardStore({
     },
 
     heartbeatMachine(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");
       const existing = machines.get(machineId);
       if (!existing) throw new Error(`machine id "${machineId}" is not registered`);
@@ -268,34 +279,35 @@ export function createDashboardStore({
     },
 
     getMachine(machineId) {
-      const record = machines.get(machineId);
+      const record = machines.get(normalizeMachineId(machineId));
       return record ? normalizeMachine(record, { now: now() }) : null;
     },
 
     deleteMachine(machineId) {
-      const existing = machines.get(machineId);
-      if (!existing) throw new Error(`machine "${machineId}" not found`);
-      machines.delete(machineId);
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const existing = machines.get(normalizedMachineId);
+      if (!existing) throw new Error(`machine "${normalizedMachineId}" not found`);
+      machines.delete(normalizedMachineId);
       for (const [configId, record] of configs.entries()) {
-        if (record.machineId === machineId) configs.delete(configId);
+        if (record.machineId === normalizedMachineId) configs.delete(configId);
       }
       for (const [envProfileId, profile] of envProfiles.entries()) {
-        if (profile.machineId === machineId) envProfiles.delete(envProfileId);
+        if (profile.machineId === normalizedMachineId) envProfiles.delete(envProfileId);
       }
       for (let index = events.length - 1; index >= 0; index -= 1) {
-        if (events[index].machineId === machineId) events.splice(index, 1);
+        if (events[index].machineId === normalizedMachineId) events.splice(index, 1);
       }
       for (const [commandId, command] of commands.entries()) {
-        if (command.machineId === machineId) commands.delete(commandId);
+        if (command.machineId === normalizedMachineId) commands.delete(commandId);
       }
       for (const [jobId, job] of jobs.entries()) {
-        if (job.machineId === machineId) jobs.delete(jobId);
+        if (job.machineId === normalizedMachineId) jobs.delete(jobId);
       }
       return normalizeMachine(existing, { now: now() });
     },
 
     createConfig(input) {
-      const machineId = input.machineId ? input.machineId.trim() : null;
+      const machineId = optionalStoredMachineId(input.machineId);
       const name = requireNonEmpty(input.name, "name");
       const config = validateConfig(input.config);
       const at = iso(now());
@@ -348,14 +360,15 @@ export function createDashboardStore({
     },
 
     listConfigs({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       return [...configs.values()]
-        .filter((record) => machineId === undefined || record.machineId === machineId)
+        .filter((record) => normalizedMachineId === undefined || record.machineId === normalizedMachineId)
         .map(normalizeConfig)
         .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
     },
 
     createEnvProfile(input) {
-      const machineId = input.machineId ? input.machineId.trim() : null;
+      const machineId = optionalStoredMachineId(input.machineId);
       const name = requireNonEmpty(input.name, "name");
       const env = normalizeEnv(input.env);
       const at = iso(now());
@@ -410,14 +423,15 @@ export function createDashboardStore({
     },
 
     listEnvProfiles({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       return [...envProfiles.values()]
-        .filter((profile) => machineId === undefined || profile.machineId === machineId)
+        .filter((profile) => normalizedMachineId === undefined || profile.machineId === normalizedMachineId)
         .map(normalizeEnvProfile)
         .sort((a, b) => a.version - b.version || a.name.localeCompare(b.name));
     },
 
     recordEvent(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const severity = input.severity || "info";
       if (!EVENT_SEVERITIES.has(severity)) {
         throw new Error(`invalid event severity: ${severity}`);
@@ -437,8 +451,9 @@ export function createDashboardStore({
     },
 
     listEvents({ machineId, limit = 200 } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       return events
-        .filter((event) => machineId === undefined || event.machineId === machineId)
+        .filter((event) => normalizedMachineId === undefined || event.machineId === normalizedMachineId)
         .slice(-limit)
         .map(normalizeEvent);
     },
@@ -449,7 +464,7 @@ export function createDashboardStore({
       const at = iso(now());
       const record = {
         id: idGenerator(),
-        machineId: requireNonEmpty(input.machineId, "machineId"),
+        machineId: requireStoredMachineId(input.machineId),
         commandType,
         payload: input.payload && typeof input.payload === "object" ? { ...input.payload } : {},
         status: "queued",
@@ -465,12 +480,13 @@ export function createDashboardStore({
     },
 
     claimCommands({ machineId, limit = 10 }) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
       const atDate = now();
       const at = iso(atDate);
       const claimed = [];
       for (const record of commands.values()) {
         if (
-          record.machineId === machineId
+          record.machineId === normalizedMachineId
           && record.status === "claimed"
           && record.completedAt === null
           && record.claimedAt
@@ -482,7 +498,7 @@ export function createDashboardStore({
       }
       for (const record of commands.values()) {
         if (claimed.length >= limit) break;
-        if (record.machineId !== machineId || record.status !== "queued") continue;
+        if (record.machineId !== normalizedMachineId || record.status !== "queued") continue;
         record.status = "claimed";
         record.claimedAt = at;
         record.commandLeaseMs = commandLeaseMs;
@@ -512,7 +528,7 @@ export function createDashboardStore({
         || (["completed", "failed"].includes(status) ? at : null);
       const record = {
         jobId,
-        machineId: requireNonEmpty(input.machineId ?? existing?.machineId, "machineId"),
+        machineId: requireStoredMachineId(input.machineId ?? existing?.machineId),
         configId: requireNonEmpty(input.configId ?? existing?.configId, "configId"),
         rangeId: input.rangeId ?? existing?.rangeId ?? null,
         status,
@@ -534,8 +550,9 @@ export function createDashboardStore({
     },
 
     listJobs({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       return [...jobs.values()]
-        .filter((job) => machineId === undefined || job.machineId === machineId)
+        .filter((job) => normalizedMachineId === undefined || job.machineId === normalizedMachineId)
         .map(normalizeJob)
         .sort((a, b) => String(b.startedAt).localeCompare(String(a.startedAt)) || a.jobId.localeCompare(b.jobId));
     },

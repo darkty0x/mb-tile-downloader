@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { normalizeRanges } from "../../../src/config/config-loader.js";
+import { normalizeMachineId } from "../../../src/runtime/machine-id.js";
 import { normalizeDashboardSettings } from "./settings.js";
 
 const DEFAULT_LEASE_MS = 120_000;
@@ -34,6 +35,16 @@ function requireNonEmpty(value, name) {
     throw new Error(`${name} is required`);
   }
   return value.trim();
+}
+
+function requireStoredMachineId(value, name = "machineId") {
+  const machineId = normalizeMachineId(value);
+  if (!machineId) throw new Error(`${name} is required`);
+  return machineId;
+}
+
+function optionalStoredMachineId(value) {
+  return normalizeMachineId(value) || null;
 }
 
 function jsonValue(value, fallback) {
@@ -202,7 +213,7 @@ export function createPostgresDashboardStore({
     },
 
     async registerMachine(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");
       const at = now();
       const existing = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [machineId]);
@@ -262,7 +273,7 @@ export function createPostgresDashboardStore({
     },
 
     async heartbeatMachine(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const agentInstanceId = requireNonEmpty(input.agentInstanceId, "agentInstanceId");
       const existing = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [machineId]);
       if (!existing) throw new Error(`machine id "${machineId}" is not registered`);
@@ -314,24 +325,25 @@ export function createPostgresDashboardStore({
     },
 
     async getMachine(machineId) {
-      const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [machineId]);
+      const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [normalizeMachineId(machineId)]);
       return row ? machineFromRow(row, { now: now() }) : null;
     },
 
     async deleteMachine(machineId) {
-      const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [machineId]);
-      if (!row) throw new Error(`machine "${machineId}" not found`);
-      await db.query("DELETE FROM machine_commands WHERE machine_id=$1", [machineId]);
-      await db.query("DELETE FROM machine_events WHERE machine_id=$1", [machineId]);
-      await db.query("DELETE FROM machine_jobs WHERE machine_id=$1", [machineId]);
-      await db.query("DELETE FROM configs WHERE machine_id=$1", [machineId]);
-      await db.query("DELETE FROM env_profiles WHERE machine_id=$1", [machineId]);
-      await db.query("DELETE FROM machines WHERE machine_id=$1", [machineId]);
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [normalizedMachineId]);
+      if (!row) throw new Error(`machine "${normalizedMachineId}" not found`);
+      await db.query("DELETE FROM machine_commands WHERE machine_id=$1", [normalizedMachineId]);
+      await db.query("DELETE FROM machine_events WHERE machine_id=$1", [normalizedMachineId]);
+      await db.query("DELETE FROM machine_jobs WHERE machine_id=$1", [normalizedMachineId]);
+      await db.query("DELETE FROM configs WHERE machine_id=$1", [normalizedMachineId]);
+      await db.query("DELETE FROM env_profiles WHERE machine_id=$1", [normalizedMachineId]);
+      await db.query("DELETE FROM machines WHERE machine_id=$1", [normalizedMachineId]);
       return machineFromRow(row, { now: now() });
     },
 
     async createConfig(input) {
-      const machineId = input.machineId ? input.machineId.trim() : null;
+      const machineId = optionalStoredMachineId(input.machineId);
       const name = requireNonEmpty(input.name, "name");
       const config = validateConfig(input.config);
       const at = now().toISOString();
@@ -386,14 +398,15 @@ export function createPostgresDashboardStore({
     },
 
     async listConfigs({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       const result = machineId === undefined
         ? await db.query("SELECT * FROM configs ORDER BY version, name", [])
-        : await db.query("SELECT * FROM configs WHERE machine_id=$1 ORDER BY version, name", [machineId]);
+        : await db.query("SELECT * FROM configs WHERE machine_id=$1 ORDER BY version, name", [normalizedMachineId]);
       return result.rows.map(configFromRow);
     },
 
     async createEnvProfile(input) {
-      const machineId = input.machineId ? input.machineId.trim() : null;
+      const machineId = optionalStoredMachineId(input.machineId);
       const name = requireNonEmpty(input.name, "name");
       const env = normalizeEnv(input.env);
       const at = now().toISOString();
@@ -448,14 +461,15 @@ export function createPostgresDashboardStore({
     },
 
     async listEnvProfiles({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       const result = machineId === undefined
         ? await db.query("SELECT * FROM env_profiles ORDER BY version, name", [])
-        : await db.query("SELECT * FROM env_profiles WHERE machine_id=$1 ORDER BY version, name", [machineId]);
+        : await db.query("SELECT * FROM env_profiles WHERE machine_id=$1 ORDER BY version, name", [normalizedMachineId]);
       return result.rows.map(envProfileFromRow);
     },
 
     async recordEvent(input) {
-      const machineId = requireNonEmpty(input.machineId, "machineId");
+      const machineId = requireStoredMachineId(input.machineId);
       const severity = input.severity || "info";
       if (!EVENT_SEVERITIES.has(severity)) throw new Error(`invalid event severity: ${severity}`);
       const row = await firstRow(
@@ -479,9 +493,10 @@ export function createPostgresDashboardStore({
     },
 
     async listEvents({ machineId, limit = 200 } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       const result = machineId === undefined
         ? await db.query("SELECT * FROM machine_events ORDER BY created_at ASC LIMIT $1", [limit])
-        : await db.query("SELECT * FROM machine_events WHERE machine_id=$1 ORDER BY created_at ASC LIMIT $2", [machineId, limit]);
+        : await db.query("SELECT * FROM machine_events WHERE machine_id=$1 ORDER BY created_at ASC LIMIT $2", [normalizedMachineId, limit]);
       return result.rows.map(eventFromRow);
     },
 
@@ -496,7 +511,7 @@ export function createPostgresDashboardStore({
         VALUES ($1,$2,$3,$4,$5)
         RETURNING *`,
         [
-          requireNonEmpty(input.machineId, "machineId"),
+          requireStoredMachineId(input.machineId),
           commandType,
           toJsonbParam(input.payload && typeof input.payload === "object" ? input.payload : {}, {}),
           input.requestedBy || null,
@@ -507,6 +522,7 @@ export function createPostgresDashboardStore({
     },
 
     async claimCommands({ machineId, limit = 10 }) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
       const at = now();
       const expiredBefore = new Date(at.getTime() - commandLeaseMs).toISOString();
       await db.query(
@@ -516,11 +532,11 @@ export function createPostgresDashboardStore({
           AND status='claimed'
           AND completed_at IS NULL
           AND claimed_at <= $2`,
-        [machineId, expiredBefore]
+        [normalizedMachineId, expiredBefore]
       );
       const queued = await db.query(
         "SELECT * FROM machine_commands WHERE machine_id=$1 AND status='queued' ORDER BY requested_at ASC LIMIT $2",
-        [machineId, limit]
+        [normalizedMachineId, limit]
       );
       const claimed = [];
       for (const row of queued.rows) {
@@ -560,7 +576,7 @@ export function createPostgresDashboardStore({
       const status = requireNonEmpty(input.status, "status");
       const finishedAt = input.finishedAt
         || (["completed", "failed"].includes(status) ? at : null);
-      const machineId = requireNonEmpty(input.machineId ?? existing?.machine_id, "machineId");
+      const machineId = requireStoredMachineId(input.machineId ?? existing?.machine_id);
       const row = await firstRow(
         db,
         `INSERT INTO machine_jobs (
@@ -599,9 +615,10 @@ export function createPostgresDashboardStore({
     },
 
     async listJobs({ machineId } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       const result = machineId === undefined
         ? await db.query("SELECT * FROM machine_jobs ORDER BY started_at DESC, job_id ASC", [])
-        : await db.query("SELECT * FROM machine_jobs WHERE machine_id=$1 ORDER BY started_at DESC, job_id ASC", [machineId]);
+        : await db.query("SELECT * FROM machine_jobs WHERE machine_id=$1 ORDER BY started_at DESC, job_id ASC", [normalizedMachineId]);
       return result.rows.map(jobFromRow);
     },
 

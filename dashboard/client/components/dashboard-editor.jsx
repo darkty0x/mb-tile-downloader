@@ -5,7 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildWindowsAgentEnv, nextServerDefaults } from "../lib/overview-model";
 import { Icon } from "./icons";
 import { AppButton, ModalShell, SelectInput, TextArea, TextInput } from "./ui";
-import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus } from "./dashboard-core";
+import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus, findMachineById } from "./dashboard-core";
 
 function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
@@ -274,7 +274,7 @@ function editorTitle(type, record, editor = {}) {
 
 function ConnectionDetail({ connection, state, actions }) {
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
-  const machine = targetMachineId ? state.machines.find((item) => item.machineId === targetMachineId) : null;
+  const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const validation = state.serverValidationResults[connection.secretId];
   const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
   const copy = (text) => navigator.clipboard?.writeText(String(text || "")).catch(() => {});

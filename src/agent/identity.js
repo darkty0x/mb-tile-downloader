@@ -2,11 +2,14 @@ import { randomUUID } from "node:crypto";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 
+import { normalizeMachineId } from "../runtime/machine-id.js";
+
 export async function loadAgentIdentity({
   stateDir = ".tile-state",
   machineId = process.env.MACHINE_ID,
 } = {}) {
-  if (!machineId || !machineId.trim()) {
+  const normalizedMachineId = normalizeMachineId(machineId);
+  if (!normalizedMachineId) {
     throw new Error("MACHINE_ID is required for dashboard agent");
   }
 
@@ -17,7 +20,7 @@ export async function loadAgentIdentity({
     const parsed = JSON.parse(await readFile(identityPath, "utf8"));
     if (parsed.agentInstanceId) {
       return {
-        machineId: machineId.trim(),
+        machineId: normalizedMachineId,
         agentInstanceId: parsed.agentInstanceId,
         identityPath,
       };
@@ -29,7 +32,7 @@ export async function loadAgentIdentity({
   const agentInstanceId = randomUUID();
   await writeFile(identityPath, `${JSON.stringify({ agentInstanceId }, null, 2)}\n`);
   return {
-    machineId: machineId.trim(),
+    machineId: normalizedMachineId,
     agentInstanceId,
     identityPath,
   };
