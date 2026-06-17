@@ -285,6 +285,29 @@ test("dashboard can add and validate a server connection profile", async (t) => 
   assert.equal(validated.body.controlPath, "agent");
 });
 
+test("dashboard rejects server connection profiles without an Agent ID", async (t) => {
+  const tcpServer = await withTcpServer(t);
+  const server = await withServer(t, {
+    secretVault: createSecretVault({ appSecret: "test-secret" }),
+  });
+
+  const created = await request(server, {
+    method: "POST",
+    path: "/api/server-connections",
+    body: {
+      label: "Server 02",
+      protocol: "rdp",
+      host: "127.0.0.1",
+      port: tcpServer.address().port,
+      username: "root",
+      password: "server-password",
+    },
+  });
+
+  assert.equal(created.status, 400);
+  assert.match(created.body.error, /Agent ID is required/);
+});
+
 test("dashboard settings expose and persist alert thresholds", async (t) => {
   const server = await withServer(t);
 
@@ -711,6 +734,35 @@ test("dashboard app exposes secret update and delete management routes", async (
   assert.equal(calls[1][0], "delete");
 });
 
+test("dashboard app bulk deletes selected secrets", async (t) => {
+  const calls = [];
+  const server = await withServer(t, {
+    secretVault: {
+      async deleteSecret(secretId) {
+        calls.push(secretId);
+        return { secretId };
+      },
+      async listSecretsForBrowser() {
+        return [];
+      },
+      async listSecretsForAgent() {
+        return [];
+      },
+    },
+  });
+
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: "/api/secrets",
+    headers: { authorization: "Bearer admin-token" },
+    body: { secretIds: ["proxy-a", "proxy-b", "proxy-a"] },
+  });
+
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(deleted.body.secretIds, ["proxy-a", "proxy-b"]);
+  assert.deepEqual(calls, ["proxy-a", "proxy-b"]);
+});
+
 test("dashboard secret route imports proxy lists as global pool items", async (t) => {
   let id = 0;
   const server = await withServer(t, {
@@ -741,6 +793,43 @@ test("dashboard secret route imports proxy lists as global pool items", async (t
   assert.equal(listed.body.secrets.filter((secret) => secret.secretType === "proxy_txt").length, 2);
   assert.equal(listed.body.secrets.every((secret) => secret.machineId === null), true);
   assert.equal(listed.body.secrets.every((secret) => secret.usage === "available"), true);
+});
+
+test("dashboard secret route assigns new pool items across registered machines", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({ machineId: "worker-a", agentInstanceId: "agent-a" });
+  store.registerMachine({ machineId: "worker-b", agentInstanceId: "agent-b" });
+  const server = await withServer(t, {
+    store,
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => `secret-${++id}`,
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+
+  const saved = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "mapbox_token",
+      label: "mapbox",
+      value: "pk.token-a,pk.token-b",
+    },
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(saved.status, 200);
+  assert.deepEqual(
+    listed.body.secrets
+      .filter((secret) => secret.secretType === "mapbox_token")
+      .map((secret) => secret.machineId)
+      .sort(),
+    ["worker-a", "worker-b"]
+  );
 });
 
 test("dashboard secret route stores credentials with redacted browser metadata", async (t) => {
@@ -861,4 +950,42 @@ test("dashboard credential update route persists edited agent id", async (t) => 
   assert.equal(updated.body.secret.targetMachineId, "SERVER-22");
   assert.equal(updated.body.secret.credential.machineId, "SERVER-22");
   assert.equal(JSON.parse(single.body.secret.value).machineId, "SERVER-22");
+});
+
+test("dashboard rejects server credential secrets without an Agent ID", async (t) => {
+  const server = await withServer(t, {
+    secretVault: createSecretVault({ appSecret: "test-secret" }),
+  });
+
+  const serverTyped = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "server_rdp_credential",
+      label: "Server 02",
+      value: JSON.stringify({
+        protocolUrl: "rdp://195.201.245.29:7777",
+        username: "root",
+        password: "server-password",
+      }),
+    },
+  });
+  const genericRdp = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "credential",
+      label: "Server 02",
+      value: JSON.stringify({
+        protocolUrl: "rdp://195.201.245.29:7777",
+        username: "root",
+        password: "server-password",
+      }),
+    },
+  });
+
+  assert.equal(serverTyped.status, 400);
+  assert.match(serverTyped.body.error, /Agent ID is required/);
+  assert.equal(genericRdp.status, 400);
+  assert.match(genericRdp.body.error, /Agent ID is required/);
 });

@@ -85,6 +85,7 @@ test("credential secrets support server connection protocols", () => {
     label: "Server 01 RDP",
     value: JSON.stringify({
       protocolUrl: "rdp://203.0.113.10:7777",
+      machineId: "server-01",
       username: "root",
       password: "server-password",
     }),
@@ -98,6 +99,7 @@ test("credential secrets support server connection protocols", () => {
     protocol: "rdp",
     host: "203.0.113.10",
     port: 7777,
+    machineId: "server-01",
     username: "root",
     hasPassword: true,
   });
@@ -115,6 +117,7 @@ test("dashboard can read an encrypted credential for server validation", () => {
     label: "Server 01 RDP",
     value: JSON.stringify({
       protocolUrl: "rdp://203.0.113.10:7777",
+      machineId: "server-01",
       username: "root",
       password: "server-password",
     }),
@@ -169,6 +172,46 @@ test("secret pool assigns mapbox keys and proxy items to only one machine", () =
   assert.equal(overlap.length, 0);
   assert.equal(proxiesA.some((secret) => /expired/.test(secret.value)), false);
   assert.equal(vault.listSecretsForBrowser().filter((secret) => secret.usage === "available" && secret.secretType === "mapbox_token").length, 1);
+});
+
+test("secret pool rebalance assigns new resources to the least-filled machines", () => {
+  let id = 0;
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+  });
+  for (let index = 1; index <= 5; index++) {
+    vault.createSecret({
+      secretType: "proxy_txt",
+      label: `proxy-${index}`,
+      value: `http://proxy-${index}.example:8080`,
+    });
+  }
+  for (let index = 1; index <= 2; index++) {
+    vault.createSecret({
+      secretType: "mapbox_token",
+      label: `mapbox-${index}`,
+      value: `pk.token-${index}`,
+    });
+  }
+
+  const result = vault.rebalanceAssignments({
+    machineIds: ["worker-a", "worker-b", "worker-c"],
+    targets: { proxy_txt: 2, mapbox_token: 1 },
+  });
+  const browserSecrets = vault.listSecretsForBrowser();
+  const proxyCounts = Object.fromEntries(["worker-a", "worker-b", "worker-c"].map((machineId) => [
+    machineId,
+    browserSecrets.filter((secret) => secret.secretType === "proxy_txt" && secret.machineId === machineId).length,
+  ]));
+  const mapboxCounts = Object.fromEntries(["worker-a", "worker-b", "worker-c"].map((machineId) => [
+    machineId,
+    browserSecrets.filter((secret) => secret.secretType === "mapbox_token" && secret.machineId === machineId).length,
+  ]));
+
+  assert.equal(result.changed, 7);
+  assert.deepEqual(proxyCounts, { "worker-a": 2, "worker-b": 2, "worker-c": 1 });
+  assert.deepEqual(mapboxCounts, { "worker-a": 1, "worker-b": 1, "worker-c": 0 });
 });
 
 test("secret vault marks an assigned proxy unavailable by runtime-normalized value hash", () => {

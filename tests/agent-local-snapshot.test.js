@@ -10,11 +10,11 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-"));
   await mkdir(path.join(dir, "configs"), { recursive: true });
   await mkdir(path.join(dir, ".tile-state", "dashboard", "configs"), { recursive: true });
-  await mkdir(path.join(dir, "tiles"), { recursive: true });
+  await mkdir(path.join(dir, "tiles", "esri", "14", "9600"), { recursive: true });
   await mkdir(path.join(dir, "zips"), { recursive: true });
   await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nAGENT_TOKEN=secret-token\n");
   await writeFile(path.join(dir, "proxy.txt"), "http://proxy-a:8080\nhttp://proxy-b:8080\n");
-  await writeFile(path.join(dir, "tiles", "0.tile"), "tile");
+  await writeFile(path.join(dir, "tiles", "esri", "14", "9600", "5824.jpg"), "tile");
   await writeFile(path.join(dir, "zips", "range.zip"), "zip");
   await writeFile(
     path.join(dir, "configs", "1-ukraine-esri-satellite.config.json"),
@@ -43,5 +43,7 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   assert.equal(snapshot.secrets.proxy.availableCount, 2);
   assert.equal(snapshot.secrets.mapboxTokenCount, 2);
   assert.equal(snapshot.storage.find((item) => item.type === "tiles").fileCount, 1);
+  assert.equal(snapshot.storage.find((item) => item.type === "tiles").dirCount, 3);
+  assert.match(snapshot.storage.find((item) => item.type === "tiles").absolutePath, /tiles$/);
   assert.equal(snapshot.storage.find((item) => item.type === "zip").fileCount, 1);
 });

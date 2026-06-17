@@ -24,11 +24,11 @@ export function Rail({ state, actions }) {
   };
   return (
     <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto max-md:flex-row max-md:items-center max-md:gap-3 max-md:overflow-x-auto max-md:border-b max-md:border-r-0 max-md:px-4 max-md:py-3">
-      <section className="flex min-h-[60px] items-center gap-3 border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[190px] max-md:border-b-0 max-md:pb-0">
+      <section className="flex min-h-[60px] items-center gap-3 border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[92px] max-md:border-b-0 max-md:pb-0">
         <LogoMark />
         <div className="min-w-0">
-          <strong className="block truncate text-[18px] font-[900] leading-tight text-white">PTG</strong>
-          <span className="mt-0.5 block truncate text-[12px] font-[600] leading-tight text-[var(--ptg-rail-muted)]">Management Dashboard</span>
+          <strong className="block truncate text-[13px] font-[780] leading-tight text-white">Management</strong>
+          <span className="mt-0.5 block truncate text-[11px] font-[560] leading-tight text-[var(--ptg-rail-muted)] max-md:hidden">Dashboard</span>
         </div>
       </section>
 
@@ -41,15 +41,15 @@ export function Rail({ state, actions }) {
               title={label}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[10px] border px-3 text-left text-[14px] font-[760] max-md:min-w-[130px] ${
+              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${
                 state.selectedTab === tab
-                  ? "border-[rgba(30,132,255,0.58)] bg-[linear-gradient(90deg,rgba(11,115,246,0.36),rgba(11,115,246,0.12))] text-white shadow-[inset_3px_0_0_#0b73f6,0_14px_28px_rgba(0,10,24,0.28)]"
+                  ? "border-[rgba(234,221,255,0.28)] bg-[var(--ptg-primary-soft)] text-[#1d1b20] shadow-[0_12px_26px_rgba(0,10,24,0.22)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
               }`}
             >
-              <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[#7ec7ff]" : ""}`} />
+              <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[var(--ptg-primary)]" : ""}`} />
               <span className="truncate">{label}</span>
-            {count === null ? null : <strong className="grid h-6 min-w-6 place-items-center rounded-full bg-[rgba(255,255,255,0.11)] px-1.5 text-[11px] text-[#eaf1ff]">{count}</strong>}
+            {count === null ? null : <strong className={`grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-[11px] ${state.selectedTab === tab ? "bg-white text-[var(--ptg-primary)]" : "bg-[rgba(255,255,255,0.11)] text-[#eaf1ff]"}`}>{count}</strong>}
             </button>
           );
         })}
@@ -66,7 +66,7 @@ export function Rail({ state, actions }) {
           </p>
         </div>
         <button type="button" className="state-layer grid w-full grid-cols-[36px_minmax(0,1fr)_14px] items-center gap-3 rounded-[12px] px-2 py-2 text-left text-white hover:bg-[rgba(255,255,255,0.06)] max-md:min-w-[150px]">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--ptg-primary)] text-[13px] font-[850]">AD</span>
+          <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--ptg-primary-soft)] text-[13px] font-[850] text-[var(--ptg-primary)]">AD</span>
           <span className="min-w-0">
             <strong className="block truncate text-[13px] font-[850]">Admin</strong>
             <small className="block truncate text-[11px] font-[600] text-[var(--ptg-rail-muted)]">Administrator</small>
@@ -84,11 +84,11 @@ export function Header({ state, actions }) {
   const alerts = buildOverviewModel(fleetState(state)).resourceAlerts.length;
   const lastSeen = state.globalEvents[0]?.createdAt || state.events[0]?.createdAt;
   return (
-    <header className="sticky top-0 z-10 border-b border-[var(--ptg-outline)] bg-white/90 px-6 py-5 backdrop-blur-xl max-md:px-4">
+    <header className="sticky top-0 z-10 border-b border-[var(--ptg-outline)] bg-[rgba(255,251,255,0.88)] px-6 py-5 backdrop-blur-xl max-md:px-4">
       <div className="grid grid-cols-[minmax(220px,1fr)_minmax(280px,520px)_auto] items-center gap-5 max-xl:grid-cols-[minmax(0,1fr)_auto] max-lg:gap-3 max-md:grid-cols-1">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <h1 className="truncate text-[24px] font-[900] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
+            <h1 className="truncate text-[24px] font-[760] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
             <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} Online` : "Waiting"}</StatusPill>
           </div>
           <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
@@ -98,7 +98,7 @@ export function Header({ state, actions }) {
           <input
             type="search"
             placeholder="Search servers, configs, events..."
-            className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)]"
+            className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
           />
           <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
         </label>

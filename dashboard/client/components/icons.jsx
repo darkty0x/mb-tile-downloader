@@ -77,28 +77,6 @@ export function Icon({ name, className = "", decorative = true, title, ...props 
 
 export function LogoMark() {
   return (
-    <svg aria-hidden="true" className="h-12 w-12 shrink-0 overflow-visible ptg-logo-shadow" viewBox="0 0 72 72">
-      <defs>
-        <linearGradient id="ptg-logo-blue" x1="16" x2="52" y1="15" y2="55" gradientUnits="userSpaceOnUse">
-          <stop stopColor="#24d7ff" />
-          <stop offset="0.55" stopColor="#0b73f6" />
-          <stop offset="1" stopColor="#0754c8" />
-        </linearGradient>
-      </defs>
-      <path
-        d="M9.5 35.9c0-15 12.1-27.1 27.1-27.1 8.6 0 16.2 4 21.2 10.3-4.7-3.6-10.6-5.7-17-5.7-15.1 0-27.3 12.2-27.3 27.3 0 7.1 2.7 13.5 7.1 18.3-6.8-5-11.1-13.4-11.1-23.1Z"
-        fill="url(#ptg-logo-blue)"
-      />
-      <path
-        d="M19.5 34.8c0-11.9 9.6-21.5 21.5-21.5 6.1 0 11.7 2.5 15.6 6.6-3.7-2.6-8.2-4.1-13-4.1-12.6 0-22.9 10.2-22.9 22.9 0 6.5 2.7 12.3 7.1 16.5-5.1-3.9-8.3-10.2-8.3-20.4Z"
-        fill="#ffffff"
-        opacity="0.95"
-      />
-      <path
-        d="M61.8 27.5c-6.1-7.9-18.7-12.2-31.7-9.8-14.6 2.8-25.3 12.4-23.8 21.5 0.9 5.8 6.7 9.8 14.7 11-10 .8-17.8-3.6-19-10.6-1.8-10.9 10.4-22.2 27.3-25.4 14.7-2.8 28.9 2.7 34.1 12.3Z"
-        fill="#ff2437"
-      />
-      <text x="16" y="42" fill="#20c8f7" fontFamily="Inter, Arial Black, Arial, sans-serif" fontSize="18" fontWeight="900" letterSpacing="0">PTG</text>
-    </svg>
+    <span aria-hidden="true" className="ptg-wordmark shrink-0">PTG</span>
   );
 }

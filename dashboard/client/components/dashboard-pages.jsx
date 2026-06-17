@@ -1,9 +1,10 @@
 "use client";
 
+import { useEffect, useMemo, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, TextInput, UsageBar } from "./ui";
-import { COMMANDS, SECRET_LABELS, SECRET_SECTION_VISIBLE_LIMIT, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, fleetState, formatBytes, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { COMMANDS, SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, fleetState, formatBytes, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers"],
@@ -362,7 +363,7 @@ function ServerConnectionsSection({ state, actions }) {
         meta={`${connections.length} Saved Remote Login${connections.length === 1 ? "" : "s"} | ${onlineAgents}/${state.machines.length} Agents Online`}
         action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>Add Server</AppButton>}
       />
-      <div className="mb-3 grid grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-xl border border-[rgba(18,103,216,0.16)] bg-[var(--ptg-primary-soft)] px-3 py-2.5">
+      <div className="mb-3 grid grid-cols-[32px_minmax(0,1fr)] gap-3 rounded-xl border border-[rgba(96,64,239,0.16)] bg-[var(--ptg-primary-soft)] px-3 py-2.5">
         <span className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-white text-[var(--ptg-primary)] shadow-[0_1px_2px_rgba(10,26,51,0.06)]">
           <Icon name="control" className="h-4 w-4" />
         </span>
@@ -561,29 +562,98 @@ function ServerPageControl({ state, machine }) {
   );
 }
 
+function normalizedPath(value) {
+  return String(value || "").replace(/\\/g, "/").toLowerCase();
+}
+
+function storageBelongsToDisk(item, disk) {
+  const itemPath = normalizedPath(item.absolutePath || item.path);
+  const mount = normalizedPath(disk.mount || disk.name);
+  if (!itemPath || !mount) return false;
+  if (itemPath === mount) return true;
+  if (mount === "/" && itemPath.startsWith("/")) return true;
+  if (itemPath.startsWith(`${mount}/`)) return true;
+  return Boolean(disk.containsProject && !/^[a-z]:\//i.test(String(item.absolutePath || item.path || "")) && !String(item.absolutePath || item.path || "").startsWith("/"));
+}
+
+function storageBreakdownForDisk(disk, storage) {
+  const labels = {
+    tiles: "Tile Downloads",
+    zip: "Zip Archives",
+    state: "State / Temp",
+    configs: "Config Files",
+  };
+  const colors = {
+    tiles: "var(--ptg-primary)",
+    zip: "var(--ptg-success)",
+    state: "var(--ptg-warning)",
+    configs: "var(--ptg-secondary)",
+    other: "#9aa8bd",
+  };
+  const usedBytes = Math.max(0, Number(disk.usedBytes) || 0);
+  const totalBytes = Math.max(0, Number(disk.totalBytes) || 0);
+  const byType = new Map();
+  for (const item of storage.filter((entry) => entry.exists && storageBelongsToDisk(entry, disk))) {
+    const current = byType.get(item.type) || { type: item.type, label: labels[item.type] || item.label, sizeBytes: 0, truncated: false };
+    current.sizeBytes += Number(item.sizeBytes) || 0;
+    current.truncated = current.truncated || Boolean(item.truncated);
+    byType.set(item.type, current);
+  }
+  const knownItems = [...byType.values()].filter((item) => item.sizeBytes > 0 || item.truncated);
+  const knownBytes = knownItems.reduce((sum, item) => sum + item.sizeBytes, 0);
+  const otherBytes = Math.max(0, usedBytes - knownBytes);
+  return [
+    ...knownItems,
+    { type: "other", label: "Other Used Space", sizeBytes: otherBytes, truncated: false },
+  ].map((item) => ({
+    ...item,
+    color: colors[item.type] || colors.other,
+    pctOfDrive: totalBytes > 0 ? Math.min(100, (item.sizeBytes / totalBytes) * 100) : 0,
+    pctOfUsed: usedBytes > 0 ? Math.min(100, (item.sizeBytes / usedBytes) * 100) : 0,
+  }));
+}
+
 function ServerPageStorage({ machine }) {
   const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
   const storage = machine?.agentSnapshot?.storage || [];
   return (
     <section className="grid gap-3">
-      <SectionTitle title="Storage Browser" meta={`${disks.length} drives | ${storage.length} local folders`} />
-      <div className="grid grid-cols-2 gap-3 max-xl:grid-cols-1">
+      <SectionTitle title="Drive Capacity" meta={`${disks.length} drives | tile, zip, state, config, and remaining used space`} />
+      <div className="grid gap-3">
         {disks.length ? disks.map((disk) => {
           const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
+          const breakdown = storageBreakdownForDisk(disk, storage);
           return (
             <div key={`${disk.name}-${disk.mount}`} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3 shadow-sm">
-              <div className="flex items-start justify-between gap-3">
+              <div className="flex flex-wrap items-start justify-between gap-3">
                 <span className="min-w-0">
                   <span className="flex min-w-0 items-center gap-2">
                     <Icon name="disk" className="h-4 w-4 text-[var(--ptg-primary)]" />
                     <strong className="block truncate text-[13px]">{disk.mount || disk.name}</strong>
                     {disk.containsProject ? <StatusPill status="success">downloader</StatusPill> : null}
                   </span>
-                  <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{disk.filesystem || "Local drive"} | {formatBytes(disk.totalBytes)} total | {formatBytes(disk.freeBytes)} free</small>
+                  <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                    {disk.filesystem || "Local drive"} | {formatBytes(disk.usedBytes)} used of {formatBytes(disk.totalBytes)} | {formatBytes(disk.freeBytes)} free
+                  </small>
                 </span>
-                <strong className="text-[13px]">{pct}%</strong>
+                <strong className="text-[13px]">{pct}% used</strong>
               </div>
               <UsageBar percent={pct} className="mt-3 w-full" />
+              <div className="mt-3 grid gap-2">
+                {breakdown.map((item) => (
+                  <div key={item.type} className="grid grid-cols-[minmax(100px,160px)_minmax(0,1fr)_auto] items-center gap-2 text-[11.5px] max-sm:grid-cols-1">
+                    <span className="min-w-0 truncate font-[750] text-[var(--ptg-on-surface)]">
+                      {item.label}{item.truncated ? " (partial)" : ""}
+                    </span>
+                    <span className="h-2 overflow-hidden rounded-full bg-[#e7edf5]">
+                      <span className="block h-full rounded-full" style={{ width: `${item.pctOfUsed}%`, background: item.color }} />
+                    </span>
+                    <span className="text-right font-[720] text-[var(--ptg-on-surface-variant)]">
+                      {formatBytes(item.sizeBytes)} | {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}% of drive
+                    </span>
+                  </div>
+                ))}
+              </div>
             </div>
           );
         }) : <EmptyLine>No disk snapshot yet</EmptyLine>}
@@ -868,24 +938,7 @@ export function SecretsDashboard({ state, actions }) {
         </Surface>
       ) : null}
 
-      <section className="grid grid-cols-2 gap-2.5 max-xl:grid-cols-1">
-        <SecretResourceSection
-          title="Mapbox API Keys"
-          meta={`${mapbox.available} Available | ${mapbox.assigned} Assigned | ${mapbox.disabled} Disabled`}
-          icon="key"
-          secretType="mapbox_token"
-          state={state}
-          actions={actions}
-        />
-        <SecretResourceSection
-          title="Proxy Pool"
-          meta={`${proxies.available} Available | ${proxies.assigned} Assigned | ${proxies.disabled} Disabled`}
-          icon="secrets"
-          secretType="proxy_txt"
-          state={state}
-          actions={actions}
-        />
-      </section>
+      <SecretPoolsTable state={state} actions={actions} />
     </section>
   );
 }
@@ -1149,45 +1202,102 @@ export function SettingsDashboard({ state, actions }) {
   );
 }
 
-function SecretResourceSection({ title, meta, icon, secretType, state, actions }) {
-  const items = state.secretPool
-    .filter((secret) => secret.secretType === secretType)
-    .slice()
-    .sort((a, b) => {
-      const rank = (secret) => secret.status === "active" && !secret.machineId ? 0 : secret.status !== "active" ? 1 : 2;
-      return rank(a) - rank(b) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label);
-    });
-  const visibleItems = items.slice(0, SECRET_SECTION_VISIBLE_LIMIT);
-  const addLabel = secretType === "proxy_txt" ? "Add Proxies" : "Add Key";
+const SECRET_POOL_TYPES = new Set(["mapbox_token", "proxy_txt"]);
+const SECRET_PAGE_SIZES = [25, 50, 100];
 
-  return (
-    <Surface className="min-h-[360px] max-w-full overflow-hidden">
-      <SectionTitle
-        title={title}
-        meta={meta}
-        action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType })}>{addLabel}</AppButton>}
-      />
-      <div className="grid gap-2">
-        {visibleItems.length ? visibleItems.map((secret) => (
-          <SecretResourceRow key={secret.secretId} secret={secret} icon={icon} state={state} actions={actions} />
-        )) : <EmptyLine>No {title.toLowerCase()} stored yet</EmptyLine>}
-        {items.length > visibleItems.length ? (
-          <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] px-3 py-2 text-center text-[11.5px] font-[650] text-[var(--ptg-on-surface-variant)]">
-            Showing {visibleItems.length} of {items.length} items
-          </p>
-        ) : null}
-      </div>
-    </Surface>
-  );
+function secretRank(secret) {
+  if (secret.status === "active" && !secret.machineId) return 0;
+  if (secret.status !== "active") return 1;
+  return 2;
 }
 
-function SecretResourceRow({ secret, icon, state, actions }) {
+function secretUsage(secret, state) {
   const active = secret.status === "active";
   const assigned = Boolean(secret.machineId);
-  const usageStatus = active && !assigned ? "active" : active ? "busy" : secret.status;
-  const usageLabel = active && !assigned ? "Available" : active ? machineLabel(state, secret.machineId) : displayStatus(secret.status);
+  if (active && !assigned) return { status: "active", label: "Available" };
+  if (active) return { status: "busy", label: machineLabel(state, secret.machineId) };
+  return { status: secret.status, label: displayStatus(secret.status) };
+}
 
-  async function disable() {
+function secretSearchText(secret, state) {
+  return [
+    secret.label,
+    secret.secretId,
+    secret.secretType,
+    SECRET_LABELS[secret.secretType],
+    secret.status,
+    secret.redactedValue,
+    secret.machineId,
+    machineLabel(state, secret.machineId),
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function SecretPoolsTable({ state, actions }) {
+  const [query, setQuery] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all");
+  const [pageSize, setPageSize] = useState(50);
+  const [page, setPage] = useState(1);
+  const [selectedIds, setSelectedIds] = useState(() => new Set());
+
+  const poolItems = useMemo(() => state.secretPool
+    .filter((secret) => SECRET_POOL_TYPES.has(secret.secretType))
+    .slice()
+    .sort((a, b) => secretRank(a) - secretRank(b) || a.secretType.localeCompare(b.secretType) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label)), [state.secretPool]);
+  const filteredItems = useMemo(() => {
+    const needle = query.trim().toLowerCase();
+    return poolItems.filter((secret) => {
+      if (typeFilter !== "all" && secret.secretType !== typeFilter) return false;
+      return !needle || secretSearchText(secret, state).includes(needle);
+    });
+  }, [poolItems, query, state, typeFilter]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const pageStart = (safePage - 1) * pageSize;
+  const pageItems = filteredItems.slice(pageStart, pageStart + pageSize);
+  const pageIds = pageItems.map((secret) => secret.secretId);
+  const filteredIds = filteredItems.map((secret) => secret.secretId);
+  const pageSelected = pageIds.length > 0 && pageIds.every((secretId) => selectedIds.has(secretId));
+  const selectedVisibleCount = filteredIds.filter((secretId) => selectedIds.has(secretId)).length;
+
+  useEffect(() => {
+    if (page !== safePage) setPage(safePage);
+  }, [page, safePage]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [pageSize, query, typeFilter]);
+
+  useEffect(() => {
+    const knownIds = new Set(poolItems.map((secret) => secret.secretId));
+    setSelectedIds((current) => {
+      const next = new Set([...current].filter((secretId) => knownIds.has(secretId)));
+      return next.size === current.size ? current : next;
+    });
+  }, [poolItems]);
+
+  function toggleRow(secretId) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (next.has(secretId)) next.delete(secretId);
+      else next.add(secretId);
+      return next;
+    });
+  }
+
+  function togglePage() {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      const shouldSelect = !pageSelected;
+      for (const secretId of pageIds) {
+        if (shouldSelect) next.add(secretId);
+        else next.delete(secretId);
+      }
+      return next;
+    });
+  }
+
+  async function disable(secret) {
     await actions.api(`/api/secrets/${encodeURIComponent(secret.secretId)}`, {
       method: "PUT",
       body: JSON.stringify({ status: "disabled" }),
@@ -1196,25 +1306,141 @@ function SecretResourceRow({ secret, icon, state, actions }) {
     await actions.refreshMachineData();
   }
 
+  async function deleteIds(secretIds, label) {
+    const uniqueIds = [...new Set(secretIds)].filter(Boolean);
+    if (!uniqueIds.length) return;
+    if (!window.confirm(`Delete ${uniqueIds.length} ${label}? This cannot be undone.`)) return;
+    await actions.deleteSecrets(uniqueIds);
+    setSelectedIds(new Set());
+  }
+
+  const startLabel = filteredItems.length ? pageStart + 1 : 0;
+  const endLabel = Math.min(pageStart + pageItems.length, filteredItems.length);
+
   return (
-    <div className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-sm:grid-cols-[28px_minmax(0,1fr)]">
-      <span className="inline-flex h-7 w-7 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
-        <Icon name={icon} className="h-4 w-4" />
-      </span>
-      <div className="min-w-0 pt-0.5">
-        <strong className="block min-w-0 truncate text-[12.5px] font-[760] leading-4">{secret.label}</strong>
-        <div className="mt-1 flex min-w-0 items-center gap-1.5">
-          <StatusPill status={usageStatus}>{usageLabel}</StatusPill>
-          <small className="min-w-0 flex-1 truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+    <Surface className="max-w-full overflow-hidden">
+      <SectionTitle
+        title="Resource Pool"
+        meta={`Searchable table for ${poolItems.length} Mapbox/proxy records`}
+        action={
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <AppButton icon="trash" onClick={() => deleteIds([...selectedIds], "selected records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!selectedIds.size}>Delete Selected</AppButton>
+            <AppButton icon="trash" onClick={() => deleteIds(pageIds, "records on this page").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!pageIds.length}>Delete Page</AppButton>
+            <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(filteredIds, "filtered records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!filteredIds.length}>Delete All</AppButton>
+            <AppButton variant="tonal" icon="sync" onClick={() => actions.rebalanceSecrets().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Rebalance</AppButton>
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "mapbox_token" })}>Add Key</AppButton>
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "proxy_txt" })}>Add Proxies</AppButton>
+          </div>
+        }
+      />
+      <div className="mb-3 grid grid-cols-[minmax(220px,1fr)_auto_auto] items-end gap-2 max-lg:grid-cols-1">
+        <label className="relative block">
+          <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
+          <input
+            className="h-10 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition placeholder:text-[var(--ptg-on-surface-variant)] focus:border-[var(--ptg-primary)] focus:outline-none focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder="Search label, server, token, proxy..."
+            value={query}
+          />
+        </label>
+        <div className="flex flex-wrap gap-1.5">
+          {[
+            ["all", "All"],
+            ["mapbox_token", "Mapbox"],
+            ["proxy_txt", "Proxies"],
+          ].map(([value, label]) => (
+            <button
+              key={value}
+              className={`state-layer h-10 rounded-[10px] border px-3 text-[12px] font-[800] transition ${typeFilter === value ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary)] text-white shadow-[0_10px_24px_rgba(0,109,255,0.18)]" : "border-[var(--ptg-outline)] bg-white text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)]"}`}
+              onClick={() => setTypeFilter(value)}
+              type="button"
+            >
+              {label}
+            </button>
+          ))}
         </div>
-        {assigned ? <small className="mt-0.5 block truncate text-[10.5px] text-[var(--ptg-on-surface-variant)]">{displayMachineId(secret.machineId)}</small> : null}
+        <label className="grid gap-1 text-[10.5px] font-[780] uppercase tracking-[0.06em] text-[var(--ptg-on-surface-variant)]">
+          Page size
+          <select
+            className="h-10 min-w-24 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 text-[13px] font-[700] text-[var(--ptg-on-surface)]"
+            onChange={(event) => setPageSize(Number(event.target.value))}
+            value={pageSize}
+          >
+            {SECRET_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+          </select>
+        </label>
       </div>
-      <div className="flex justify-end gap-1.5 max-sm:col-start-2 max-sm:justify-start">
-        {active ? <IconButton label="Disable" icon="stop" onClick={() => disable().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
-        <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
-        <IconButton label="Delete" icon="trash" onClick={() => actions.deleteRecord("secret", secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+      <div className="overflow-hidden rounded-xl border border-[var(--ptg-outline)] bg-white">
+        <div className="ptg-scrollbar max-w-full overflow-auto">
+          <table className="w-full min-w-[980px] border-collapse text-left">
+            <thead className="bg-[var(--ptg-surface-container)] text-[10.5px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">
+              <tr>
+                <th className="w-12 border-b border-[var(--ptg-outline)] px-3 py-3">
+                  <input aria-label="Select page" checked={pageSelected} onChange={togglePage} type="checkbox" />
+                </th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Name</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Type</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Status</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Assigned Server</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Value</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Updated</th>
+                <th className="w-36 border-b border-[var(--ptg-outline)] px-3 py-3 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {pageItems.length ? pageItems.map((secret) => {
+                const usage = secretUsage(secret, state);
+                const icon = secret.secretType === "mapbox_token" ? "key" : "secrets";
+                return (
+                  <tr key={secret.secretId} className="transition hover:bg-[var(--ptg-surface-container)]">
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+                      <input aria-label={`Select ${secret.label}`} checked={selectedIds.has(secret.secretId)} onChange={() => toggleRow(secret.secretId)} type="checkbox" />
+                    </td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+                      <div className="flex min-w-0 items-center gap-2.5">
+                        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                          <Icon name={icon} className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{secret.label}</strong>
+                          <small className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.secretId}</small>
+                        </span>
+                      </div>
+                    </td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[760] text-[var(--ptg-on-surface)]">{SECRET_LABELS[secret.secretType] || secret.secretType}</td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={usage.status}>{usage.label}</StatusPill></td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.machineId ? machineLabel(state, secret.machineId) : "Unassigned"}</td>
+                    <td className="max-w-[260px] border-b border-[var(--ptg-outline)] px-3 py-3">
+                      <code className="block truncate rounded-md bg-[var(--ptg-surface-container)] px-2 py-1 text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]">{secret.redactedValue || "-"}</code>
+                    </td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{shortDate(secret.updatedAt || secret.createdAt)}</td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+                      <div className="flex justify-end gap-1.5">
+                        {secret.status === "active" ? <IconButton label="Disable" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
+                        <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
+                        <IconButton label="Delete" icon="trash" onClick={() => deleteIds([secret.secretId], "record").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+                      </div>
+                    </td>
+                  </tr>
+                );
+              }) : (
+                <tr>
+                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={8}>No resource pool records match this view</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
-    </div>
+      <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+        <span>Showing {startLabel}-{endLabel} of {filteredItems.length} | {selectedVisibleCount} selected</span>
+        <div className="flex items-center gap-2">
+          <AppButton onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>Previous</AppButton>
+          <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 font-[800] text-[var(--ptg-on-surface)]">Page {safePage} / {totalPages}</span>
+          <AppButton onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages}>Next</AppButton>
+        </div>
+      </div>
+    </Surface>
   );
 }
 
@@ -1239,7 +1465,7 @@ function ServersTable({ state, actions }) {
                 onChange={(event) => actions.setMachineSearch(event.target.value)}
                 type="search"
                 placeholder="Search servers"
-                className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(18,103,216,0.12)]"
+                className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
               />
             </label>
           </div>

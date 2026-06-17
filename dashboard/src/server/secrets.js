@@ -4,6 +4,7 @@ const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"])
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error"]);
 const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
+const SERVER_CREDENTIAL_PROTOCOLS = new Set(["rdp:", "ssh:", "winrm:", "winrms:"]);
 const DEFAULT_CREDENTIAL_PORTS = {
   "http:": 80,
   "https:": 443,
@@ -50,7 +51,7 @@ function redact(value) {
   return `${text.slice(0, 4)}...${text.slice(-4)}`;
 }
 
-function parseCredentialValue(value) {
+function parseCredentialValue(value, { requireMachineId = false, requireMachineIdForServerProtocol = false } = {}) {
   const payload = typeof value === "string" ? JSON.parse(value) : value;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
     throw new Error("credential value must be a JSON object");
@@ -66,6 +67,9 @@ function parseCredentialValue(value) {
   if (!VALID_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol)) {
     throw new Error("credential protocol URL must use http, https, rdp, ssh, winrm, or winrms");
   }
+  if ((requireMachineId || (requireMachineIdForServerProtocol && SERVER_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol))) && !machineId) {
+    throw new Error("server credential Agent ID is required");
+  }
   return {
     protocolUrl,
     protocol: parsedUrl.protocol.slice(0, -1),
@@ -77,8 +81,8 @@ function parseCredentialValue(value) {
   };
 }
 
-function normalizeCredentialValue(value) {
-  const credential = parseCredentialValue(value);
+function normalizeCredentialValue(value, options = {}) {
+  const credential = parseCredentialValue(value, options);
   return JSON.stringify({
     protocolUrl: credential.protocolUrl,
     ...(credential.machineId ? { machineId: credential.machineId } : {}),
@@ -106,7 +110,12 @@ function credentialRedactedValue(metadata) {
 }
 
 function normalizeSecretValue(secretType, value) {
-  if (CREDENTIAL_SECRET_TYPES.has(secretType)) return normalizeCredentialValue(value);
+  if (CREDENTIAL_SECRET_TYPES.has(secretType)) {
+    return normalizeCredentialValue(value, {
+      requireMachineId: secretType === "server_rdp_credential",
+      requireMachineIdForServerProtocol: secretType === "credential",
+    });
+  }
   const text = String(value || "").trim();
   if (!text) throw new Error("secret value is required");
   if (secretType === "proxy_txt") return text.replace(/\s+/g, "");
@@ -168,6 +177,17 @@ function validateStatus(status = "active") {
   return status;
 }
 
+function uniqueMachineIds(machineIds = []) {
+  return [...new Set(machineIds.map((machineId) => String(machineId || "").trim()).filter(Boolean))].sort();
+}
+
+function normalizedTargets(targets = SECRET_POOL_TARGETS) {
+  return {
+    mapbox_token: Math.max(0, Number.parseInt(targets.mapbox_token ?? SECRET_POOL_TARGETS.mapbox_token, 10) || 0),
+    proxy_txt: Math.max(0, Number.parseInt(targets.proxy_txt ?? SECRET_POOL_TARGETS.proxy_txt, 10) || 0),
+  };
+}
+
 function normalizeSecretRow(row) {
   return {
     secretId: row.secret_id,
@@ -225,6 +245,30 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
       record.machineId = machineId;
       record.updatedAt = now().toISOString();
       needed -= 1;
+    }
+  }
+
+  function rebalanceType({ machineIds, secretType, targetCount }) {
+    if (!machineIds.length || !targetCount) return 0;
+    let changed = 0;
+    while (true) {
+      const available = [...records.values()].find(
+        (record) => record.secretType === secretType && !record.machineId && record.status === "active"
+      );
+      if (!available) return changed;
+      const counts = new Map(machineIds.map((machineId) => [
+        machineId,
+        [...records.values()].filter(
+          (record) => record.secretType === secretType && record.machineId === machineId && record.status === "active"
+        ).length,
+      ]));
+      const targetMachineId = machineIds
+        .filter((machineId) => (counts.get(machineId) || 0) < targetCount)
+        .sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b))[0];
+      if (!targetMachineId) return changed;
+      available.machineId = targetMachineId;
+      available.updatedAt = now().toISOString();
+      changed += 1;
     }
   }
 
@@ -305,6 +349,18 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
     },
 
+    rebalanceAssignments({ machineIds = [], targets = SECRET_POOL_TARGETS } = {}) {
+      const ids = uniqueMachineIds(machineIds);
+      const limits = normalizedTargets(targets);
+      const changed = Object.entries(limits).reduce((sum, [secretType, targetCount]) => (
+        sum + rebalanceType({ machineIds: ids, secretType, targetCount })
+      ), 0);
+      return {
+        changed,
+        secrets: this.listSecretsForBrowser(),
+      };
+    },
+
     updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {
       validateStatus(status);
       if (!machineId) throw new Error("machineId is required");
@@ -372,6 +428,45 @@ export function createPostgresSecretVault({
       }
       if (claimed === 0) return;
       needed -= claimed;
+    }
+  }
+
+  async function assignedCount({ machineId, secretType }) {
+    const result = await db.query(
+      "SELECT count(*)::int AS count FROM secrets WHERE secret_type=$1 AND machine_id=$2 AND status='active'",
+      [secretType, machineId]
+    );
+    return Number(result.rows[0]?.count || 0);
+  }
+
+  async function nextAvailableSecret(secretType) {
+    const result = await db.query(
+      "SELECT secret_id FROM secrets WHERE secret_type=$1 AND machine_id IS NULL AND status='active' ORDER BY created_at ASC LIMIT 1",
+      [secretType]
+    );
+    return result.rows[0]?.secret_id || null;
+  }
+
+  async function rebalanceType({ machineIds, secretType, targetCount }) {
+    if (!machineIds.length || !targetCount) return 0;
+    let changed = 0;
+    while (true) {
+      const secretId = await nextAvailableSecret(secretType);
+      if (!secretId) return changed;
+      const counts = new Map();
+      for (const machineId of machineIds) {
+        counts.set(machineId, await assignedCount({ machineId, secretType }));
+      }
+      const targetMachineId = machineIds
+        .filter((machineId) => (counts.get(machineId) || 0) < targetCount)
+        .sort((a, b) => (counts.get(a) || 0) - (counts.get(b) || 0) || a.localeCompare(b))[0];
+      if (!targetMachineId) return changed;
+      const result = await db.query(
+        "UPDATE secrets SET machine_id=$1, updated_at=$2 WHERE secret_id=$3 AND machine_id IS NULL AND status='active' RETURNING secret_id",
+        [targetMachineId, now().toISOString(), secretId]
+      );
+      if (result.rows[0]) changed += 1;
+      else return changed;
     }
   }
 
@@ -460,6 +555,19 @@ export function createPostgresSecretVault({
       return (await listRows({ machineId }))
         .filter((record) => record.status === "active")
         .map((record) => normalizeSecret(record, { includeValue: true, appSecret }));
+    },
+
+    async rebalanceAssignments({ machineIds = [], targets = SECRET_POOL_TARGETS } = {}) {
+      const ids = uniqueMachineIds(machineIds);
+      const limits = normalizedTargets(targets);
+      let changed = 0;
+      for (const [secretType, targetCount] of Object.entries(limits)) {
+        changed += await rebalanceType({ machineIds: ids, secretType, targetCount });
+      }
+      return {
+        changed,
+        secrets: await this.listSecretsForBrowser(),
+      };
     },
 
     async updateAssignedSecretStatusByValueHash({ machineId, secretType, valueHash, status = "error" } = {}) {

@@ -348,15 +348,14 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
           <AppButton type="button" icon="close" onClick={() => onChange([])}>Clear</AppButton>
         </div>
       </div>
-      <div className="ptg-scrollbar grid max-h-72 gap-2 overflow-auto pr-1">
+      <div className="ptg-scrollbar ptg-picker-list max-h-72 overflow-auto pr-1">
         {templates.map((template) => {
           const checked = selected.has(template.id);
           return (
             <label
               key={template.id}
-              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-white p-2.5 ${
-                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
-              }`}
+              className="state-layer ptg-picker-row cursor-pointer"
+              data-selected={checked ? "true" : "false"}
             >
               <input
                 checked={checked}
@@ -371,7 +370,7 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
                 type="checkbox"
                 value={template.id}
               />
-              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
                 <Icon name={template.provider === "esri" ? "layers" : "config"} className="h-4 w-4" />
               </span>
               <span className="min-w-0">
@@ -403,15 +402,14 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
           <AppButton type="button" icon="close" onClick={() => onServerChange([])}>Clear</AppButton>
         </div>
       </div>
-      <div className="ptg-scrollbar grid max-h-44 gap-2 overflow-auto pr-1">
+      <div className="ptg-scrollbar ptg-picker-list max-h-56 overflow-auto pr-1">
         {machines.length ? machines.map((machine) => {
           const checked = selected.has(machine.machineId);
           return (
             <label
               key={machine.machineId}
-              className={`state-layer grid cursor-pointer grid-cols-[28px_minmax(0,1fr)] items-center gap-2 rounded-lg border bg-[var(--ptg-background)] p-2.5 ${
-                checked ? "border-[var(--ptg-primary)] shadow-[inset_3px_0_0_var(--ptg-primary)]" : "border-[var(--ptg-outline)]"
-              }`}
+              className="state-layer ptg-picker-row cursor-pointer"
+              data-selected={checked ? "true" : "false"}
             >
               <input
                 checked={checked}
@@ -427,7 +425,7 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
                 type="checkbox"
                 value={machine.machineId}
               />
-              <span className={`inline-flex h-7 w-7 items-center justify-center rounded-lg ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
+              <span className={`inline-flex h-8 w-8 items-center justify-center rounded-xl ${checked ? "bg-[var(--ptg-primary)] text-white" : "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"}`}>
                 <Icon name="servers" className="h-4 w-4" />
               </span>
               <span className="min-w-0">
@@ -439,7 +437,7 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
         }) : <EmptyLine>No registered servers</EmptyLine>}
       </div>
       <label className={`flex items-center gap-2 rounded-lg border px-3 py-2 text-[12px] font-[700] ${
-        splitEnabled ? "border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary-dark)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)] text-[var(--ptg-on-surface-variant)]"
+        splitEnabled ? "border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary-dark)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-background)] text-[var(--ptg-on-surface-variant)]"
       }`}>
         <input
           checked={splitEnabled && splitAcrossMachines}
@@ -488,7 +486,7 @@ function ConfigForm({ record, state, actions }) {
         />
       ) : null}
       {templateMode ? (
-        <div className="rounded-lg border border-[rgba(18,103,216,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
+        <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
           {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs.
         </div>
       ) : (

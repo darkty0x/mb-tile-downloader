@@ -2,7 +2,19 @@ import { spawn } from "node:child_process";
 import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const LAUNCHER_VERSION = 2;
+const LAUNCHER_VERSION = 3;
+const AGENT_SIGNATURE_FILES = [
+  "src/agent/agent.js",
+  "src/agent/control-client.js",
+  "src/agent/config-sync.js",
+  "src/agent/disk.js",
+  "src/agent/env-materializer.js",
+  "src/agent/identity.js",
+  "src/agent/local-snapshot.js",
+  "src/agent/process-runner.js",
+  "src/agent/progress-events.js",
+  "src/agent/secret-materializer.js",
+];
 
 export function hasDashboardAgentConfig(env = process.env) {
   return Boolean(env.DASHBOARD_URL && env.AGENT_TOKEN && env.MACHINE_ID);
@@ -36,27 +48,32 @@ async function readJson(filePath) {
 }
 
 async function agentSignature(cwd) {
-  const scriptPath = path.resolve(cwd, "src/agent/agent.js");
-  let scriptMtimeMs = 0;
-  try {
-    scriptMtimeMs = Math.trunc((await stat(scriptPath)).mtimeMs);
-  } catch {
-    scriptMtimeMs = 0;
-  }
+  const files = await Promise.all(AGENT_SIGNATURE_FILES.map(async (file) => {
+    const filePath = path.resolve(cwd, file);
+    let mtimeMs = 0;
+    try {
+      mtimeMs = Math.trunc((await stat(filePath)).mtimeMs);
+    } catch {
+      mtimeMs = 0;
+    }
+    return { file, path: filePath, mtimeMs };
+  }));
   return {
     launcherVersion: LAUNCHER_VERSION,
-    scriptPath,
-    scriptMtimeMs,
+    scriptPath: path.resolve(cwd, "src/agent/agent.js"),
+    files,
     node: process.execPath,
   };
 }
 
 function signatureMatches(meta, signature) {
+  const metaFiles = JSON.stringify(meta?.files || []);
+  const signatureFiles = JSON.stringify(signature.files || []);
   return Boolean(
     meta &&
       meta.launcherVersion === signature.launcherVersion &&
       meta.scriptPath === signature.scriptPath &&
-      meta.scriptMtimeMs === signature.scriptMtimeMs &&
+      metaFiles === signatureFiles &&
       meta.node === signature.node
   );
 }

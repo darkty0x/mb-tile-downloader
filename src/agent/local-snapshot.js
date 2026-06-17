@@ -138,6 +138,7 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
       label,
       type,
       path: rel(projectDir, fullPath),
+      absolutePath: slashPath(fullPath),
       exists: false,
       sizeBytes: 0,
       fileCount: 0,
@@ -153,35 +154,44 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
   let dirCount = 0;
   let scanned = 0;
   let truncated = false;
+  const pendingDirs = [fullPath];
 
-  for await (const entry of await opendir(fullPath)) {
-    scanned += 1;
-    if (scanned > MAX_SCAN_ENTRIES) {
-      truncated = true;
-      break;
+  while (pendingDirs.length) {
+    const currentDir = pendingDirs.shift();
+    for await (const entry of await opendir(currentDir)) {
+      scanned += 1;
+      if (scanned > MAX_SCAN_ENTRIES) {
+        truncated = true;
+        break;
+      }
+      const childPath = path.join(currentDir, entry.name);
+      const childStat = await existsStat(childPath);
+      if (!childStat) continue;
+      if (childStat.isDirectory()) {
+        dirCount += 1;
+        pendingDirs.push(childPath);
+      }
+      if (childStat.isFile()) {
+        fileCount += 1;
+        sizeBytes += childStat.size;
+      }
+      if (entries.length < MAX_DIR_ENTRIES) {
+        entries.push({
+          name: path.relative(fullPath, childPath) || entry.name,
+          kind: childStat.isDirectory() ? "folder" : "file",
+          sizeBytes: childStat.isFile() ? childStat.size : 0,
+          updatedAt: childStat.mtime.toISOString(),
+        });
+      }
     }
-    const childPath = path.join(fullPath, entry.name);
-    const childStat = await existsStat(childPath);
-    if (!childStat) continue;
-    if (childStat.isDirectory()) dirCount += 1;
-    if (childStat.isFile()) {
-      fileCount += 1;
-      sizeBytes += childStat.size;
-    }
-    if (entries.length < MAX_DIR_ENTRIES) {
-      entries.push({
-        name: entry.name,
-        kind: childStat.isDirectory() ? "folder" : "file",
-        sizeBytes: childStat.isFile() ? childStat.size : 0,
-        updatedAt: childStat.mtime.toISOString(),
-      });
-    }
+    if (truncated) break;
   }
 
   return {
     label,
     type,
     path: rel(projectDir, fullPath),
+    absolutePath: slashPath(fullPath),
     exists: true,
     sizeBytes,
     fileCount,

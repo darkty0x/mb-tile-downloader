@@ -117,6 +117,7 @@ function normalizeServerConnectionInput(body = {}) {
   const password = String(body.password || "");
   if (!password.trim()) throw new Error("server password is required");
   const machineId = String(body.machineId || "").trim() || null;
+  if (!machineId) throw new Error("server Agent ID is required");
   return {
     machineId,
     label: String(body.label || machineId || `${host}:${port}`).trim(),
@@ -190,6 +191,21 @@ async function serveClient(req, res, clientDir) {
 
 function uniqueStrings(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+async function rebalanceSecretAssignments({ store, secretVault } = {}) {
+  if (!secretVault?.rebalanceAssignments) return null;
+  const [machines, settings] = await Promise.all([
+    store.listMachines(),
+    store.getSettings(),
+  ]);
+  return secretVault.rebalanceAssignments({
+    machineIds: machines.map((machine) => machine.machineId),
+    targets: {
+      mapbox_token: settings.alertThresholds?.mapboxTokensPerServer,
+      proxy_txt: settings.alertThresholds?.proxiesPerServer,
+    },
+  });
 }
 
 async function resolveMachineTargets(store, body) {
@@ -565,6 +581,27 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "DELETE" && url.pathname === "/api/secrets") {
+          if (!secretVault) throw new Error("secret vault is not configured");
+          const body = await readJson(req);
+          const secretIds = [...new Set(Array.isArray(body.secretIds) ? body.secretIds : [])].filter(Boolean);
+          if (!secretIds.length) throw new Error("secretIds must include at least one secret id");
+          const deleted = [];
+          for (const secretId of secretIds) {
+            const secret = await secretVault.deleteSecret(secretId);
+            deleted.push(secret.secretId);
+          }
+          json(res, 200, { secretIds: deleted });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/secrets/rebalance") {
+          if (!secretVault) throw new Error("secret vault is not configured");
+          const result = await rebalanceSecretAssignments({ store, secretVault });
+          json(res, 200, result || { changed: 0, secrets: await secretVault.listSecretsForBrowser() });
+          return;
+        }
+
         if (req.method === "POST" && url.pathname === "/api/secrets") {
           if (!secretVault) throw new Error("secret vault is not configured");
           const body = await readJson(req);
@@ -579,6 +616,9 @@ export function createDashboardApp({
                 ? `${body.label || body.secretType} ${index + 1}`
                 : body.label,
             }));
+          }
+          if (["mapbox_token", "proxy_txt"].includes(body.secretType)) {
+            await rebalanceSecretAssignments({ store, secretVault });
           }
           const secret = created[0];
           json(res, 200, {

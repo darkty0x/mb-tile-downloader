@@ -107,3 +107,26 @@ test("telegram notifier respects enablement severity and dedupe settings", async
   assert.equal((await notifier.notifyEvent(event, { notifications: { telegramEnabled: false } })).skipped, true);
   assert.equal(calls.length, 2);
 });
+
+test("telegram notifier sends to multiple explicit chat ids", async () => {
+  const calls = [];
+  const notifier = createTelegramNotifier({
+    botToken: "bot-token",
+    chatId: "chat-a, chat-b",
+    fetchImpl: async (url, options) => {
+      calls.push(JSON.parse(options.body));
+      return { ok: true, status: 200, text: async () => "{}" };
+    },
+  });
+
+  const result = await notifier.notifyEvent({
+    machineId: "worker-a",
+    severity: "error",
+    type: "range.failed",
+    message: "range failed",
+  });
+
+  assert.equal(result.ok, true);
+  assert.equal(result.sent, 2);
+  assert.deepEqual(calls.map((call) => call.chat_id), ["chat-a", "chat-b"]);
+});

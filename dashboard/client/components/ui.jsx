@@ -18,28 +18,28 @@ const statusStyles = {
 
 export function StatusPill({ status = "neutral", children = status }) {
   return (
-    <span className={`inline-flex min-h-5 max-w-full items-center overflow-hidden truncate whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10.5px] font-[800] leading-none ring-1 ${statusStyles[status] || statusStyles.neutral}`}>
+    <span className={`inline-flex min-h-6 max-w-full items-center overflow-hidden truncate whitespace-nowrap rounded-full px-2.5 py-0.5 text-[10.5px] font-[760] leading-none ring-1 ${statusStyles[status] || statusStyles.neutral}`}>
       {children}
     </span>
   );
 }
 
 export function Surface({ className = "", children }) {
-  return <section className={`material-surface rounded-[14px] p-4 ${className}`}>{children}</section>;
+  return <section className={`material-surface rounded-[22px] p-4 ${className}`}>{children}</section>;
 }
 
 export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-32px))]", children, onClose }) {
   return (
-    <div className="fixed inset-0 z-30 grid place-items-center bg-[#061225]/48 p-4 backdrop-blur-sm">
-      <section className={`${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white shadow-[0_28px_80px_rgba(5,13,30,0.28)]`}>
-        <header className="flex min-h-[64px] items-start justify-between gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-4 py-3">
+    <div className="fixed inset-0 z-30 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
+      <section className={`${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]`}>
+        <header className="flex min-h-[72px] items-start justify-between gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-5 py-4">
           <div className="min-w-0">
-            <h3 className="truncate text-[17px] font-[850] text-[var(--ptg-on-surface)]">{title}</h3>
+            <h3 className="truncate text-[18px] font-[820] text-[var(--ptg-on-surface)]">{title}</h3>
             {subtitle ? <p className="mt-0.5 truncate text-[12px] font-[620] text-[var(--ptg-on-surface-variant)]">{subtitle}</p> : null}
           </div>
           <IconButton icon="close" label="Close" onClick={onClose} />
         </header>
-        <div className="ptg-scrollbar max-h-[calc(100vh-98px)] overflow-auto p-4">
+        <div className="ptg-scrollbar max-h-[calc(100vh-104px)] overflow-auto p-5">
           {children}
         </div>
       </section>
@@ -72,10 +72,17 @@ export function MetricCard({ icon, label, value }) {
 }
 
 export function AppButton({ variant = "outlined", icon, children, className = "", ...props }) {
+  const variantClass = variant === "filled"
+    ? "ptg-button-primary"
+    : variant === "tonal"
+      ? "ptg-button-tonal"
+      : variant === "danger"
+        ? "ptg-button-danger"
+        : "ptg-button-secondary";
   return (
     <button
       {...props}
-      className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 px-3.5 ${variant === "filled" ? "ptg-button-primary" : "ptg-button-secondary"} ${className}`}
+      className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 ${variantClass} ${className}`}
     >
       {icon ? <Icon name={icon} className="h-4 w-4" /> : null}
       {children}
@@ -85,7 +92,7 @@ export function AppButton({ variant = "outlined", icon, children, className = ""
 
 export function IconButton({ icon, label, className = "", ...props }) {
   return (
-    <button aria-label={label} title={label} className={`state-layer inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[var(--ptg-outline)] bg-white text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] hover:border-[var(--ptg-outline-strong)] hover:text-[var(--ptg-primary)] ${className}`} {...props}>
+    <button aria-label={label} title={label} className={`state-layer inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-full border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)] ${className}`} {...props}>
       <Icon name={icon} className="h-4 w-4" />
     </button>
   );
@@ -105,7 +112,7 @@ export function TextInput({ label, className = "", ...props }) {
     <label className={`grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)] ${className}`}>
       <span>{label}</span>
       <input
-        className="ptg-field h-10 rounded-[10px] border border-[var(--ptg-outline)] px-3 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)]"
+        className="ptg-field h-10 rounded-[10px] border border-[var(--ptg-outline)] px-3 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
         {...props}
       />
     </label>
@@ -117,7 +124,7 @@ export function TextArea({ label, className = "", ...props }) {
     <label className={`grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)] ${className}`}>
       <span>{label}</span>
       <textarea
-        className="min-h-64 rounded-[10px] border border-[var(--ptg-outline)] bg-white p-3 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)]"
+        className="min-h-64 rounded-[10px] border border-[var(--ptg-outline)] bg-white p-3 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
         {...props}
       />
     </label>
@@ -130,7 +137,7 @@ export function SelectInput({ label, children, className = "", ...props }) {
       <span>{label}</span>
       <span className="relative block">
         <select
-          className="h-10 w-full appearance-none rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 pr-10 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(11,115,246,0.12)] disabled:bg-[var(--ptg-surface-container)] disabled:text-[var(--ptg-on-surface-variant)]"
+          className="h-10 w-full appearance-none rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 pr-10 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)] disabled:bg-[var(--ptg-surface-container)] disabled:text-[var(--ptg-on-surface-variant)]"
           {...props}
         >
           {children}

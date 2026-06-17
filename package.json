@@ -26,6 +26,8 @@
     "storj-download": "node --env-file-if-exists=.env scripts/install-storj-uplink.js --if-missing && node --env-file-if-exists=.env storj-downloader.js",
     "agent": "node --env-file-if-exists=.env src/agent/agent.js",
     "dashboard": "node --env-file-if-exists=.env dashboard/src/server/app.js",
+    "telegram:chats": "node --env-file-if-exists=.env scripts/telegram-chat-id.js",
+    "repair:server-agent-id": "node --env-file-if-exists=.env scripts/repair-server-credential-agent-id.js",
     "unzip-ranges": "node --env-file-if-exists=.env unzip-ranges.js",
     "delete-unavailable": "node --env-file-if-exists=.env scripts/dashboard-run.js -- node downloader.js delete-unavailable",
     "upload:install-uplink": "node --env-file-if-exists=.env scripts/install-storj-uplink.js",

@@ -72,8 +72,6 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
 };
 
 export const SECRET_STATUSES = ["active", "disabled", "inactive", "error"];
-export const SECRET_SECTION_VISIBLE_LIMIT = 40;
-
 export const SAMPLE_CONFIG = {
   provider: "esri",
   layer: "esri-satellite",

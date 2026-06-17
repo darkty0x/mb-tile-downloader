@@ -12,7 +12,7 @@ DASHBOARD_STORE=postgres
 APP_SECRET=<32+ random chars>
 AGENT_TOKEN=<shared agent bearer token>
 TELEGRAM_BOT_TOKEN=<optional>
-TELEGRAM_CHAT_ID=<optional>
+TELEGRAM_CHAT_ID=<optional numeric chat id, comma-separated for multiple destinations>
 ```
 
 `DATABASE_URL` is required for the normal dashboard runtime. The dashboard uses the Postgres-backed store by default and will not silently fall back to local memory.
@@ -20,6 +20,8 @@ TELEGRAM_CHAT_ID=<optional>
 `DASHBOARD_STORE=memory` is available only for disposable local tests where persistence is intentionally not needed.
 
 `APP_SECRET` is required for storing Mapbox/proxy/Storj secrets. Secrets are AES-GCM encrypted before they are written to the `secrets` table.
+
+Telegram notifications are outbound only. The bot username is not a notification destination; send `/start` to the bot from the target user, group, or channel and run `npm run telegram:chats` with `TELEGRAM_BOT_TOKEN` set to discover candidate chat ids.
 
 ## Start On Railway
 

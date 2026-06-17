@@ -54,6 +54,16 @@ function formatEvent(event) {
     .join("\n");
 }
 
+function parseChatIds(value) {
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => parseChatIds(item));
+  }
+  return String(value || "")
+    .split(",")
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 export function createTelegramNotifier({
   botToken = process.env.TELEGRAM_BOT_TOKEN,
   chatId = process.env.TELEGRAM_CHAT_ID,
@@ -61,6 +71,7 @@ export function createTelegramNotifier({
   now = () => new Date(),
 } = {}) {
   const recent = new Map();
+  const chatIds = parseChatIds(chatId);
 
   function duplicateKey(event) {
     return [
@@ -86,28 +97,46 @@ export function createTelegramNotifier({
     shouldNotify,
 
     async notifyEvent(event, settings = {}) {
-      if (!botToken || !chatId) return { skipped: true, reason: "not_configured" };
+      if (!botToken || chatIds.length === 0) return { skipped: true, reason: "not_configured" };
       if (!shouldNotify(event, settings)) return { skipped: true, reason: "low_value_event" };
       if (isDuplicate(event, settings)) return { skipped: true, reason: "duplicate" };
 
-      const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: formatEvent(event),
-          disable_web_page_preview: true,
-        }),
-      });
+      const results = [];
+      for (const targetChatId of chatIds) {
+        const response = await fetchImpl(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            chat_id: targetChatId,
+            text: formatEvent(event),
+            disable_web_page_preview: true,
+          }),
+        });
 
-      if (!response.ok) {
+        if (!response.ok) {
+          results.push({
+            ok: false,
+            chatId: targetChatId,
+            status: response.status,
+            error: await response.text(),
+          });
+          continue;
+        }
+        results.push({ ok: true, chatId: targetChatId, status: response.status });
+      }
+
+      const failures = results.filter((result) => !result.ok);
+      if (failures.length > 0) {
         return {
           ok: false,
-          status: response.status,
-          error: await response.text(),
+          status: failures.at(-1)?.status,
+          error: failures.at(-1)?.error,
+          sent: results.length - failures.length,
+          failed: failures.length,
+          results,
         };
       }
-      return { ok: true, status: response.status };
+      return { ok: true, sent: results.length, status: results.at(-1)?.status ?? 200 };
     },
   };
 }

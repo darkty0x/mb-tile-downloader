@@ -57,7 +57,9 @@ test("dashboard agent auto-start launches a detached agent once", async () => {
   assert.equal(spawned[0].detached, true);
   assert.deepEqual(spawned[0].args, ["--env-file-if-exists=.env", "src/agent/agent.js"]);
   assert.equal((await readFile(path.join(dir, ".tile-state", "dashboard-agent.pid"), "utf8")).trim(), String(child.pid));
-  assert.match(await readFile(path.join(dir, ".tile-state", "dashboard-agent.meta.json"), "utf8"), /"launcherVersion": 2/);
+  const meta = JSON.parse(await readFile(path.join(dir, ".tile-state", "dashboard-agent.meta.json"), "utf8"));
+  assert.equal(meta.launcherVersion, 3);
+  assert.ok(meta.files.some((file) => file.file === "src/agent/local-snapshot.js"));
 });
 
 test("dashboard agent auto-start restarts an old live agent without launch metadata", async () => {

@@ -1,5 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
+import { appendFile, mkdir } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -173,6 +174,47 @@ function plainCommand(command) {
   return [command[0], command.slice(1)];
 }
 
+function dashboardLogPath(stateDir = ".tile-state") {
+  return path.join(stateDir, "dashboard-agent.log");
+}
+
+function createOutputTee({ agentLogPath }) {
+  let logWrite = Promise.resolve();
+  const buffers = { stdout: "", stderr: "" };
+
+  function appendLogLine(line, stream) {
+    logWrite = logWrite
+      .then(async () => {
+        await mkdir(path.dirname(agentLogPath), { recursive: true });
+        await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");
+      })
+      .catch(() => {});
+  }
+
+  function write(chunk, stream) {
+    const text = String(chunk);
+    const target = stream === "stderr" ? process.stderr : process.stdout;
+    target.write(text);
+    buffers[stream] += text;
+    const lines = buffers[stream].split(/\r?\n/);
+    buffers[stream] = lines.pop() || "";
+    for (const line of lines) {
+      if (line) appendLogLine(line, stream);
+    }
+  }
+
+  async function flush() {
+    for (const stream of ["stdout", "stderr"]) {
+      const line = buffers[stream].trimEnd();
+      if (line) appendLogLine(line, stream);
+      buffers[stream] = "";
+    }
+    await logWrite;
+  }
+
+  return { write, flush };
+}
+
 async function safeDiskSnapshot({ projectDir }) {
   try {
     return await collectDiskInfo({ projectDir, platform: process.platform });
@@ -198,12 +240,14 @@ export async function publishImmediateDashboardSnapshot({
   projectDir = process.cwd(),
   stateDir = ".tile-state",
   synced,
+  agentLogPath = dashboardLogPath(stateDir),
+  postEvent = true,
 } = {}) {
   if (!client || !synced?.synced) return { published: false, reason: "dashboard state was not synced" };
   const identity = await loadAgentIdentity({ stateDir, machineId: env.MACHINE_ID });
   const [disk, agentSnapshot] = await Promise.all([
     safeDiskSnapshot({ projectDir }),
-    collectLocalSnapshot({ projectDir, stateDir, synced }),
+    collectLocalSnapshot({ projectDir, stateDir, synced, agentLogPath }),
   ]);
   await client.register({
     ...identity,
@@ -214,18 +258,20 @@ export async function publishImmediateDashboardSnapshot({
     agentSnapshot,
     agentProtocolVersion: AGENT_PROTOCOL_VERSION,
   });
-  await client.postEvent({
-    machineId: identity.machineId,
-    severity: "info",
-    type: "dashboard-run.synced",
-    message: "Local command loaded dashboard-managed config, env, and secrets.",
-    data: {
-      configPath: synced.configPath || null,
-      envPath: synced.envPath || null,
-      secretsEnvPath: synced.secretsEnvPath || null,
-      proxyPath: synced.proxyPath || null,
-    },
-  });
+  if (postEvent) {
+    await client.postEvent({
+      machineId: identity.machineId,
+      severity: "info",
+      type: "dashboard-run.synced",
+      message: "Local command loaded dashboard-managed config, env, and secrets.",
+      data: {
+        configPath: synced.configPath || null,
+        envPath: synced.envPath || null,
+        secretsEnvPath: synced.secretsEnvPath || null,
+        proxyPath: synced.proxyPath || null,
+      },
+    });
+  }
   return { published: true, machineId: identity.machineId };
 }
 
@@ -263,16 +309,30 @@ export async function runDashboardCommand({
 
   const command = withDashboardConfig(opts.command, synced.configPath);
   const [runner, runnerArgs] = opts.watchdog ? watchdogCommand(command) : plainCommand(command);
+  const outputTee = createOutputTee({ agentLogPath: dashboardLogPath(stateDir) });
   const result = await new Promise((resolve) => {
     const child = spawn(runner, runnerArgs, {
       cwd: projectDir,
       env: buildManagedEnv(env, synced),
       shell: false,
-      stdio: "inherit",
+      stdio: ["inherit", "pipe", "pipe"],
     });
+    child.stdout.on("data", (chunk) => outputTee.write(chunk, "stdout"));
+    child.stderr.on("data", (chunk) => outputTee.write(chunk, "stderr"));
     child.on("error", (error) => resolve({ code: 1, error }));
     child.on("exit", (code, signal) => resolve({ code, signal }));
   });
+  await outputTee.flush();
+  if (synced.synced) {
+    await publishImmediateDashboardSnapshot({
+      client: controlClient,
+      env,
+      projectDir,
+      stateDir,
+      synced,
+      postEvent: false,
+    });
+  }
   if (result.error) throw result.error;
   return result.signal ? 1 : result.code ?? 0;
 }

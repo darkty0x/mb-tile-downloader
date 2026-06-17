@@ -53,71 +53,85 @@ test("dashboard-run strips local secrets and applies dashboard env", () => {
 test("dashboard-run runs direct command with synced config env and secrets", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-run-"));
   const outputPath = path.join(dir, "output.json");
-  const code = await runDashboardCommand({
-    argv: [
-      "--",
-      process.execPath,
-      "-e",
-      "const fs=require('fs');fs.writeFileSync(process.argv[1], JSON.stringify({token:process.env.MAPBOX_ACCESS_TOKENS, concurrency:process.env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS, args:process.argv.slice(2)}));",
-      outputPath,
-      "node",
-      "downloader.js",
-    ],
-    env: {
-      DASHBOARD_URL: "https://dashboard.example.com",
-      AGENT_TOKEN: "agent-token",
-      MACHINE_ID: "worker-a",
-      MAPBOX_ACCESS_TOKENS: "local-token",
-      TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "64",
-    },
-    projectDir: dir,
-    stateDir: path.join(dir, ".tile-state"),
-    log: () => {},
-    createClient: () => ({
-      async register() {
-        return { status: "registered" };
+  let code;
+  let mirroredOutput = "";
+  const originalWrite = process.stdout.write;
+  process.stdout.write = function write(chunk, ...args) {
+    mirroredOutput += String(chunk);
+    if (typeof args.at(-1) === "function") args.at(-1)();
+    return true;
+  };
+  try {
+    code = await runDashboardCommand({
+      argv: [
+        "--",
+        process.execPath,
+        "-e",
+        "const fs=require('fs');console.log('dashboard output line');fs.writeFileSync(process.argv[1], JSON.stringify({token:process.env.MAPBOX_ACCESS_TOKENS, concurrency:process.env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS, args:process.argv.slice(2)}));",
+        outputPath,
+        "node",
+        "downloader.js",
+      ],
+      env: {
+        DASHBOARD_URL: "https://dashboard.example.com",
+        AGENT_TOKEN: "agent-token",
+        MACHINE_ID: "worker-a",
+        MAPBOX_ACCESS_TOKENS: "local-token",
+        TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "64",
       },
-      async postEvent() {
-        return { event: {} };
-      },
-      async listConfigs(machineId) {
-        assert.equal(machineId, "worker-a");
-        return {
-          configs: [
-            {
-              configId: "cfg-a",
-              active: true,
-              version: 1,
-              config: {
-                provider: "esri",
-                ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+      projectDir: dir,
+      stateDir: path.join(dir, ".tile-state"),
+      log: () => {},
+      createClient: () => ({
+        async register() {
+          return { status: "registered" };
+        },
+        async postEvent() {
+          return { event: {} };
+        },
+        async listConfigs(machineId) {
+          assert.equal(machineId, "worker-a");
+          return {
+            configs: [
+              {
+                configId: "cfg-a",
+                active: true,
+                version: 1,
+                config: {
+                  provider: "esri",
+                  ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+                },
               },
-            },
-          ],
-        };
-      },
-      async listEnvProfiles() {
-        return {
-          envProfiles: [
-            {
-              envProfileId: "env-a",
-              active: true,
-              version: 1,
-              env: { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "4096" },
-            },
-          ],
-        };
-      },
-      async listSecrets() {
-        return { secrets: [{ secretType: "mapbox_token", value: "dashboard-token" }] };
-      },
-    }),
-  });
+            ],
+          };
+        },
+        async listEnvProfiles() {
+          return {
+            envProfiles: [
+              {
+                envProfileId: "env-a",
+                active: true,
+                version: 1,
+                env: { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "4096" },
+              },
+            ],
+          };
+        },
+        async listSecrets() {
+          return { secrets: [{ secretType: "mapbox_token", value: "dashboard-token" }] };
+        },
+      }),
+    });
+  } finally {
+    process.stdout.write = originalWrite;
+  }
 
   assert.equal(code, 0);
   const parsed = JSON.parse(await readFile(outputPath, "utf8"));
   assert.equal(parsed.token, "dashboard-token");
   assert.equal(parsed.concurrency, "4096");
+  assert.match(mirroredOutput, /dashboard output line/);
+  assert.match(await readFile(path.join(dir, ".tile-state", "dashboard-agent.log"), "utf8"), /dashboard output line/);
 });
 
 test("dashboard-run publishes an immediate dashboard snapshot after sync", async () => {

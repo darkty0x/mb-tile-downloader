@@ -374,6 +374,25 @@ export function useDashboardState() {
         if (type === "secret") await refreshSecretPool();
         await refreshMachineData();
       },
+      async deleteSecrets(secretIds) {
+        const uniqueIds = [...new Set(secretIds)].filter(Boolean);
+        if (!uniqueIds.length) return;
+        await api("/api/secrets", {
+          method: "DELETE",
+          body: JSON.stringify({ secretIds: uniqueIds }),
+        });
+        setEditor({ type: "summary" });
+        await refreshSecretPool();
+        await refreshMachineData();
+        setNotice({ message: `${uniqueIds.length} Secret${uniqueIds.length === 1 ? "" : "s"} Deleted`, kind: "success" });
+      },
+      async rebalanceSecrets() {
+        const result = await api("/api/secrets/rebalance", { method: "POST" });
+        setSecretPool(result.secrets || []);
+        await refreshMachineData();
+        setNotice({ message: `Resource pool rebalanced (${result.changed || 0} assignment${result.changed === 1 ? "" : "s"})`, kind: "success" });
+        return result;
+      },
     },
   };
 }
