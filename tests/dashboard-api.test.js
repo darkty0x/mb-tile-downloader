@@ -356,14 +356,42 @@ test("dashboard exposes reusable config type templates from root config files", 
   const response = await request(server, { path: "/api/config-templates" });
 
   assert.equal(response.status, 200);
+  const templates = response.body.templates;
+  assert.ok(templates.length >= 9);
+  assert.ok(templates.some((template) => template.id === "mapbox-dem"));
+  assert.ok(templates.some((template) => template.id === "mapbox-satellite"));
+  assert.equal(
+    templates.find((template) => template.id === "esri-satellite").sourcePath,
+    "configs/esri-satellite.config.json"
+  );
+  assert.equal(
+    templates.find((template) => template.id === "mapbox-pbf").sourcePath,
+    "configs/mapbox-pbf.config.json"
+  );
+});
+
+test("dashboard exposes built-in config presets when no root config files exist", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-empty-"));
+  const server = await withServer(t, { configTemplatesDir: templatesDir });
+
+  const response = await request(server, { path: "/api/config-templates" });
+
+  assert.equal(response.status, 200);
   assert.deepEqual(
     response.body.templates.map((template) => template.id),
-    ["esri-satellite", "mapbox-pbf"]
+    [
+      "esri-satellite",
+      "mapbox-dem",
+      "mapbox-pbf",
+      "mapbox-raster-tileset",
+      "mapbox-rasterarray-mrt",
+      "mapbox-satellite",
+      "mapbox-style-static-tiles",
+      "mapbox-vector-mvt",
+      "mapbox-vector-style-optimized",
+    ]
   );
-  assert.deepEqual(
-    response.body.templates.map((template) => template.sourcePath),
-    ["configs/esri-satellite.config.json", "configs/mapbox-pbf.config.json"]
-  );
+  assert.equal(response.body.templates.every((template) => template.sourceType === "preset"), true);
 });
 
 test("dashboard batch config creation creates one runnable config per selected type", async (t) => {
