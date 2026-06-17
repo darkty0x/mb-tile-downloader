@@ -1202,7 +1202,6 @@ export function SettingsDashboard({ state, actions }) {
   );
 }
 
-const SECRET_POOL_TYPES = new Set(["mapbox_token", "proxy_txt"]);
 const SECRET_PAGE_SIZES = [25, 50, 100];
 
 function secretRank(secret) {
@@ -1232,24 +1231,20 @@ function secretSearchText(secret, state) {
   ].filter(Boolean).join(" ").toLowerCase();
 }
 
-function SecretPoolsTable({ state, actions }) {
+function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, emptyLabel }) {
   const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("all");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
 
   const poolItems = useMemo(() => state.secretPool
-    .filter((secret) => SECRET_POOL_TYPES.has(secret.secretType))
+    .filter((secret) => secret.secretType === secretType)
     .slice()
-    .sort((a, b) => secretRank(a) - secretRank(b) || a.secretType.localeCompare(b.secretType) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label)), [state.secretPool]);
+    .sort((a, b) => secretRank(a) - secretRank(b) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label)), [secretType, state.secretPool]);
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
-    return poolItems.filter((secret) => {
-      if (typeFilter !== "all" && secret.secretType !== typeFilter) return false;
-      return !needle || secretSearchText(secret, state).includes(needle);
-    });
-  }, [poolItems, query, state, typeFilter]);
+    return poolItems.filter((secret) => !needle || secretSearchText(secret, state).includes(needle));
+  }, [poolItems, query, state]);
 
   const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
   const safePage = Math.min(page, totalPages);
@@ -1266,7 +1261,7 @@ function SecretPoolsTable({ state, actions }) {
 
   useEffect(() => {
     setPage(1);
-  }, [pageSize, query, typeFilter]);
+  }, [pageSize, query]);
 
   useEffect(() => {
     const knownIds = new Set(poolItems.map((secret) => secret.secretId));
@@ -1316,49 +1311,36 @@ function SecretPoolsTable({ state, actions }) {
 
   const startLabel = filteredItems.length ? pageStart + 1 : 0;
   const endLabel = Math.min(pageStart + pageItems.length, filteredItems.length);
+  const activeCount = poolItems.filter((secret) => secret.status === "active").length;
+  const assignedCount = poolItems.filter((secret) => secret.status === "active" && secret.machineId).length;
+  const disabledCount = poolItems.filter((secret) => secret.status !== "active").length;
+  const addSecretType = secretType;
 
   return (
     <Surface className="max-w-full overflow-hidden">
       <SectionTitle
-        title="Resource Pool"
-        meta={`Searchable table for ${poolItems.length} Mapbox/proxy records`}
+        title={title}
+        meta={`${activeCount - assignedCount} Available | ${assignedCount} Assigned | ${disabledCount} Disabled`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AppButton icon="trash" onClick={() => deleteIds([...selectedIds], "selected records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!selectedIds.size}>Delete Selected</AppButton>
             <AppButton icon="trash" onClick={() => deleteIds(pageIds, "records on this page").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!pageIds.length}>Delete Page</AppButton>
             <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(filteredIds, "filtered records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!filteredIds.length}>Delete All</AppButton>
             <AppButton variant="tonal" icon="sync" onClick={() => actions.rebalanceSecrets().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Rebalance</AppButton>
-            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "mapbox_token" })}>Add Key</AppButton>
-            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: "proxy_txt" })}>Add Proxies</AppButton>
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: addSecretType })}>{addLabel}</AppButton>
           </div>
         }
       />
-      <div className="mb-3 grid grid-cols-[minmax(220px,1fr)_auto_auto] items-end gap-2 max-lg:grid-cols-1">
+      <div className="mb-3 grid grid-cols-[minmax(220px,1fr)_auto] items-end gap-2 max-lg:grid-cols-1">
         <label className="relative block">
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
           <input
             className="h-10 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] font-[650] text-[var(--ptg-on-surface)] transition placeholder:text-[var(--ptg-on-surface-variant)] focus:border-[var(--ptg-primary)] focus:outline-none focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="Search label, server, token, proxy..."
+            placeholder={`Search ${title.toLowerCase()}, server, value...`}
             value={query}
           />
         </label>
-        <div className="flex flex-wrap gap-1.5">
-          {[
-            ["all", "All"],
-            ["mapbox_token", "Mapbox"],
-            ["proxy_txt", "Proxies"],
-          ].map(([value, label]) => (
-            <button
-              key={value}
-              className={`state-layer h-10 rounded-[10px] border px-3 text-[12px] font-[800] transition ${typeFilter === value ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary)] text-white shadow-[0_10px_24px_rgba(0,109,255,0.18)]" : "border-[var(--ptg-outline)] bg-white text-[var(--ptg-on-surface-variant)] hover:border-[var(--ptg-outline-strong)]"}`}
-              onClick={() => setTypeFilter(value)}
-              type="button"
-            >
-              {label}
-            </button>
-          ))}
-        </div>
         <label className="grid gap-1 text-[10.5px] font-[780] uppercase tracking-[0.06em] text-[var(--ptg-on-surface-variant)]">
           Page size
           <select
@@ -1372,14 +1354,13 @@ function SecretPoolsTable({ state, actions }) {
       </div>
       <div className="overflow-hidden rounded-xl border border-[var(--ptg-outline)] bg-white">
         <div className="ptg-scrollbar max-w-full overflow-auto">
-          <table className="w-full min-w-[980px] border-collapse text-left">
+          <table className="w-full min-w-[920px] border-collapse text-left">
             <thead className="bg-[var(--ptg-surface-container)] text-[10.5px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">
               <tr>
                 <th className="w-12 border-b border-[var(--ptg-outline)] px-3 py-3">
                   <input aria-label="Select page" checked={pageSelected} onChange={togglePage} type="checkbox" />
                 </th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Name</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Type</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Status</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Assigned Server</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Value</th>
@@ -1390,7 +1371,7 @@ function SecretPoolsTable({ state, actions }) {
             <tbody>
               {pageItems.length ? pageItems.map((secret) => {
                 const usage = secretUsage(secret, state);
-                const icon = secret.secretType === "mapbox_token" ? "key" : "secrets";
+                const icon = secretType === "mapbox_token" ? "key" : "secrets";
                 return (
                   <tr key={secret.secretId} className="transition hover:bg-[var(--ptg-surface-container)]">
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
@@ -1407,7 +1388,6 @@ function SecretPoolsTable({ state, actions }) {
                         </span>
                       </div>
                     </td>
-                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[760] text-[var(--ptg-on-surface)]">{SECRET_LABELS[secret.secretType] || secret.secretType}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={usage.status}>{usage.label}</StatusPill></td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.machineId ? machineLabel(state, secret.machineId) : "Unassigned"}</td>
                     <td className="max-w-[260px] border-b border-[var(--ptg-outline)] px-3 py-3">
@@ -1428,7 +1408,7 @@ function SecretPoolsTable({ state, actions }) {
                 );
               }) : (
                 <tr>
-                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={8}>No resource pool records match this view</td>
+                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={7}>{emptyLabel}</td>
                 </tr>
               )}
             </tbody>
@@ -1444,6 +1424,29 @@ function SecretPoolsTable({ state, actions }) {
         </div>
       </div>
     </Surface>
+  );
+}
+
+function SecretPoolsTable({ state, actions }) {
+  return (
+    <div className="grid gap-4">
+      <ResourcePoolTypeTable
+        actions={actions}
+        addLabel="Add Key"
+        emptyLabel="No Mapbox API keys match this view"
+        secretType="mapbox_token"
+        state={state}
+        title="Mapbox API Keys"
+      />
+      <ResourcePoolTypeTable
+        actions={actions}
+        addLabel="Add Proxies"
+        emptyLabel="No proxies match this view"
+        secretType="proxy_txt"
+        state={state}
+        title="Proxy Pool"
+      />
+    </div>
   );
 }
 
