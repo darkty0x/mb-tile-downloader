@@ -383,13 +383,79 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
               <span className="min-w-0">
                 <strong className="block truncate text-[12.5px] font-[780]">{template.label}</strong>
                 <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-                  {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+                  {template.provider} | {template.layer} | {template.format}
                 </small>
               </span>
             </label>
           );
         })}
       </div>
+    </section>
+  );
+}
+
+function ConfigRangeBuilder({ actions }) {
+  const [rangeInput, setRangeInput] = useState("");
+  const [zoomStart, setZoomStart] = useState("");
+  const [zoomEnd, setZoomEnd] = useState("");
+  const [preview, setPreview] = useState(null);
+  const [error, setError] = useState("");
+
+  const validate = async () => {
+    setError("");
+    setPreview(null);
+    try {
+      const result = await actions.api("/api/ranges/parse", {
+        method: "POST",
+        body: JSON.stringify({
+          input: rangeInput,
+          zoomStart,
+          zoomEnd,
+        }),
+      });
+      setPreview(result);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  return (
+    <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5">
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Ranges</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">Required for selected config types. Presets do not include ranges.</p>
+        </div>
+        <AppButton type="button" icon="check" onClick={validate}>Validate Range</AppButton>
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <TextInput label="Zoom Start" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="19" />
+        <TextInput label="Zoom End" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} placeholder="19" />
+      </div>
+      <label className="grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)]">
+        <span>Range Input</span>
+        <textarea
+          className="min-h-28 rounded-[10px] border border-[var(--ptg-outline)] bg-white p-3 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+          name="rangeInput"
+          onChange={(event) => {
+            setRangeInput(event.target.value);
+            setPreview(null);
+            setError("");
+          }}
+          placeholder={'LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\nor 19/312824/339498 - 19/321475/351754\\n\\nor [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
+          spellCheck="false"
+          value={rangeInput}
+        />
+      </label>
+      {preview ? (
+        <div className="rounded-lg border border-[rgba(17,124,84,0.24)] bg-[#effaf4] p-3 text-[12px] font-[650] text-[#067647]">
+          Parsed {preview.rangeCount} range{preview.rangeCount === 1 ? "" : "s"} with {preview.tiles.toLocaleString()} tiles.
+          <pre className="ptg-scrollbar mt-2 max-h-36 overflow-auto rounded-md bg-white/70 p-2 font-mono text-[11px] text-[var(--ptg-on-surface)]">{JSON.stringify(preview.ranges, null, 2)}</pre>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="rounded-lg border border-[rgba(210,55,55,0.28)] bg-[#fff1f1] p-3 text-[12px] font-[650] text-[#b42318]">{error}</div>
+      ) : null}
     </section>
   );
 }
@@ -506,9 +572,12 @@ function ConfigForm({ record, state, actions, editor }) {
         />
       ) : null}
       {templateMode ? (
-        <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
-          {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs.
-        </div>
+        <>
+          <ConfigRangeBuilder actions={actions} />
+          <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
+            {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs using the ranges above.
+          </div>
+        </>
       ) : (
         <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}

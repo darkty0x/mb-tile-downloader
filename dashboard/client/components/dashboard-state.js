@@ -267,6 +267,9 @@ export function useDashboardState() {
               active: formData.get("active") === "on",
               splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
               templateIds,
+              rangeInput: formData.get("rangeInput"),
+              zoomStart: formData.get("zoomStart"),
+              zoomEnd: formData.get("zoomEnd"),
             }),
           });
           setEditor({ type: "summary" });

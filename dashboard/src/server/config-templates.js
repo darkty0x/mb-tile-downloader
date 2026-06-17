@@ -2,8 +2,6 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { normalizeRanges } from "../../../src/config/config-loader.js";
-
 const SERVER_DIR = path.dirname(fileURLToPath(import.meta.url));
 const PROJECT_ROOT = path.resolve(SERVER_DIR, "../../..");
 export const DEFAULT_CONFIG_TEMPLATES_DIR = path.join(PROJECT_ROOT, "configs");
@@ -204,6 +202,20 @@ function clone(value) {
   return structuredClone(value);
 }
 
+export function stripTemplateRanges(config) {
+  const next = clone(config);
+  delete next.ranges;
+  delete next.zoom;
+  delete next.z;
+  delete next.zoomStart;
+  delete next.zoomEnd;
+  delete next.xStart;
+  delete next.xEnd;
+  delete next.yStart;
+  delete next.yEnd;
+  return next;
+}
+
 function templateIdFromFile(fileName) {
   return fileName.replace(/\.config\.json$/, "");
 }
@@ -215,7 +227,6 @@ function summarizeTemplate({ fileName, id: inputId, config, includeConfig, sourc
     throw new Error(`${fileName || id}: config.provider must be one of: mapbox, esri`);
   }
 
-  const ranges = normalizeRanges(config);
   const format = config.format || config.tile?.extension || "default";
   const label = config.jobName || id;
 
@@ -226,7 +237,6 @@ function summarizeTemplate({ fileName, id: inputId, config, includeConfig, sourc
     layer: config.layer || provider,
     format,
     extension: config.tile?.extension || format,
-    rangeCount: ranges.length,
     sourcePath: sourcePath || `configs/${fileName}`,
     sourceType,
     ...(includeConfig ? { config: clone(config) } : {}),

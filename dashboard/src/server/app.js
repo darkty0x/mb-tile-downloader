@@ -13,8 +13,10 @@ import {
   listConfigTemplates,
   slugifyJobName,
   selectConfigTemplates,
+  stripTemplateRanges,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
+import { parseConfigRanges, summarizeRanges } from "./range-parser.js";
 import { createSecretValidator, isValidatableSecretType } from "./secret-validators.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
@@ -522,6 +524,18 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "POST" && url.pathname === "/api/ranges/parse") {
+          const body = await readJson(req);
+          const summary = summarizeRanges(parseConfigRanges({
+            input: body.input,
+            zoom: body.zoom,
+            zoomStart: body.zoomStart,
+            zoomEnd: body.zoomEnd,
+          }));
+          json(res, 200, summary);
+          return;
+        }
+
         if (req.method === "POST" && url.pathname === "/api/configs") {
           const body = await readJson(req);
           json(res, 200, { config: await store.createConfig(body) });
@@ -530,6 +544,12 @@ export function createDashboardApp({
 
         if (req.method === "POST" && url.pathname === "/api/configs/batch") {
           const body = await readJson(req);
+          const parsedRanges = parseConfigRanges({
+            input: body.rangeInput || body.ranges,
+            zoom: body.zoom,
+            zoomStart: body.zoomStart,
+            zoomEnd: body.zoomEnd,
+          });
           const templates = await selectConfigTemplates(body.templateIds, {
             templatesDir: configTemplatesDir,
           });
@@ -547,7 +567,10 @@ export function createDashboardApp({
               template,
               multiple: multipleTemplates,
             });
-            const sourceConfig = structuredClone(template.config);
+            const sourceConfig = {
+              ...stripTemplateRanges(template.config),
+              ranges: structuredClone(parsedRanges),
+            };
             sourceConfig.jobName = configJobNameForTemplate({ name: sourceName, template });
             if (splitAcrossMachines) {
               const split = splitConfigByRows(sourceConfig, {

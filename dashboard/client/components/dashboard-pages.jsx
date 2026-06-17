@@ -838,7 +838,7 @@ export function ConfigsDashboard({ state, actions }) {
               </span>
               <strong className="mt-3 block truncate text-[13px] font-[850] text-[var(--ptg-on-surface)] group-hover:text-[var(--ptg-primary)]">{template.label}</strong>
               <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                {template.provider} | {template.layer} | {template.format} | {template.rangeCount} ranges
+                {template.provider} | {template.layer} | {template.format}
               </p>
             </button>
           );

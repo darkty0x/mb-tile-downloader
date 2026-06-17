@@ -423,6 +423,67 @@ test("dashboard exposes built-in config presets when no root config files exist"
     ]
   );
   assert.equal(response.body.templates.every((template) => template.sourceType === "preset"), true);
+  assert.equal(response.body.templates.some((template) => "rangeCount" in template), false);
+});
+
+test("dashboard parses config ranges from bounds tile strings and JSON", async (t) => {
+  const server = await withServer(t);
+
+  const bounds = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "LB: 34.799, 46.82\nTR: 40.739, 52.272",
+      zoomStart: 19,
+      zoomEnd: 19,
+    },
+  });
+  const tileString = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "19/312824/339498/ - 19/321475/351754",
+    },
+  });
+  const jsonRanges = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: JSON.stringify([{ zoom: 12, xStart: 1, xEnd: 2, yStart: 3, yEnd: 4 }]),
+    },
+  });
+  const missingZoom = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "LB: 34.799, 46.82\nTR: 40.739, 52.272",
+    },
+  });
+
+  assert.equal(bounds.status, 200);
+  assert.deepEqual(bounds.body.ranges[0], {
+    zoomStart: 19,
+    zoomEnd: 19,
+    xStart: 312823,
+    xEnd: 321474,
+    yStart: 172534,
+    yEnd: 184789,
+    label: "bounds z=19 lon=34.799-40.739 lat=46.82-52.272",
+  });
+  assert.equal(tileString.status, 200);
+  assert.deepEqual(tileString.body.ranges[0], {
+    zoomStart: 19,
+    zoomEnd: 19,
+    xStart: 312824,
+    xEnd: 321475,
+    yStart: 339498,
+    yEnd: 351754,
+    label: "range#1: z=19 x=312824-321475 y=339498-351754",
+  });
+  assert.equal(jsonRanges.status, 200);
+  assert.equal(jsonRanges.body.tiles, 4);
+  assert.equal(missingZoom.status, 400);
+  assert.match(missingZoom.body.error, /zoom/);
 });
 
 test("dashboard batch config creation creates one runnable config per selected type", async (t) => {
@@ -456,6 +517,7 @@ test("dashboard batch config creation creates one runnable config per selected t
       name: "Ukraine Range 01",
       active: true,
       templateIds: ["mapbox-pbf", "esri-satellite"],
+      rangeInput: JSON.stringify([{ zoom: 3, xStart: 1, xEnd: 1, yStart: 2, yEnd: 2 }]),
     },
   });
 
@@ -471,6 +533,13 @@ test("dashboard batch config creation creates one runnable config per selected t
   assert.deepEqual(
     response.body.configs.map((config) => config.active),
     [true, false]
+  );
+  assert.deepEqual(
+    response.body.configs.map((config) => config.config.ranges),
+    [
+      [{ zoomStart: 3, zoomEnd: 3, xStart: 1, xEnd: 1, yStart: 2, yEnd: 2, label: "range#1: z=3 x=1-1 y=2-2" }],
+      [{ zoomStart: 3, zoomEnd: 3, xStart: 1, xEnd: 1, yStart: 2, yEnd: 2, label: "range#1: z=3 x=1-1 y=2-2" }],
+    ]
   );
 });
 
@@ -507,6 +576,7 @@ test("dashboard batch config creation assigns selected config types to selected 
       active: true,
       machineIds: ["worker-a", "worker-b"],
       templateIds: ["mapbox-pbf"],
+      rangeInput: "z=3 x=2-2 y=1-1",
     },
   });
 
@@ -574,6 +644,7 @@ test("dashboard batch config creation can split one selected type across selecte
       splitAcrossMachines: true,
       machineIds: ["worker-a", "worker-b"],
       templateIds: ["mapbox-pbf"],
+      rangeInput: JSON.stringify([{ zoom: 4, xStart: 0, xEnd: 3, yStart: 0, yEnd: 9 }]),
     },
   });
   const tileCounts = response.body.configs.map((config) =>
@@ -605,6 +676,7 @@ test("dashboard batch config creation rejects unknown server assignment", async 
       name: "Ukraine",
       machineIds: ["missing-worker"],
       templateIds: ["mapbox-pbf"],
+      rangeInput: "z=3 x=1-1 y=1-1",
     },
   });
 
