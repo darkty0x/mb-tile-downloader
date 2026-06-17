@@ -6,6 +6,8 @@ import { buildCredentialSecretValue } from "../lib/overview-model";
 import { DEFAULT_DASHBOARD_SETTINGS, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
 export function useDashboardState() {
+  const [authStatus, setAuthStatus] = useState("checking");
+  const [currentUser, setCurrentUser] = useState(null);
   const [machineSearch, setMachineSearch] = useState("");
   const [machines, setMachines] = useState([]);
   const [configs, setConfigs] = useState([]);
@@ -77,6 +79,10 @@ export function useDashboardState() {
     });
     const text = await response.text();
     const body = text ? JSON.parse(text) : {};
+    if (response.status === 401 && !path.startsWith("/api/auth/")) {
+      setCurrentUser(null);
+      setAuthStatus("unauthenticated");
+    }
     if (!response.ok) throw new Error(body.error || `요청 실패: ${response.status}`);
     return body;
   }
@@ -149,13 +155,22 @@ export function useDashboardState() {
   }
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      refreshAll().catch((err) => setNotice({ message: err.message, kind: "error" }));
+    const timer = setTimeout(async () => {
+      try {
+        const { user } = await api("/api/auth/me");
+        setCurrentUser(user);
+        setAuthStatus("authenticated");
+        await refreshAll();
+      } catch {
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+      }
     }, 250);
     return () => clearTimeout(timer);
   }, []);
 
   useEffect(() => {
+    if (authStatus !== "authenticated") return undefined;
     const pollMs = Number(settings.sync?.dashboardPollMs);
     if (!Number.isFinite(pollMs) || pollMs < 1000) return undefined;
     const poll = () => {
@@ -164,7 +179,7 @@ export function useDashboardState() {
     };
     const timer = setInterval(poll, pollMs);
     return () => clearInterval(timer);
-  }, [settings.sync?.dashboardPollMs]);
+  }, [authStatus, settings.sync?.dashboardPollMs]);
 
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
@@ -246,6 +261,8 @@ export function useDashboardState() {
       activeEnv,
       editor,
       loading,
+      authStatus,
+      currentUser,
       notice,
       confirmRequest,
       webNotificationPermission,
@@ -253,6 +270,53 @@ export function useDashboardState() {
     },
     actions: {
       api,
+      async login(formData) {
+        const { user } = await api("/api/auth/login", {
+          method: "POST",
+          body: JSON.stringify({
+            login: formData.get("login"),
+            password: formData.get("password"),
+          }),
+        });
+        setCurrentUser(user);
+        setAuthStatus("authenticated");
+        setNotice({ message: "로그인되였습니다", kind: "success" });
+        await refreshAll();
+      },
+      async logout() {
+        await api("/api/auth/logout", { method: "POST" }).catch(() => null);
+        setCurrentUser(null);
+        setAuthStatus("unauthenticated");
+        setSelectedTab("overview");
+        setEditor({ type: "summary" });
+        setMachines([]);
+        setConfigs([]);
+        setGlobalConfigs([]);
+        setEnvProfiles([]);
+        setSecrets([]);
+        setSecretPool([]);
+        setJobs([]);
+        setGlobalJobs([]);
+        setEvents([]);
+        setGlobalEvents([]);
+      },
+      async saveAccount(formData) {
+        const password = String(formData.get("password") || "");
+        const confirmPassword = String(formData.get("confirmPassword") || "");
+        if (password && password !== confirmPassword) throw new Error("새 암호가 일치하지 않습니다");
+        const body = {
+          email: formData.get("email"),
+          username: formData.get("username"),
+          currentPassword: formData.get("currentPassword"),
+          ...(password ? { password } : {}),
+        };
+        const { user } = await api("/api/auth/account", {
+          method: "PUT",
+          body: JSON.stringify(body),
+        });
+        setCurrentUser(user);
+        setNotice({ message: "계정정보가 갱신되였습니다", kind: "success" });
+      },
       setMachineSearch,
       setSelectedTab,
       setSelectedServerTab,

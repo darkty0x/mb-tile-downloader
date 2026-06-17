@@ -7,6 +7,13 @@ import { fileURLToPath } from "node:url";
 import { createPgDb } from "./db.js";
 import { loadServerConfig } from "./config.js";
 import {
+  clearSessionCookie,
+  createMemoryAuthStore,
+  createPostgresAuthStore,
+  sessionTokenFromRequest,
+  setSessionCookie,
+} from "./auth.js";
+import {
   DEFAULT_CONFIG_TEMPLATES_DIR,
   configJobNameForTemplate,
   configNameForTemplate,
@@ -68,6 +75,21 @@ function tokenFrom(req) {
 
 function requireToken(req, expected) {
   return Boolean(expected) && tokenFrom(req) === expected;
+}
+
+async function sessionUserFromRequest(req, authStore) {
+  if (!authStore) return null;
+  return authStore.getSessionUser(sessionTokenFromRequest(req));
+}
+
+async function requireDashboardSession(req, res, authStore) {
+  if (!authStore) return null;
+  const user = await sessionUserFromRequest(req, authStore);
+  if (!user) {
+    json(res, 401, { error: "login required" });
+    return null;
+  }
+  return user;
 }
 
 async function readJson(req) {
@@ -269,6 +291,7 @@ function jobNameForTarget({ baseJobName, target, multipleTargets }) {
 
 export function createDashboardApp({
   store = createDashboardStore(),
+  authStore = null,
   secretVault = null,
   secretValidator = createSecretValidator(),
   telegramNotifier = null,
@@ -276,6 +299,7 @@ export function createDashboardApp({
   clientDir = DEFAULT_CLIENT_DIR,
   configTemplatesDir = DEFAULT_CONFIG_TEMPLATES_DIR,
   healthCheck = null,
+  secureCookies = false,
 } = {}) {
   return http.createServer(async (req, res) => {
     const url = new URL(req.url || "/", "http://127.0.0.1");
@@ -408,6 +432,57 @@ export function createDashboardApp({
       }
 
       if (url.pathname.startsWith("/api/")) {
+        if (url.pathname.startsWith("/api/auth/")) {
+          if (req.method === "GET" && url.pathname === "/api/auth/me") {
+            const user = await sessionUserFromRequest(req, authStore);
+            if (!user) {
+              json(res, 401, { error: "login required" });
+              return;
+            }
+            json(res, 200, { user });
+            return;
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/auth/login") {
+            if (!authStore) throw new Error("auth store is not configured");
+            const body = await readJson(req);
+            const user = await authStore.authenticate({
+              login: body.login || body.email || body.username,
+              password: body.password,
+            });
+            if (!user) {
+              json(res, 401, { error: "invalid login or password" });
+              return;
+            }
+            const session = await authStore.createSession(user.userId);
+            setSessionCookie(res, session.token, { secure: secureCookies });
+            json(res, 200, { user: session.user });
+            return;
+          }
+
+          if (req.method === "POST" && url.pathname === "/api/auth/logout") {
+            if (authStore) await authStore.deleteSession(sessionTokenFromRequest(req));
+            clearSessionCookie(res);
+            json(res, 200, { ok: true });
+            return;
+          }
+
+          if (req.method === "PUT" && url.pathname === "/api/auth/account") {
+            if (!authStore) throw new Error("auth store is not configured");
+            const user = await requireDashboardSession(req, res, authStore);
+            if (!user) return;
+            const updated = await authStore.updateUser(user.userId, await readJson(req));
+            json(res, 200, { user: updated });
+            return;
+          }
+
+          json(res, 404, { error: "not found" });
+          return;
+        }
+
+        const dashboardUser = await requireDashboardSession(req, res, authStore);
+        if (authStore && !dashboardUser) return;
+
         if (req.method === "GET" && url.pathname === "/api/machines") {
           json(res, 200, { machines: await store.listMachines() });
           return;
@@ -833,6 +908,7 @@ export async function createDashboardRuntime({
   createDb = createPgDb,
   createStoreFromDb = ({ db }) => createPostgresDashboardStore({ db }),
   createSecretVaultFromDb = ({ db, appSecret }) => createPostgresSecretVault({ db, appSecret }),
+  createAuthStoreFromDb = ({ db }) => createPostgresAuthStore({ db }),
 } = {}) {
   const dashboardStore = config.dashboardStore || "postgres";
   if (!["postgres", "memory"].includes(dashboardStore)) {
@@ -847,6 +923,8 @@ export async function createDashboardRuntime({
     ? await createDb({ databaseUrl: config.databaseUrl })
     : null;
   const store = db ? createStoreFromDb({ db }) : createDashboardStore();
+  const authStore = db ? createAuthStoreFromDb({ db }) : createMemoryAuthStore();
+  await authStore.seedDefaultAdmin();
   const secretVault = config.appSecret
     ? db
       ? createSecretVaultFromDb({ db, appSecret: config.appSecret })
@@ -854,9 +932,11 @@ export async function createDashboardRuntime({
     : null;
   const app = createDashboardApp({
     store,
+    authStore,
     agentToken: config.agentToken,
     secretVault,
     telegramNotifier: createTelegramNotifier(),
+    secureCookies: config.nodeEnv === "production",
     healthCheck: db
       ? async () => {
           await db.query("SELECT 1");
@@ -868,6 +948,7 @@ export async function createDashboardRuntime({
   return {
     app,
     store,
+    authStore,
     secretVault,
     db,
     async close() {

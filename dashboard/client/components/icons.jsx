@@ -20,6 +20,8 @@ const symbols = {
   secrets: "lock",
   credentials: "id_card",
   user: "person",
+  lock: "lock",
+  login: "login",
   console: "terminal",
   bell: "notifications",
   command: "keyboard_command_key",
@@ -47,6 +49,7 @@ const symbols = {
   filter: "filter_alt",
   upload: "cloud_upload",
   download: "download",
+  zip: "folder_zip",
   clock: "schedule",
 };
 

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildGlobalSearchResults } from "../lib/global-search";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
-import { AppButton, IconButton, StatusPill, SwitchField } from "./ui";
+import { AppButton, IconButton, StatusPill, SwitchField, TextInput } from "./ui";
 import { PAGE_META, TABS, fleetState, shortDate } from "./dashboard-core";
 
 export function Notice({ notice }) {
@@ -94,10 +94,49 @@ export function Header({ state, actions }) {
             label="관리체계 갱신"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
-          <AccountMenu actions={actions} />
+          <AccountMenu state={state} actions={actions} />
         </div>
       </div>
     </header>
+  );
+}
+
+export function LoginScreen({ state, actions }) {
+  const [error, setError] = useState("");
+
+  const submit = async (event) => {
+    event.preventDefault();
+    setError("");
+    try {
+      await actions.login(new FormData(event.currentTarget));
+    } catch (err) {
+      setError(err.message || "로그인할수 없습니다");
+    }
+  };
+
+  return (
+    <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_20%_10%,rgba(103,80,164,0.18),transparent_34%),linear-gradient(135deg,#fff7ff_0%,#f4f7ff_52%,#eefaf6_100%)] p-4">
+      <section className="screen-enter grid w-[min(440px,calc(100vw-32px))] gap-5 rounded-[32px] border border-[var(--ptg-outline)] bg-white/92 p-6 shadow-[0_28px_90px_rgba(29,27,32,0.22)] backdrop-blur-xl">
+        <div className="grid gap-3 text-center">
+          <span className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+            <Icon name="lock" className="h-9 w-9" filled />
+          </span>
+          <span>
+            <h1 className="text-[28px] font-[520] leading-tight text-[var(--ptg-on-surface)]">PTG 관리체계</h1>
+            <p className="mt-1 text-[13px] font-[620] text-[var(--ptg-on-surface-variant)]">계정으로 로그인한 뒤 조종판을 리용할수 있습니다.</p>
+          </span>
+        </div>
+        <form className="grid gap-4" onSubmit={submit}>
+          <TextInput name="login" label="전자우편 또는 리용자이름" autoComplete="username" required />
+          <TextInput name="password" label="암호" type="password" autoComplete="current-password" required />
+          {error ? <div className="rounded-[14px] border border-[rgba(197,35,51,0.28)] bg-[#fff5f5] px-3 py-2 text-[12px] font-[650] text-[var(--ptg-error)]">{error}</div> : null}
+          {state.authStatus === "checking" ? (
+            <div className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-3 py-2 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">세션 확인중...</div>
+          ) : null}
+          <AppButton type="submit" variant="filled" icon="login" className="h-12 w-full">로그인</AppButton>
+        </form>
+      </section>
+    </main>
   );
 }
 
@@ -421,11 +460,11 @@ export function ConfirmDialog({ request, actions }) {
   );
 }
 
-function AccountMenu({ actions }) {
+function AccountMenu({ state, actions }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
-  const accountName = "Owner";
-  const accountRole = "Administrator";
+  const accountName = state.currentUser?.username || "daisukehiroki25";
+  const accountRole = state.currentUser?.role || "Administrator";
 
   useEffect(() => {
     if (!open) return undefined;
@@ -486,9 +525,13 @@ function AccountMenu({ actions }) {
               <Icon name="refresh" className="h-4 w-4" />
               관리체계 갱신
             </button>
-            <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.setSelectedTab("settings"); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
-              <Icon name="settings" className="h-4 w-4" />
-              계정설정
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.setSelectedTab("account"); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
+              <Icon name="user" className="h-4 w-4" />
+              계정정보
+            </button>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.logout(); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] text-[var(--ptg-error)] hover:bg-[#fff0ef]">
+              <Icon name="logout" className="h-4 w-4" />
+              로그아웃
             </button>
           </div>
         </div>

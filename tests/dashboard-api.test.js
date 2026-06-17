@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardApp } from "../dashboard/src/server/app.js";
+import { createMemoryAuthStore, hashPassword } from "../dashboard/src/server/auth.js";
 import { createSecretVault } from "../dashboard/src/server/secrets.js";
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 
@@ -23,6 +24,7 @@ async function request(server, { method = "GET", path = "/", headers = {}, body 
   return {
     status: response.status,
     body: text ? JSON.parse(text) : null,
+    headers: response.headers,
   };
 }
 
@@ -178,6 +180,97 @@ test("dashboard machine list is available without an admin token", async (t) => 
 
   assert.equal(response.status, 200);
   assert.deepEqual(response.body.machines, []);
+});
+
+test("dashboard browser APIs require login when auth store is configured", async (t) => {
+  const authStore = createMemoryAuthStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await authStore.seedDefaultAdmin({
+    userId: "admin",
+    email: "admin@example.com",
+    username: "admin",
+    role: "Administrator",
+    passwordHash: await hashPassword("test-pass"),
+  });
+  const server = await withServer(t, { authStore });
+
+  const rejected = await request(server, { path: "/api/machines" });
+  const login = await request(server, {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { login: "admin@example.com", password: "test-pass" },
+  });
+  const cookie = login.headers.get("set-cookie")?.split(";")[0];
+  const listed = await request(server, {
+    path: "/api/machines",
+    headers: { cookie },
+  });
+
+  assert.equal(rejected.status, 401);
+  assert.equal(login.status, 200);
+  assert.equal(login.body.user.username, "admin");
+  assert.match(cookie, /^ptg_session=/);
+  assert.equal(listed.status, 200);
+  assert.deepEqual(listed.body.machines, []);
+});
+
+test("dashboard login sessions support account update and logout", async (t) => {
+  const authStore = createMemoryAuthStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await authStore.seedDefaultAdmin({
+    userId: "admin",
+    email: "admin@example.com",
+    username: "admin",
+    role: "Administrator",
+    passwordHash: await hashPassword("test-pass"),
+  });
+  const server = await withServer(t, { authStore });
+
+  const login = await request(server, {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { login: "admin", password: "test-pass" },
+  });
+  const cookie = login.headers.get("set-cookie")?.split(";")[0];
+  const updated = await request(server, {
+    method: "PUT",
+    path: "/api/auth/account",
+    headers: { cookie },
+    body: {
+      email: "owner@example.com",
+      username: "owner",
+      currentPassword: "test-pass",
+      password: "next-pass",
+    },
+  });
+  const me = await request(server, {
+    path: "/api/auth/me",
+    headers: { cookie },
+  });
+  const logout = await request(server, {
+    method: "POST",
+    path: "/api/auth/logout",
+    headers: { cookie },
+  });
+  const afterLogout = await request(server, {
+    path: "/api/auth/me",
+    headers: { cookie },
+  });
+  const relogin = await request(server, {
+    method: "POST",
+    path: "/api/auth/login",
+    body: { login: "owner", password: "next-pass" },
+  });
+
+  assert.equal(updated.status, 200);
+  assert.equal(updated.body.user.email, "owner@example.com");
+  assert.equal(me.body.user.username, "owner");
+  assert.equal(logout.status, 200);
+  assert.equal(afterLogout.status, 401);
+  assert.equal(relogin.status, 200);
+  assert.equal(relogin.body.user.email, "owner@example.com");
 });
 
 test("dashboard exposes configured agent setup token for copy fields", async (t) => {

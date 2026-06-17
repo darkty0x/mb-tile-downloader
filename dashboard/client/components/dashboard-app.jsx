@@ -2,11 +2,15 @@
 
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
-import { ConfirmDialog, Notice, Rail, Header } from "./dashboard-shell";
-import { AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
+import { ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
+import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
+
+  if (state.authStatus !== "authenticated") {
+    return <LoginScreen state={state} actions={actions} />;
+  }
 
   return (
     <main className={`ptg-shell grid min-h-screen grid-cols-[244px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
@@ -17,6 +21,8 @@ export default function DashboardApp() {
           <Notice notice={state.notice} />
           {state.selectedTab === "settings" ? (
             <SettingsDashboard state={state} actions={actions} />
+          ) : state.selectedTab === "account" ? (
+            <AccountDashboard state={state} actions={actions} />
           ) : state.selectedTab === "credentials" ? (
             <CredentialsDashboard state={state} actions={actions} />
           ) : state.selectedTab === "secrets" ? (

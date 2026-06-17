@@ -93,6 +93,23 @@ CREATE TABLE IF NOT EXISTS dashboard_settings (
   updated_at timestamptz NOT NULL DEFAULT now()
 );
 
+CREATE TABLE IF NOT EXISTS dashboard_users (
+  user_id text PRIMARY KEY,
+  email text NOT NULL UNIQUE,
+  username text NOT NULL UNIQUE,
+  role text NOT NULL DEFAULT 'Administrator',
+  password_hash text NOT NULL,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  updated_at timestamptz NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS dashboard_sessions (
+  token_hash text PRIMARY KEY,
+  user_id text NOT NULL REFERENCES dashboard_users(user_id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  expires_at timestamptz NOT NULL
+);
+
 CREATE INDEX IF NOT EXISTS machine_events_machine_id_created_at_idx
   ON machine_events (machine_id, created_at DESC);
 
@@ -113,6 +130,12 @@ CREATE INDEX IF NOT EXISTS secrets_machine_id_secret_type_status_idx
 
 CREATE INDEX IF NOT EXISTS secrets_secret_type_machine_id_status_created_at_idx
   ON secrets (secret_type, machine_id, status, created_at ASC);
+
+CREATE INDEX IF NOT EXISTS dashboard_sessions_user_id_expires_at_idx
+  ON dashboard_sessions (user_id, expires_at DESC);
+
+CREATE INDEX IF NOT EXISTS dashboard_sessions_expires_at_idx
+  ON dashboard_sessions (expires_at);
 
 ALTER TABLE machines
   ADD COLUMN IF NOT EXISTS agent_snapshot_json jsonb NOT NULL DEFAULT '{}'::jsonb;

@@ -8,6 +8,7 @@ test("dashboard runtime uses postgres store when DATABASE_URL is configured", as
   const fakeDb = { close: async () => calls.push("close") };
   const fakeStore = { listMachines: async () => [] };
   const fakeSecretVault = { listSecretsForBrowser: async () => [] };
+  const fakeAuthStore = { seedDefaultAdmin: async () => calls.push("seed-admin") };
 
   const runtime = await createDashboardRuntime({
     config: {
@@ -31,13 +32,17 @@ test("dashboard runtime uses postgres store when DATABASE_URL is configured", as
       assert.equal(appSecret, "secret");
       return fakeSecretVault;
     },
+    createAuthStoreFromDb: ({ db }) => {
+      assert.equal(db, fakeDb);
+      return fakeAuthStore;
+    },
   });
 
   assert.equal(calls[0], "postgres://example/db");
   assert.equal(runtime.store, fakeStore);
   assert.equal(runtime.secretVault, fakeSecretVault);
   await runtime.close();
-  assert.deepEqual(calls, ["postgres://example/db", "close"]);
+  assert.deepEqual(calls, ["postgres://example/db", "seed-admin", "close"]);
 });
 
 test("dashboard runtime rejects missing DATABASE_URL by default", async () => {
