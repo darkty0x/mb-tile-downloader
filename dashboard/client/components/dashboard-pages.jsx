@@ -67,7 +67,7 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function PipelineOverview({ overview, title = "실시간 공정흐름 진행", meta = "모든 활성화된 범위" }) {
+function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태" }) {
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
@@ -164,7 +164,7 @@ function DiskCapacityCard({ state }) {
     .slice(0, 5);
   return (
     <Surface className="p-4">
-      <SectionTitle title="디스크용량" meta="봉사기별 가장 많이 사용한 구동기" />
+      <SectionTitle title="구동기용량" meta="봉사기별로 가장 많이 사용한 구동기" />
       <div className="grid gap-2">
         {rows.length ? rows.map(({ machine, peak, disk }) => (
           <div key={machine.machineId} className="grid grid-cols-[minmax(0,1fr)_92px_44px] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
@@ -175,7 +175,7 @@ function DiskCapacityCard({ state }) {
             <UsageBar percent={peak} className="w-[92px]" />
             <strong className="text-right text-[12px] font-[850]">{peak}%</strong>
           </div>
-        )) : <EmptyLine>아직 디스크순간자료가 없습니다</EmptyLine>}
+        )) : <EmptyLine>아직 구동기순간자료가 없습니다</EmptyLine>}
       </div>
     </Surface>
   );
@@ -360,7 +360,7 @@ export function ServersDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <section className="ptg-card-grid gap-3">
         <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} palette="sky" />
-        <InsightCard icon="disk" label="디스크용량 여부" value={`${overview.diskPressure}%`} detail="관측된 최고 구동기사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
+        <InsightCard icon="disk" label="구동기용량 여부" value={`${overview.diskPressure}%`} detail="관측된 최고 구동기사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
         <InsightCard icon="control" label="관리 Profile" value={connections.length} detail={`Agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
       </section>
       <ServerConnectionsSection state={state} actions={actions} />
@@ -675,7 +675,7 @@ function ServerPageStorage({ machine }) {
               </div>
             </div>
           );
-        }) : <EmptyLine>아직 디스크사용량과 관련한 자료가 없습니다</EmptyLine>}
+        }) : <EmptyLine>아직 구동기사용량과 관련한 자료가 없습니다</EmptyLine>}
       </div>
       {storage.length ? (
         <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2 shadow-sm">
@@ -843,8 +843,8 @@ export function ConfigsDashboard({ state, actions }) {
       <Surface className="p-4">
         <SectionTitle
           title="설정화일 Library"
-          meta={`배정가능한 설정화일 예비값 ${templates.length}개`}
-          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>설정화일 만들기</AppButton>}
+          meta={`배정가능한 설정화일 Template ${templates.length}개`}
+          action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>설정화일 작성</AppButton>}
         />
         <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
           {templates.length ? templates.map((template) => {
@@ -1045,7 +1045,7 @@ export function CredentialsDashboard({ state, actions }) {
               )) : (
                 <tr>
                   <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={4}>
-                    {items.length ? "검색에 맞는 계정정보가 없습니다" : "아직 보관된 계정정보가 없습니다"}
+                    {items.length ? "검색에 일치한 계정정보가 없습니다" : "아직 보관된 계정정보가 없습니다"}
                   </td>
                 </tr>
               )}

@@ -20,14 +20,14 @@ export const TABS = [
 ];
 
 export const PAGE_META = {
-  overview: ["첫페지", "공정흐름을 관리합니다"],
-  servers: ["봉사기", "RDP 봉사기들을 경고하고 관리합니다"],
+  overview: ["첫페지", "전체 공정흐름을 감시 및 관리합니다"],
+  servers: ["봉사기", "작업기대 봉사기들을 관리합니다"],
   secrets: ["API Key와 Proxy", "Mapbox API Key 및 Proxy정보들을 관리합니다"],
   credentials: ["계정정보", "웹싸이트 및 RDP 접속자료와 접근권한을 관리합니다"],
   settings: ["설정", "체계와 환경을 설정합니다"],
   pipelines: ["공정흐름", "활성화된 봉사기들의 작업공정흐름을 관리합니다"],
   configs: ["설정화일", "내리적재설정을 만들고 배정합니다"],
-  events: ["Event 기록", "관리체계 및 agent event들을 실시간으로 확인합니다"],
+  events: ["Event 기록", "관리체계 및 Agent Event목록을 실시간으로 확인합니다"],
   alerts: ["경보", "용량 및 실패상태를 검토합니다"],
 };
 

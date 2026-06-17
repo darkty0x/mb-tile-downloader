@@ -295,10 +295,10 @@ export function buildOverviewModel({
   return {
     kpis: {
       serversOnline: { label: "련결된 봉사기", value: `${online} / ${machines.length}`, detail: machines.length ? `${Math.round((online / machines.length) * 100)}% 련결됨` : "agent 대기중" },
-      activeJobs: { label: "활성 작업", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기` },
-      throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 agent 지표 대기중" },
+      activeJobs: { label: "활성화된 작업공정", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기` },
+      throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 Agent 지표 대기중" },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
-      failedJobs: { label: "실패한 타일", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
+      failedJobs: { label: "실패한 타일수", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
       resourceAlerts: { label: "API Key와 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: pipelineModel.steps,

@@ -67,7 +67,7 @@ function ServerOnboardingForm({ state, actions }) {
       if (!String(formData.get(name) || "").trim()) return `${title} 이(가) 필요합니다.`;
     }
     const port = Number(formData.get("port"));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return "포트는 1부터 65535사이여야 합니다.";
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return "포구는 1부터 65535사이여야 합니다.";
     return null;
   }
 
@@ -77,9 +77,9 @@ function ServerOnboardingForm({ state, actions }) {
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
-        <h4 className="mt-3 text-[15px] font-[850]">봉사기조종은 Windows agent를 리용합니다</h4>
+        <h4 className="mt-3 text-[15px] font-[850]">봉사기조종은 Windows Agent를 리용합니다</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
-          원격접속자료를 보관하고 agent `.env`를 설정한 다음 관리체계에서 같은 Machine ID를 검증하십시오.
+          원격접속자료를 보관하고 Agent `.env`를 설정한다음 관리체계에서 같은 Machine ID를 검증하십시오.
         </p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
           {[
@@ -130,8 +130,8 @@ function ServerOnboardingForm({ state, actions }) {
         }}
       >
         <div>
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">접속Profile</h4>
-          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">관리체계 API Key금고에 암호화되여 보관됩니다.</p>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">접속 Profile</h4>
+          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">관리체계 API Key 목록에 암호화되여 보관됩니다.</p>
         </div>
         {formNotice ? (
           <div
@@ -172,12 +172,12 @@ function ServerOnboardingForm({ state, actions }) {
             <option value="winrm">WinRM</option>
             <option value="winrms">WinRM TLS</option>
           </SelectInput>
-          <TextInput label="포트" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+          <TextInput label="포구" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
         </div>
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
         <TextInput label="사용자이름" name="username" defaultValue="root" autoComplete="username" required />
         <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속Profile 보관</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속 Profile 보관</AppButton>
       </form>
 
       <TextInput label="관리체계 URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
@@ -186,7 +186,6 @@ function ServerOnboardingForm({ state, actions }) {
         <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent Token</h4>
         <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_auto]">
           <TextInput
-            label="봉인된 Token"
             value={agentSetup.loading ? "읽는중..." : agentSetup.agentTokenConfigured ? agentSetup.agentToken : "설정되지 않음"}
             type="text"
             style={agentSetup.agentTokenConfigured && !showAgentToken ? { WebkitTextSecurity: "disc" } : undefined}
@@ -210,7 +209,7 @@ function ServerOnboardingForm({ state, actions }) {
       </section>
 
       <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
-        같은 Machine ID를 이미 련결된 다른 agent가 가지고있으면 등록은 충돌로 거부됩니다.
+        같은 Machine ID를 이미 련결된 다른 Aent가 가지고 있으면 등록은 충돌상태로 되며 거부됩니다.
       </div>
     </section>
   );
@@ -225,7 +224,7 @@ export function EditorDrawer({ state, actions }) {
     return (
       <ModalShell
         title={connection.label || "봉사기상세"}
-      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "접속Profile"}
+      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "접속 Profile"}
         width="w-[min(680px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
@@ -237,7 +236,7 @@ export function EditorDrawer({ state, actions }) {
     return (
       <ModalShell
         title="봉사기 추가"
-        subtitle="내리적재 agent 련결을 등록합니다"
+        subtitle="내리적재 작업기대(Agent)를 등록합니다"
         width="w-[min(760px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
@@ -429,7 +428,7 @@ function ConfigRangeBuilder({ actions }) {
         <AppButton type="button" icon="check" onClick={validate}>범위 검증</AppButton>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="19" />
+        <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="1" />
         <TextInput label="Zoom 끝" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} placeholder="19" />
       </div>
       <label className="grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)]">
@@ -565,8 +564,8 @@ function ConfigForm({ record, state, actions, editor }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="이름" name="name" defaultValue={record?.name || "dashboard-config"} required />
-      <SwitchField name="active" label="활성" defaultChecked={defaultActive} />
+      <TextInput label="이름" name="name" defaultValue={record?.name || ""} required />
+      <SwitchField name="active" label="상태" defaultChecked={defaultActive} />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}
@@ -592,14 +591,14 @@ function ConfigForm({ record, state, actions, editor }) {
         <>
           <ConfigRangeBuilder actions={actions} />
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
-            선택된 류형 {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 설정화일로 만들어집니다.
+            선택된 Template {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 설정화일로 작성됩니다.
           </div>
         </>
       ) : (
         <TextArea label="설정화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 만들기` : "설정화일 보관"}</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 작성` : "설정화일 보관"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>

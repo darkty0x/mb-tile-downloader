@@ -165,7 +165,7 @@ function LastUpdatedChip({ value }) {
         <Icon name="refresh" className="h-4 w-4" />
       </span>
       <span className="min-w-0">
-        <span className="block text-[10.5px] font-[760] uppercase tracking-[0.08em] text-[var(--ptg-on-surface-variant)]">최근 갱신</span>
+        <span className="block text-[10.5px] font-[760] uppercase tracking-[0.08em] text-[var(--ptg-on-surface-variant)]">최근갱신</span>
         <strong className="last-updated-chip__value block whitespace-nowrap text-[12.5px] font-[850] leading-tight text-[var(--ptg-on-surface)]">
           {value ? shortDate(value) : "대기중"}
         </strong>
@@ -255,7 +255,7 @@ function GlobalSearch({ state, actions }) {
               </button>
             )) : (
               <div className="rounded-[14px] border border-dashed border-[var(--ptg-outline)] px-3 py-6 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                맞는 항목이 없습니다
+                일치한 항목이 없습니다
               </div>
             )}
           </div>
