@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { IconButton, StatusPill } from "./ui";
@@ -62,14 +63,6 @@ export function Rail({ state, actions }) {
             {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Needs attention" : "All systems operational"}
           </p>
         </div>
-        <button type="button" className="state-layer grid w-full grid-cols-[36px_minmax(0,1fr)_14px] items-center gap-3 rounded-[12px] px-2 py-2 text-left text-white hover:bg-[rgba(255,255,255,0.06)] max-md:min-w-[150px]">
-          <span className="grid h-9 w-9 place-items-center rounded-full bg-[var(--ptg-primary-soft)] text-[13px] font-[850] text-[var(--ptg-primary)]">AD</span>
-          <span className="min-w-0">
-            <strong className="block truncate text-[13px] font-[850]">Admin</strong>
-            <small className="block truncate text-[11px] font-[600] text-[var(--ptg-rail-muted)]">Administrator</small>
-          </span>
-          <Icon name="close" className="h-3.5 w-3.5 rotate-45 text-[var(--ptg-rail-muted)]" />
-        </button>
       </section>
     </aside>
   );
@@ -114,16 +107,79 @@ export function Header({ state, actions }) {
             label="Refresh dashboard"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
-          <button type="button" className="state-layer ml-1 grid h-11 grid-cols-[32px_minmax(0,1fr)_12px] items-center gap-2 rounded-[12px] border border-[var(--ptg-outline)] bg-white px-2.5 text-left shadow-[0_1px_2px_rgba(10,26,51,0.05)]">
-            <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
-            <span className="min-w-0 max-md:hidden">
-              <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
-              <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
-            </span>
-            <Icon name="close" className="h-3 w-3 rotate-45 text-[var(--ptg-on-surface-variant)]" />
-          </button>
+          <AccountMenu actions={actions} />
         </div>
       </div>
     </header>
+  );
+}
+
+function AccountMenu({ actions }) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handlePointerDown = (event) => {
+      if (!menuRef.current?.contains(event.target)) setOpen(false);
+    };
+    const handleKeyDown = (event) => {
+      if (event.key === "Escape") setOpen(false);
+    };
+    document.addEventListener("pointerdown", handlePointerDown);
+    document.addEventListener("keydown", handleKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", handlePointerDown);
+      document.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [open]);
+
+  const refresh = () => {
+    setOpen(false);
+    actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+  };
+
+  return (
+    <div ref={menuRef} className="relative ml-1">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((current) => !current)}
+        className="state-layer grid h-11 grid-cols-[32px_minmax(0,1fr)_16px] items-center gap-2 rounded-[999px] border border-[var(--ptg-outline)] bg-white px-2.5 pr-3 text-left shadow-[0_1px_2px_rgba(10,26,51,0.05)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-surface-container)] max-md:grid-cols-[32px_16px]"
+      >
+        <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
+        <span className="min-w-0 max-md:hidden">
+          <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
+          <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
+        </span>
+        <Icon name="chevronDown" className={`h-4 w-4 text-[var(--ptg-on-surface-variant)] transition ${open ? "rotate-180" : ""}`} />
+      </button>
+
+      {open ? (
+        <div
+          role="menu"
+          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-64 overflow-hidden rounded-[18px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
+        >
+          <div className="flex items-center gap-3 rounded-[14px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
+            <span className="ptg-admin-avatar h-10 w-10 rounded-full" />
+            <span className="min-w-0">
+              <strong className="block truncate text-[13px] font-[850]">Admin</strong>
+              <small className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
+            </span>
+          </div>
+          <div className="mt-2 grid gap-1">
+            <button type="button" role="menuitem" onClick={refresh} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
+              <Icon name="refresh" className="h-4 w-4" />
+              Refresh Dashboard
+            </button>
+            <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.setSelectedTab("settings"); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
+              <Icon name="settings" className="h-4 w-4" />
+              Account Settings
+            </button>
+          </div>
+        </div>
+      ) : null}
+    </div>
   );
 }
