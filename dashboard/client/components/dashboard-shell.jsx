@@ -27,10 +27,10 @@ export function Rail({ state, actions }) {
     <aside className="ptg-rail-bg ptg-scrollbar sticky top-0 z-20 flex h-screen flex-col overflow-auto border-r border-[var(--ptg-rail-outline)] px-4 py-5 text-[var(--ptg-rail-text)] max-md:static max-md:h-auto max-md:flex-row max-md:items-center max-md:gap-3 max-md:overflow-x-auto max-md:border-b max-md:border-r-0 max-md:px-4 max-md:py-3">
       <section className="flex min-h-[60px] items-center border-b border-[var(--ptg-rail-outline)] pb-5 max-md:min-h-0 max-md:min-w-[92px] max-md:border-b-0 max-md:pb-0">
         <LogoMark />
-        <span className="sr-only">PTG Management Dashboard</span>
+        <span className="sr-only">PTG 관리조종판</span>
       </section>
 
-      <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="Dashboard sections">
+      <nav className="mt-6 grid gap-2 max-md:mt-0 max-md:flex max-md:min-w-max max-md:gap-2" aria-label="조종판 구역">
         {TABS.map(([tab, label, icon]) => {
           const count = navCount(tab);
           return (
@@ -56,11 +56,11 @@ export function Rail({ state, actions }) {
       <section className="mt-auto border-t border-[var(--ptg-rail-outline)] pt-5 max-md:ml-auto max-md:mt-0 max-md:border-l max-md:border-t-0 max-md:pl-4 max-md:pt-0">
         <div className="mb-4 rounded-[10px] border border-[var(--ptg-rail-outline)] bg-[rgba(255,255,255,0.04)] p-3 max-md:hidden">
           <div className="flex items-center justify-between gap-3">
-            <strong className="text-[12px] font-[850] text-white">System Status</strong>
+            <strong className="text-[12px] font-[850] text-white">체계상태</strong>
             <Icon name="control" className={`h-5 w-5 ${overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-success)]"}`} />
           </div>
           <p className="mt-1 text-[11px] font-[600] text-[var(--ptg-rail-muted)]">
-            {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "Needs attention" : "All systems operational"}
+            {overview.resourceAlerts.length || overview.kpis.failedJobs.value ? "주의 필요" : "모든 체계 정상동작중"}
           </p>
         </div>
       </section>
@@ -80,7 +80,7 @@ export function Header({ state, actions }) {
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <h1 className="truncate text-[24px] font-[760] leading-tight text-[var(--ptg-on-surface)]">{title}</h1>
-            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} Online` : "Waiting"}</StatusPill>
+            <StatusPill status={online ? "success" : "neutral"}>{state.machines.length ? `${online}/${state.machines.length} 련결됨` : "대기중"}</StatusPill>
           </div>
           <p className="mt-1 truncate text-[13px] font-[600] text-[var(--ptg-on-surface-variant)]">{subtitle}</p>
         </div>
@@ -88,21 +88,21 @@ export function Header({ state, actions }) {
           <Icon name="search" className="pointer-events-none absolute left-4 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
           <input
             type="search"
-            placeholder="Search servers, configs, events..."
+            placeholder="봉사기, 설정화일, 사건 검색..."
             className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
           />
           <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
         </label>
         <div className="flex items-center justify-end gap-2 max-md:justify-between">
           <span className="hidden items-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex">
-            <span>Last updated:</span>
-            <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "Waiting"}</strong>
+            <span>마지막 갱신:</span>
+            <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "대기중"}</strong>
           </span>
-          <IconButton icon="command" label="Command palette" />
+          <IconButton icon="command" label="명령차림표" />
           <NotificationsMenu notifications={notifications} actions={actions} state={state} />
           <IconButton
             icon="refresh"
-            label="Refresh dashboard"
+            label="조종판 갱신"
             onClick={() => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           />
           <AccountMenu actions={actions} />
@@ -117,9 +117,9 @@ function buildNotifications(state, overview) {
     id: `alert-${alert.type}`,
     kind: "warning",
     icon: "warning",
-    title: `${alert.label} low`,
-    message: `${alert.available} available, threshold ${alert.threshold}`,
-    time: "Now",
+    title: `${alert.label} 부족`,
+    message: `${alert.available}개 리용가능, 경계값 ${alert.threshold}`,
+    time: "지금",
     actionTab: "alerts",
   }));
   const eventItems = [...(state.globalEvents.length ? state.globalEvents : state.events)]
@@ -130,8 +130,8 @@ function buildNotifications(state, overview) {
       id: `event-${event.eventId || event.createdAt || index}-${index}`,
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
       icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
-      title: event.type || "Dashboard event",
-      message: event.message || "No message",
+      title: event.type || "조종판 사건",
+      message: event.message || "내용 없음",
       time: shortDate(event.createdAt),
       actionTab: "events",
     }));
@@ -168,7 +168,7 @@ function NotificationsMenu({ notifications, actions, state }) {
     <div ref={menuRef} className="relative">
       <IconButton
         icon="bell"
-        label="Notifications"
+        label="알림"
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
@@ -186,9 +186,9 @@ function NotificationsMenu({ notifications, actions, state }) {
         >
           <header className="flex items-center justify-between gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
             <span className="min-w-0">
-              <strong className="block text-[13px] font-[850]">Notifications</strong>
+              <strong className="block text-[13px] font-[850]">알림</strong>
               <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                {state.webNotificationPermission === "granted" ? "Web alerts enabled" : count ? `${count} available` : "No active notifications"}
+                {state.webNotificationPermission === "granted" ? "웹경보가 켜져있습니다" : count ? `${count}개 리용가능` : "활성 알림 없음"}
               </small>
             </span>
             <div className="flex shrink-0 items-center gap-1">
@@ -199,11 +199,11 @@ function NotificationsMenu({ notifications, actions, state }) {
                   onClick={() => actions.requestWebNotifications().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
                   className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
                 >
-                  Enable
+                  켜기
                 </button>
               ) : null}
               <button type="button" role="menuitem" onClick={() => openTab("events")} className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]">
-                View All
+                모두 보기
               </button>
             </div>
           </header>
@@ -233,7 +233,7 @@ function NotificationsMenu({ notifications, actions, state }) {
               </button>
             )) : (
               <div className="rounded-[14px] border border-dashed border-[var(--ptg-outline)] px-3 py-6 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                No notifications yet
+                아직 알림이 없습니다
               </div>
             )}
           </div>
@@ -267,13 +267,13 @@ export function ConfirmDialog({ request, actions }) {
         <div className="grid gap-4 p-5">
           <SwitchField
             checked={askAgain}
-            label="Ask again next time"
-            description="Keep protection enabled for future critical actions"
+            label="다음에도 다시 묻기"
+            description="앞으로의 중요동작에도 보호를 켜둡니다"
             onChange={(event) => setAskAgain(event.target.checked)}
           />
           <div className="flex flex-wrap justify-end gap-2">
-            <AppButton type="button" onClick={() => actions.resolveConfirm(false, true)}>Cancel</AppButton>
-            <AppButton type="button" variant="danger" icon="trash" onClick={() => actions.resolveConfirm(true, askAgain)}>{request.confirmLabel || "Confirm"}</AppButton>
+            <AppButton type="button" onClick={() => actions.resolveConfirm(false, true)}>취소</AppButton>
+            <AppButton type="button" variant="danger" icon="trash" onClick={() => actions.resolveConfirm(true, askAgain)}>{request.confirmLabel || "확인"}</AppButton>
           </div>
         </div>
       </section>
@@ -317,8 +317,8 @@ function AccountMenu({ actions }) {
       >
         <span className="ptg-admin-avatar h-8 w-8 rounded-full" />
         <span className="min-w-0 max-md:hidden">
-          <strong className="block truncate text-[12px] font-[800] leading-tight">Admin</strong>
-          <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
+          <strong className="block truncate text-[12px] font-[800] leading-tight">관리자</strong>
+          <small className="block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">소유자</small>
         </span>
         <Icon name="chevronDown" className={`h-4 w-4 text-[var(--ptg-on-surface-variant)] transition ${open ? "rotate-180" : ""}`} />
       </button>
@@ -331,18 +331,18 @@ function AccountMenu({ actions }) {
           <div className="flex items-center gap-3 rounded-[14px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
             <span className="ptg-admin-avatar h-10 w-10 rounded-full" />
             <span className="min-w-0">
-              <strong className="block truncate text-[13px] font-[850]">Admin</strong>
-              <small className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">Owner</small>
+              <strong className="block truncate text-[13px] font-[850]">관리자</strong>
+              <small className="block truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">소유자</small>
             </span>
           </div>
           <div className="mt-2 grid gap-1">
             <button type="button" role="menuitem" onClick={refresh} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
               <Icon name="refresh" className="h-4 w-4" />
-              Refresh Dashboard
+              조종판 갱신
             </button>
             <button type="button" role="menuitem" onClick={() => { setOpen(false); actions.setSelectedTab("settings"); }} className="state-layer flex items-center gap-2 rounded-[12px] px-3 py-2 text-left text-[12.5px] font-[720] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]">
               <Icon name="settings" className="h-4 w-4" />
-              Account Settings
+              계정설정
             </button>
           </div>
         </div>

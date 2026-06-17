@@ -1,49 +1,49 @@
 export const COMMANDS = [
-  ["run_preflight", "Preflight", "play"],
-  ["start_pipeline", "Start", "play"],
-  ["pause_after_range", "Pause", "pause"],
-  ["stop_pipeline", "Stop", "stop"],
-  ["sync_config", "Sync Config", "sync"],
-  ["sync_env", "Sync Env", "sync"],
+  ["run_preflight", "사전검사", "play"],
+  ["start_pipeline", "시작", "play"],
+  ["pause_after_range", "일시중지", "pause"],
+  ["stop_pipeline", "정지", "stop"],
+  ["sync_config", "설정화일 동기화", "sync"],
+  ["sync_env", "환경변수 동기화", "sync"],
 ];
 
 export const TABS = [
-  ["overview", "Overview", "overview"],
-  ["servers", "Servers", "servers"],
-  ["configs", "Configs", "config"],
-  ["pipelines", "Pipelines", "pipelines"],
-  ["secrets", "Secrets", "secrets"],
-  ["credentials", "Credentials", "credentials"],
-  ["events", "Events", "console"],
-  ["alerts", "Alerts", "alerts"],
-  ["settings", "Settings", "settings"],
+  ["overview", "개요", "overview"],
+  ["servers", "봉사기", "servers"],
+  ["configs", "설정화일", "config"],
+  ["pipelines", "처리흐름", "pipelines"],
+  ["secrets", "비밀자료", "secrets"],
+  ["credentials", "접속증명", "credentials"],
+  ["events", "사건기록", "console"],
+  ["alerts", "경보", "alerts"],
+  ["settings", "설정", "settings"],
 ];
 
 export const PAGE_META = {
-  overview: ["Overview", "Distributed tile pipeline command center"],
-  servers: ["Servers", "Monitor and manage the server fleet"],
-  secrets: ["Secrets", "Manage Mapbox and proxy resource pools"],
-  credentials: ["Credentials", "Manage protocol credentials and access"],
-  settings: ["Settings", "Configure system behavior and preferences"],
-  pipelines: ["Pipelines", "Track active range workflow stages"],
-  configs: ["Configs", "Create and assign downloader configuration"],
-  events: ["Events", "Inspect live dashboard and agent events"],
-  alerts: ["Alerts", "Review capacity and failure conditions"],
+  overview: ["개요", "분산 타일처리흐름 지휘중심"],
+  servers: ["봉사기", "봉사기무리를 감시하고 관리합니다"],
+  secrets: ["비밀자료", "Mapbox 및 프록시자원풀을 관리합니다"],
+  credentials: ["접속증명", "프로토콜접속자료와 접근권한을 관리합니다"],
+  settings: ["설정", "체계동작과 환경을 설정합니다"],
+  pipelines: ["처리흐름", "활성 구간작업단계를 추적합니다"],
+  configs: ["설정화일", "내려받기설정을 만들고 배정합니다"],
+  events: ["사건기록", "조종판 및 agent 사건을 실시간으로 살펴봅니다"],
+  alerts: ["경보", "용량 및 실패상태를 검토합니다"],
 };
 
 export const SERVER_TABS = [
-  ["control", "Control", "control"],
-  ["configs", "Config", "config"],
-  ["env", "Env", "env"],
-  ["secrets", "Secrets", "secrets"],
-  ["console", "Console", "console"],
+  ["control", "조종", "control"],
+  ["configs", "설정화일", "config"],
+  ["env", "환경변수", "env"],
+  ["secrets", "비밀자료", "secrets"],
+  ["console", "콘솔", "console"],
 ];
 
 export const SECRET_LABELS = {
   mapbox_token: "Mapbox Token",
-  proxy_txt: "Proxy",
+  proxy_txt: "프록시",
   storj_access: "Storj Access",
-  credential: "Credential",
+  credential: "접속증명",
 };
 
 export const DEFAULT_DASHBOARD_SETTINGS = {
@@ -123,7 +123,7 @@ export function formatBytes(value) {
 }
 
 export function shortDate(value) {
-  if (!value) return "Never";
+  if (!value) return "없음";
   return new Intl.DateTimeFormat(undefined, {
     month: "short",
     day: "2-digit",
@@ -140,9 +140,40 @@ export function statusKind(status) {
   return "neutral";
 }
 
-export function displayStatus(value, fallback = "None") {
+const STATUS_LABELS = {
+  active: "활성",
+  available: "리용가능",
+  busy: "처리중",
+  clear: "정상",
+  complete: "완료",
+  conflict: "충돌",
+  critical: "위험",
+  debug: "조사",
+  disabled: "비활성",
+  error: "오유",
+  exhausted: "소진됨",
+  healthy: "정상",
+  inactive: "비활성",
+  info: "정보",
+  invalid: "무효",
+  low: "낮음",
+  neutral: "일반",
+  offline: "련결안됨",
+  ok: "정상",
+  online: "련결됨",
+  pending: "대기중",
+  queued: "대기렬",
+  running: "실행중",
+  success: "성공",
+  warn: "경고",
+  warning: "경고",
+};
+
+export function displayStatus(value, fallback = "없음") {
   const text = String(value || "").trim();
   if (!text) return fallback;
+  const normalized = text.toLowerCase();
+  if (STATUS_LABELS[normalized]) return STATUS_LABELS[normalized];
   return text
     .split(/[\s_-]+/)
     .filter(Boolean)
@@ -157,7 +188,7 @@ export function displayProtocol(value) {
 
 export function displayMachineId(value) {
   const text = String(value || "").trim();
-  return text ? text.toUpperCase() : "No Agent ID";
+  return text ? text.toUpperCase() : "Agent ID 없음";
 }
 
 export function normalizeMachineId(value) {

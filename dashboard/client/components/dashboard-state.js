@@ -249,12 +249,12 @@ export function useDashboardState() {
       async requestWebNotifications() {
         if (typeof window === "undefined" || !("Notification" in window)) {
           setWebNotificationPermission("unsupported");
-          throw new Error("web notifications are not supported in this browser");
+          throw new Error("이 열람기에서는 웹알림을 사용할수 없습니다");
         }
         const permission = await window.Notification.requestPermission();
         setWebNotificationPermission(permission);
         setNotice({
-          message: permission === "granted" ? "Web Notifications Enabled" : "Web Notifications Not Enabled",
+          message: permission === "granted" ? "웹알림이 켜졌습니다" : "웹알림이 켜지지 않았습니다",
           kind: permission === "granted" ? "success" : "error",
         });
         return permission;
@@ -278,17 +278,26 @@ export function useDashboardState() {
       },
       async sendCommand(commandType) {
         const machine = findMachineById(machines, selectedMachineId);
-        if (!machine) throw new Error("open a server management page first");
+        if (!machine) throw new Error("먼저 봉사기관리페지를 여십시오");
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
-          if (!activeConfig) throw new Error("active config is required");
+          if (!activeConfig) throw new Error("활성 설정화일이 필요합니다");
           payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
         }
         await api(`/api/machines/${encodeURIComponent(machine.machineId)}/commands`, {
           method: "POST",
           body: JSON.stringify({ commandType, payload, requestedBy: "dashboard" }),
         });
-        setNotice({ message: `${commandType.replaceAll("_", " ").replace(/\b\w/g, (char) => char.toUpperCase())} Queued`, kind: "success" });
+        const commandLabel = {
+          run_preflight: "사전검사",
+          start_pipeline: "시작",
+          resume_pipeline: "재개",
+          pause_after_range: "일시중지",
+          stop_pipeline: "정지",
+          sync_config: "설정화일 동기화",
+          sync_env: "환경변수 동기화",
+        }[commandType] || commandType;
+        setNotice({ message: `${commandLabel} 명령이 대기렬에 들어갔습니다`, kind: "success" });
         await refreshMachineData(machine.machineId);
       },
       async deleteMachine(machineId) {
@@ -298,7 +307,7 @@ export function useDashboardState() {
           setSelectedServerTab("control");
           setEditor({ type: "summary" });
         }
-        setNotice({ message: `${machineId.toUpperCase()} Removed`, kind: "success" });
+        setNotice({ message: `${machineId.toUpperCase()} 이(가) 제거되였습니다`, kind: "success" });
         await refreshAll();
       },
       async saveServerConnection(formData) {
@@ -324,7 +333,7 @@ export function useDashboardState() {
           await refreshMachineData(matchingMachine.machineId);
         }
         setSelectedTab("servers");
-        setNotice({ message: `${connection.label} Saved. Validate It After The Matching Agent Is Online.`, kind: "success" });
+        setNotice({ message: `${connection.label} 이(가) 보관되였습니다. 해당 agent가 련결된 뒤 검증하십시오.`, kind: "success" });
         return connection;
       },
       async validateServerConnection(secretId) {
@@ -337,7 +346,7 @@ export function useDashboardState() {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
         const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
         const targetMachineIds = machineIds.length ? machineIds : selectedMachineId ? [selectedMachineId] : [];
-        if (!id && targetMachineIds.length === 0) throw new Error("select at least one server");
+        if (!id && targetMachineIds.length === 0) throw new Error("봉사기를 하나이상 선택하십시오");
         if (!id && templateIds.length > 0) {
           const { configs: created } = await api("/api/configs/batch", {
             method: "POST",
@@ -353,7 +362,7 @@ export function useDashboardState() {
             }),
           });
           setEditor({ type: "summary" });
-          setNotice({ message: `${created.length} config${created.length === 1 ? "" : "s"} created`, kind: "success" });
+          setNotice({ message: `설정화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
           await refreshMachineData();
           return;
         }
@@ -402,14 +411,14 @@ export function useDashboardState() {
           const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
           const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || machineId !== existingMachineId || username !== existingUsername;
           if (!id || password || changedCredentialIdentity) {
-            const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID, or username" : "URL or username";
-            if (!password) throw new Error(`credential password is required when creating or changing ${changedFields}`);
+            const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID 또는 리용자이름" : "URL 또는 리용자이름";
+            if (!password) throw new Error(`${changedFields}을(를) 만들거나 바꿀 때 접속암호가 필요합니다`);
             body.value = buildCredentialSecretValue({ protocolUrl, machineId, username, password });
           }
         } else if (formData.get("value")) {
           body.value = formData.get("value");
         }
-        if (!id && !body.value) throw new Error("secret value is required");
+        if (!id && !body.value) throw new Error("비밀자료값이 필요합니다");
         await api(id ? `/api/secrets/${encodeURIComponent(id)}` : "/api/secrets", {
           method: id ? "PUT" : "POST",
           body: JSON.stringify(body),
@@ -448,13 +457,13 @@ export function useDashboardState() {
           body: JSON.stringify(body),
         });
         setSettings(mergeDashboardSettings(nextSettings));
-        setNotice({ message: "Settings Saved", kind: "success" });
+        setNotice({ message: "설정이 보관되였습니다", kind: "success" });
       },
       async deleteRecord(type, id) {
         const confirmed = await confirmDanger({
-          title: `Delete ${type}`,
-          message: `Delete this ${type}? This cannot be undone.`,
-          confirmLabel: "Delete",
+          title: "삭제 확인",
+          message: "이 항목을 삭제하겠습니까? 이 동작은 되돌릴수 없습니다.",
+          confirmLabel: "삭제",
           storageKey: "delete",
         });
         if (!confirmed) return;
@@ -472,9 +481,9 @@ export function useDashboardState() {
         const uniqueIds = [...new Set(secretIds)].filter(Boolean);
         if (!uniqueIds.length) return;
         const confirmed = await confirmDanger({
-          title: "Delete resource records",
-          message: `Delete ${uniqueIds.length} resource record${uniqueIds.length === 1 ? "" : "s"}? This cannot be undone.`,
-          confirmLabel: "Delete",
+          title: "자원기록 삭제",
+          message: `자원기록 ${uniqueIds.length}개를 삭제하겠습니까? 이 동작은 되돌릴수 없습니다.`,
+          confirmLabel: "삭제",
           storageKey: "delete",
         });
         if (!confirmed) return;
@@ -485,13 +494,13 @@ export function useDashboardState() {
         setEditor({ type: "summary" });
         await refreshSecretPool();
         await refreshMachineData();
-        setNotice({ message: `${uniqueIds.length} Secret${uniqueIds.length === 1 ? "" : "s"} Deleted`, kind: "success" });
+        setNotice({ message: `비밀자료 ${uniqueIds.length}개가 삭제되였습니다`, kind: "success" });
       },
       async rebalanceSecrets() {
         const result = await api("/api/secrets/rebalance", { method: "POST" });
         setSecretPool(result.secrets || []);
         await refreshMachineData();
-        setNotice({ message: `Resource pool rebalanced (${result.changed || 0} assignment${result.changed === 1 ? "" : "s"})`, kind: "success" });
+        setNotice({ message: `자원풀이 다시 배정되였습니다(변경 ${result.changed || 0}개)`, kind: "success" });
         return result;
       },
       async validateSecret(secretId) {
@@ -499,7 +508,7 @@ export function useDashboardState() {
         await refreshSecretPool();
         await refreshMachineData();
         setNotice({
-          message: result.validation?.message || "Secret validation completed",
+          message: result.validation?.message || "비밀자료검증이 완료되였습니다",
           kind: result.validation?.ok ? "success" : "warning",
         });
         return result;

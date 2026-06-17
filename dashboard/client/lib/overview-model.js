@@ -1,8 +1,8 @@
 const PIPELINE_STEPS = [
-  ["download", "Download"],
-  ["validate", "Validate"],
-  ["zip", "Zip"],
-  ["upload", "Upload"],
+  ["download", "내려받기"],
+  ["validate", "검증"],
+  ["zip", "압축"],
+  ["upload", "올리기"],
 ];
 const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["server_rdp_credential"]);
 
@@ -69,7 +69,7 @@ export function nextServerDefaults(source = {}) {
   const suffix = String(number).padStart(2, "0");
   return {
     number,
-    label: `Server ${suffix}`,
+    label: `봉사기 ${suffix}`,
     machineId: `server-${suffix}`,
   };
 }
@@ -161,14 +161,14 @@ export function buildOverviewModel({
   const resourceAlerts = [
     {
       type: "mapbox_token",
-      label: "Mapbox API Keys",
+      label: "Mapbox API 키",
       available: mapbox.available,
       threshold: mapboxThreshold,
       status: machines.length && mapbox.available <= mapboxThreshold ? "low" : "ok",
     },
     {
       type: "proxy_txt",
-      label: "Proxy Pool",
+      label: "프록시풀",
       available: proxies.available,
       threshold: proxyThreshold,
       status: machines.length && proxies.available <= proxyThreshold ? "low" : "ok",
@@ -181,12 +181,12 @@ export function buildOverviewModel({
 
   return {
     kpis: {
-      serversOnline: { label: "Servers Online", value: `${online} / ${machines.length}`, detail: machines.length ? `${Math.round((online / machines.length) * 100)}% online` : "Waiting for agents" },
-      activeJobs: { label: "Active Jobs", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)} queued` },
-      throughput: { label: "Tile Throughput", value: "0 tiles/s", detail: "Live agent metric pending" },
-      storagePressure: { label: "Storage Pressure", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "High" : diskPressure >= 70 ? "Elevated" : "Normal" },
-      failedJobs: { label: "Failed Tiles", value: failedJobs, detail: failedJobs ? "Needs attention" : "Clear" },
-      resourceAlerts: { label: "Resource Alerts", value: resourceAlerts.length, detail: resourceAlerts.length ? "Needs attention" : "Clear" },
+      serversOnline: { label: "련결된 봉사기", value: `${online} / ${machines.length}`, detail: machines.length ? `${Math.round((online / machines.length) * 100)}% 련결됨` : "agent 대기중" },
+      activeJobs: { label: "활성 작업", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기렬` },
+      throughput: { label: "타일 처리속도", value: "0 tiles/s", detail: "실시간 agent 지표 대기중" },
+      storagePressure: { label: "저장공간 압력", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
+      failedJobs: { label: "실패한 타일", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
+      resourceAlerts: { label: "자원경보", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: PIPELINE_STEPS.map(([key, label]) => ({
       key,

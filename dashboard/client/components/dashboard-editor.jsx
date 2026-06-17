@@ -25,12 +25,12 @@ function ServerOnboardingForm({ state, actions }) {
   const [formNotice, setFormNotice] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const windowsEnv = buildWindowsAgentEnv({ machineId, dashboardUrl, agentToken: agentSetup.agentToken });
-  const copy = async (text, label = "Value") => {
+  const copy = async (text, label = "값") => {
     try {
       await navigator.clipboard?.writeText(String(text || ""));
-      setFormNotice({ kind: "success", message: `${label} Copied.` });
+      setFormNotice({ kind: "success", message: `${label} 이(가) 복사되였습니다.` });
     } catch (err) {
-      setFormNotice({ kind: "error", message: `Copy Failed: ${err.message}` });
+      setFormNotice({ kind: "error", message: `복사 실패: ${err.message}` });
     }
   };
 
@@ -58,16 +58,16 @@ function ServerOnboardingForm({ state, actions }) {
   function validateServerForm(formData) {
     const requiredFields = [
       ["machineId", "Machine ID"],
-      ["label", "Server Name"],
+      ["label", "봉사기이름"],
       ["host", "IP / Host"],
-      ["username", "Username"],
-      ["password", "Password"],
+      ["username", "리용자이름"],
+      ["password", "암호"],
     ];
     for (const [name, title] of requiredFields) {
-      if (!String(formData.get(name) || "").trim()) return `${title} Is Required.`;
+      if (!String(formData.get(name) || "").trim()) return `${title} 이(가) 필요합니다.`;
     }
     const port = Number(formData.get("port"));
-    if (!Number.isInteger(port) || port < 1 || port > 65535) return "Port Must Be Between 1 And 65535.";
+    if (!Number.isInteger(port) || port < 1 || port > 65535) return "Port는 1부터 65535사이여야 합니다.";
     return null;
   }
 
@@ -77,15 +77,15 @@ function ServerOnboardingForm({ state, actions }) {
         <span className="ptg-icon-well inline-flex h-10 w-10 items-center justify-center rounded-lg">
           <Icon name="servers" className="h-5 w-5" />
         </span>
-        <h4 className="mt-3 text-[15px] font-[850]">Server Control Uses The Windows Agent</h4>
+        <h4 className="mt-3 text-[15px] font-[850]">봉사기조종은 Windows agent를 리용합니다</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
-          Save The Remote Login, Set The Agent `.env`, Then Validate The Same Machine ID From The Dashboard.
+          원격접속자료를 보관하고 agent `.env`를 설정한 다음 조종판에서 같은 Machine ID를 검증하십시오.
         </p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
           {[
-            ["credentials", "1. Save Login"],
-            ["console", "2. Set Env"],
-            ["control", "3. Validate"],
+            ["credentials", "1. 접속자료 보관"],
+            ["console", "2. 환경변수 설정"],
+            ["control", "3. 검증"],
           ].map(([icon, label]) => (
             <span key={label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--ptg-outline)] bg-white px-2">
               <Icon name={icon} className="h-3.5 w-3.5 text-[var(--ptg-primary)]" />
@@ -121,7 +121,7 @@ function ServerOnboardingForm({ state, actions }) {
             setEditedDefaults({ machineId: false, label: false });
             setMachineId(nextDefaults.machineId);
             setLabel(nextDefaults.label);
-            setFormNotice({ message: `${connection.label} Saved. Next Server Is Ready.`, kind: "success" });
+            setFormNotice({ message: `${connection.label} 이(가) 보관되였습니다. 다음 봉사기를 준비할수 있습니다.`, kind: "success" });
           } catch (err) {
             setFormNotice({ message: err.message, kind: "error" });
           } finally {
@@ -130,8 +130,8 @@ function ServerOnboardingForm({ state, actions }) {
         }}
       >
         <div>
-          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Connection Profile</h4>
-          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">Stored Encrypted In The Dashboard Secret Vault.</p>
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">접속프로필</h4>
+          <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">조종판 비밀자료금고에 암호화되여 보관됩니다.</p>
         </div>
         {formNotice ? (
           <div
@@ -156,7 +156,7 @@ function ServerOnboardingForm({ state, actions }) {
           required
         />
         <TextInput
-          label="Server Name"
+          label="봉사기이름"
           name="label"
           value={label}
           onChange={(event) => {
@@ -166,7 +166,7 @@ function ServerOnboardingForm({ state, actions }) {
           required
         />
         <div className="grid grid-cols-[1fr_96px] gap-2">
-          <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
+          <SelectInput label="프로토콜" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
             <option value="rdp">RDP</option>
             <option value="ssh">SSH</option>
             <option value="winrm">WinRM</option>
@@ -175,9 +175,9 @@ function ServerOnboardingForm({ state, actions }) {
           <TextInput label="Port" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
         </div>
         <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
-        <TextInput label="Username" name="username" defaultValue="root" autoComplete="username" required />
-        <TextInput label="Password" name="password" type="password" autoComplete="new-password" required />
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Connection Profile</AppButton>
+        <TextInput label="리용자이름" name="username" defaultValue="root" autoComplete="username" required />
+        <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속프로필 보관</AppButton>
       </form>
 
       <TextInput label="Dashboard URL" value={dashboardUrl} onChange={(event) => setDashboardUrl(event.target.value)} />
@@ -186,17 +186,17 @@ function ServerOnboardingForm({ state, actions }) {
         <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Agent Token</h4>
         <div className="grid items-end gap-2 sm:grid-cols-[1fr_auto_auto]">
           <TextInput
-            label="Sealed Token"
-            value={agentSetup.loading ? "Loading..." : agentSetup.agentTokenConfigured ? agentSetup.agentToken : "Not Configured"}
+            label="봉인된 토큰"
+            value={agentSetup.loading ? "읽는중..." : agentSetup.agentTokenConfigured ? agentSetup.agentToken : "설정되지 않음"}
             type="text"
             style={agentSetup.agentTokenConfigured && !showAgentToken ? { WebkitTextSecurity: "disc" } : undefined}
             readOnly
           />
           <AppButton icon={showAgentToken ? "eyeOff" : "eye"} onClick={() => setShowAgentToken((current) => !current)} disabled={!agentSetup.agentTokenConfigured}>
-            {showAgentToken ? "Hide" : "Show"}
+            {showAgentToken ? "숨기기" : "보기"}
           </AppButton>
           <AppButton icon="copy" onClick={() => copy(agentSetup.agentToken, "Agent Token")} disabled={!agentSetup.agentTokenConfigured}>
-            Copy
+            복사
           </AppButton>
         </div>
       </section>
@@ -204,13 +204,13 @@ function ServerOnboardingForm({ state, actions }) {
       <section className="grid gap-2">
         <div className="flex items-center justify-between gap-3">
           <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows Agent .env</h4>
-          <AppButton icon="copy" onClick={() => copy(windowsEnv, "Windows Agent Env")}>Copy</AppButton>
+          <AppButton icon="copy" onClick={() => copy(windowsEnv, "Windows Agent Env")}>복사</AppButton>
         </div>
         <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{windowsEnv}</pre>
       </section>
 
       <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
-        If A Machine ID Is Reused While Another Live Agent Owns It, Registration Is Rejected As A Conflict.
+        같은 Machine ID를 이미 련결된 다른 agent가 가지고있으면 등록은 충돌로 거부됩니다.
       </div>
     </section>
   );
@@ -224,8 +224,8 @@ export function EditorDrawer({ state, actions }) {
     if (!connection) return null;
     return (
       <ModalShell
-        title={connection.label || "Server Detail"}
-      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "Connection Profile"}
+        title={connection.label || "봉사기상세"}
+      subtitle={displayMachineId(connection.targetMachineId || connection.credential?.machineId) || "접속프로필"}
         width="w-[min(680px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
@@ -236,8 +236,8 @@ export function EditorDrawer({ state, actions }) {
   if (editor.type === "server-onboarding") {
     return (
       <ModalShell
-        title="Add Server"
-        subtitle="Register a downloader agent connection"
+        title="봉사기 추가"
+        subtitle="내려받기 agent 련결을 등록합니다"
         width="w-[min(760px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
@@ -252,7 +252,7 @@ export function EditorDrawer({ state, actions }) {
   return (
     <ModalShell
       title={editorTitle(editor.type, record, editor)}
-      subtitle={editor.type.includes("secret") ? "Global Resource Pool" : displayMachineId(state.selectedMachine?.machineId)}
+      subtitle={editor.type.includes("secret") ? "전역 자원풀" : displayMachineId(state.selectedMachine?.machineId)}
       width="w-[min(620px,calc(100vw-32px))]"
       onClose={() => actions.setEditor({ type: "summary" })}
     >
@@ -264,18 +264,18 @@ export function EditorDrawer({ state, actions }) {
 }
 
 function editorTitle(type, record, editor = {}) {
-  if (type === "new-config") return "Add Config";
-  if (type === "new-env") return "Add Env";
-  if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "Add Credential";
-  if (type === "new-secret" && (record?.secretType === "server_rdp_credential" || editor.secretType === "server_rdp_credential")) return "Add Server Credential";
-  if (type === "server-onboarding") return "Add Server";
-  if (type === "new-secret") return "Add Secret";
-  if (type === "config") return record?.configId ? "Edit Config" : "Duplicate Config";
-  if (type === "env") return record?.envProfileId ? "Edit Env" : "Duplicate Env";
-  if (type === "secret" && record?.secretType === "credential") return "Edit Credential";
-  if (type === "secret" && record?.secretType === "server_rdp_credential") return "Edit Server Credential";
-  if (type === "secret") return "Edit Secret";
-  return "Editor";
+  if (type === "new-config") return "설정화일 추가";
+  if (type === "new-env") return "환경변수 추가";
+  if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "접속증명 추가";
+  if (type === "new-secret" && (record?.secretType === "server_rdp_credential" || editor.secretType === "server_rdp_credential")) return "봉사기접속증명 추가";
+  if (type === "server-onboarding") return "봉사기 추가";
+  if (type === "new-secret") return "비밀자료 추가";
+  if (type === "config") return record?.configId ? "설정화일 편집" : "설정화일 복제";
+  if (type === "env") return record?.envProfileId ? "환경변수 편집" : "환경변수 복제";
+  if (type === "secret" && record?.secretType === "credential") return "접속증명 편집";
+  if (type === "secret" && record?.secretType === "server_rdp_credential") return "봉사기접속증명 편집";
+  if (type === "secret") return "비밀자료 편집";
+  return "편집기";
 }
 
 function ConnectionDetail({ connection, state, actions }) {
@@ -287,17 +287,17 @@ function ConnectionDetail({ connection, state, actions }) {
   return (
     <section className="grid gap-3">
       <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
-        <DetailTile label="Protocol" value={displayProtocol(connection.credential?.protocol)} />
-        <DetailTile label="Endpoint" value={endpoint} />
-        <DetailTile label="Username" value={connection.credential?.username || "N/A"} />
+        <DetailTile label="프로토콜" value={displayProtocol(connection.credential?.protocol)} />
+        <DetailTile label="끝점" value={endpoint} />
+        <DetailTile label="리용자이름" value={connection.credential?.username || "N/A"} />
         <DetailTile label="Machine ID" value={displayMachineId(targetMachineId)} />
-        <DetailTile label="Agent" value={machine ? `${machine.displayName || displayMachineId(machine.machineId)} (${displayStatus(machine.status)})` : "Not Registered"} />
-        <DetailTile label="Credential" value={displayStatus(connection.status)} />
+        <DetailTile label="Agent" value={machine ? `${machine.displayName || displayMachineId(machine.machineId)} (${displayStatus(machine.status)})` : "등록되지 않음"} />
+        <DetailTile label="접속증명" value={displayStatus(connection.status)} />
       </div>
 
       {validation ? (
         <div className="rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-          Network {validation.network.ok ? "Reachable" : "Blocked"} | Agent {displayStatus(validation.agent.status)}
+          망 {validation.network.ok ? "도달가능" : "차단됨"} | Agent {displayStatus(validation.agent.status)}
         </div>
       ) : null}
 
@@ -307,24 +307,24 @@ function ConnectionDetail({ connection, state, actions }) {
           icon="control"
           onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
         >
-          Validate
+          검증
         </AppButton>
         {machine ? (
           <AppButton
             icon="servers"
             onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
           >
-            Manage Server
+            봉사기 관리
           </AppButton>
         ) : null}
-        <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>Edit Credentials</AppButton>
-        <AppButton icon="copy" onClick={() => copy(`${endpoint}\n${connection.credential?.username || ""}\n${displayMachineId(targetMachineId)}`)}>Copy Details</AppButton>
+        <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>접속증명 편집</AppButton>
+        <AppButton icon="copy" onClick={() => copy(`${endpoint}\n${connection.credential?.username || ""}\n${displayMachineId(targetMachineId)}`)}>상세 복사</AppButton>
         <AppButton
           className="danger-button"
           icon="trash"
           onClick={() => actions.deleteRecord("secret", connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
         >
-          Delete
+          삭제
         </AppButton>
       </div>
     </section>
@@ -346,12 +346,12 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
     <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Config Types</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length} config presets available</p>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">설정화일 류형</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{templates.length}개 설정화일 예비값 리용가능</p>
         </div>
         <div className="flex gap-1.5">
-          <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>All</AppButton>
-          <AppButton type="button" icon="close" onClick={() => onChange([])}>Clear</AppButton>
+          <AppButton type="button" icon="layers" onClick={() => onChange(templates.map((template) => template.id))}>모두</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onChange([])}>지우기</AppButton>
         </div>
       </div>
       <div className="ptg-scrollbar ptg-picker-list max-h-72 overflow-auto pr-1">
@@ -423,17 +423,17 @@ function ConfigRangeBuilder({ actions }) {
     <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Ranges</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">Required for selected config types. Presets do not include ranges.</p>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">구간</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">선택한 설정화일 류형에 필요합니다. 예비값에는 구간이 들어있지 않습니다.</p>
         </div>
-        <AppButton type="button" icon="check" onClick={validate}>Validate Range</AppButton>
+        <AppButton type="button" icon="check" onClick={validate}>구간 검증</AppButton>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <TextInput label="Zoom Start" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="19" />
-        <TextInput label="Zoom End" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} placeholder="19" />
+        <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="19" />
+        <TextInput label="Zoom 끝" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} placeholder="19" />
       </div>
       <label className="grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)]">
-        <span>Range Input</span>
+        <span>구간입력</span>
         <textarea
           className="min-h-28 rounded-[10px] border border-[var(--ptg-outline)] bg-white p-3 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
           name="rangeInput"
@@ -442,14 +442,14 @@ function ConfigRangeBuilder({ actions }) {
             setPreview(null);
             setError("");
           }}
-          placeholder={'LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\nor 19/312824/339498 - 19/321475/351754\\n\\nor [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
+          placeholder={'LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\n또는 19/312824/339498 - 19/321475/351754\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
           spellCheck="false"
           value={rangeInput}
         />
       </label>
       {preview ? (
         <div className="rounded-lg border border-[rgba(17,124,84,0.24)] bg-[#effaf4] p-3 text-[12px] font-[650] text-[#067647]">
-          Parsed {preview.rangeCount} range{preview.rangeCount === 1 ? "" : "s"} with {preview.tiles.toLocaleString()} tiles.
+          구간 {preview.rangeCount}개, 타일 {preview.tiles.toLocaleString()}개로 해석되였습니다.
           <pre className="ptg-scrollbar mt-2 max-h-36 overflow-auto rounded-md bg-white/70 p-2 font-mono text-[11px] text-[var(--ptg-on-surface)]">{JSON.stringify(preview.ranges, null, 2)}</pre>
         </div>
       ) : null}
@@ -467,12 +467,12 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
     <section className="grid gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-2.5">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
-          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">Servers</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{selected.size}/{machines.length} assigned</p>
+          <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">봉사기</h4>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">{selected.size}/{machines.length} 배정됨</p>
         </div>
         <div className="flex gap-1.5">
-          <AppButton type="button" icon="servers" onClick={() => onServerChange(machines.map((machine) => machine.machineId))}>All</AppButton>
-          <AppButton type="button" icon="close" onClick={() => onServerChange([])}>Clear</AppButton>
+          <AppButton type="button" icon="servers" onClick={() => onServerChange(machines.map((machine) => machine.machineId))}>모두</AppButton>
+          <AppButton type="button" icon="close" onClick={() => onServerChange([])}>지우기</AppButton>
         </div>
       </div>
       <div className="ptg-scrollbar ptg-picker-list max-h-56 overflow-auto pr-1">
@@ -507,14 +507,14 @@ function ConfigServerPicker({ machines, selectedMachineIds, splitAcrossMachines,
               </span>
             </label>
           );
-        }) : <EmptyLine>No registered servers</EmptyLine>}
+        }) : <EmptyLine>등록된 봉사기가 없습니다</EmptyLine>}
       </div>
       <SwitchField
         checked={splitEnabled && splitAcrossMachines}
         className={splitEnabled ? "border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)]" : "bg-[var(--ptg-background)]"}
-        description={splitEnabled ? "Balanced ranges across assigned servers" : "Select at least two servers"}
+        description={splitEnabled ? "배정된 봉사기들에 구간을 균형분배합니다" : "봉사기를 두개이상 선택하십시오"}
         disabled={!splitEnabled}
-        label="Split ranges across selected servers"
+        label="선택한 봉사기들에 구간 분할"
         name="splitAcrossMachines"
         onChange={(event) => onSplitChange(event.target.checked)}
       />
@@ -550,8 +550,8 @@ function ConfigForm({ record, state, actions, editor }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="Name" name="name" defaultValue={record?.name || "dashboard-config"} required />
-      <SwitchField name="active" label="Active" defaultChecked={defaultActive} />
+      <TextInput label="이름" name="name" defaultValue={record?.name || "dashboard-config"} required />
+      <SwitchField name="active" label="활성" defaultChecked={defaultActive} />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}
@@ -572,15 +572,15 @@ function ConfigForm({ record, state, actions, editor }) {
         <>
           <ConfigRangeBuilder actions={actions} />
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
-            {selectedTemplateIds.length} selected type{selectedTemplateIds.length === 1 ? "" : "s"} will create separate runnable configs using the ranges above.
+            선택된 류형 {selectedTemplateIds.length}개가 우의 구간을 리용하여 각각 실행가능한 설정화일로 만들어집니다.
           </div>
         </>
       ) : (
-        <TextArea label="Config JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
+        <TextArea label="설정화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>{templateMode ? `Create ${selectedTemplateIds.length}` : "Save Config"}</AppButton>
-        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>{templateMode ? `${selectedTemplateIds.length}개 만들기` : "설정화일 보관"}</AppButton>
+        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>
   );
@@ -603,12 +603,12 @@ function EnvForm({ record, actions }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="Name" name="name" defaultValue={record?.name || "default"} required />
-      <SwitchField name="active" label="Active" defaultChecked={record?.active || !id} />
-      <TextArea label="Env JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
+      <TextInput label="이름" name="name" defaultValue={record?.name || "default"} required />
+      <SwitchField name="active" label="활성" defaultChecked={record?.active || !id} />
+      <TextArea label="환경변수 JSON" name="env" spellCheck="false" defaultValue={JSON.stringify(env, null, 2)} />
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Save Env</AppButton>
-        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("env", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton> : null}
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting}>환경변수 보관</AppButton>
+        {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("env", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>
   );
@@ -672,7 +672,7 @@ function SecretForm({ record, editor, actions }) {
         <input type="hidden" name="secretType" value={selectedSecretType} />
       ) : (
         <SelectInput
-          label="Type"
+          label="류형"
           name="secretType"
           value={selectedSecretType}
           onChange={(event) => setSelectedSecretType(event.target.value)}
@@ -681,15 +681,15 @@ function SecretForm({ record, editor, actions }) {
         </SelectInput>
       )}
       <TextInput
-        label={isCredential ? isServerCredential ? "Server Name" : "Protocol Name" : "Label"}
+        label={isCredential ? isServerCredential ? "봉사기이름" : "프로토콜이름" : "표식"}
         name="label"
         defaultValue={record?.label || ""}
-        placeholder={isCredential ? isServerCredential ? "Server 02" : "Storj Account" : "Primary"}
+        placeholder={isCredential ? isServerCredential ? "봉사기 02" : "Storj 계정" : "기본"}
       />
       {isCredential && !isServerCredential ? (
         <input type="hidden" name="status" value={record?.status || "active"} />
       ) : (
-        <SelectInput label="Status" name="status" defaultValue={record?.status || "active"}>
+        <SelectInput label="상태" name="status" defaultValue={record?.status || "active"}>
           {SECRET_STATUSES.map((status) => <option key={status} value={status}>{displayStatus(status)}</option>)}
         </SelectInput>
       )}
@@ -699,7 +699,7 @@ function SecretForm({ record, editor, actions }) {
           <input type="hidden" name="existingCredentialMachineId" value={credential.machineId || record?.targetMachineId || ""} />
           <input type="hidden" name="existingCredentialUsername" value={credential.username || ""} />
           <TextInput
-            label="Protocol URL"
+            label="프로토콜 URL"
             name="credentialProtocolUrl"
             type="url"
             defaultValue={credential.protocolUrl || ""}
@@ -719,7 +719,7 @@ function SecretForm({ record, editor, actions }) {
             <input type="hidden" name="credentialMachineId" value="" />
           )}
           <TextInput
-            label="Username"
+            label="리용자이름"
             name="credentialUsername"
             defaultValue={credential.username || ""}
             placeholder="root"
@@ -727,13 +727,13 @@ function SecretForm({ record, editor, actions }) {
             required
           />
           <TextInput
-            label="Password"
+            label="암호"
             name="credentialPassword"
             type={showCredentialPassword ? "text" : "password"}
             autoComplete="new-password"
             value={credentialPassword}
             onChange={(event) => setCredentialPassword(event.target.value)}
-            placeholder={credentialPasswordLoaded ? "Password" : "Loading Password"}
+            placeholder={credentialPasswordLoaded ? "암호" : "암호 읽는중"}
             required={!id}
           />
           <div className="grid grid-cols-2 gap-2 max-[460px]:grid-cols-1 sm:flex sm:justify-end">
@@ -742,31 +742,31 @@ function SecretForm({ record, editor, actions }) {
               type="button"
               onClick={() => setShowCredentialPassword((current) => !current)}
             >
-              {showCredentialPassword ? "Hide Password" : "Show Password"}
+              {showCredentialPassword ? "암호 숨기기" : "암호 보기"}
             </AppButton>
             <AppButton
               icon="copy"
               type="button"
               onClick={() => navigator.clipboard?.writeText(credentialPassword).catch(() => {})}
             >
-              Copy Password
+              암호 복사
             </AppButton>
           </div>
         </>
       ) : (
         <TextArea
-          label="Value"
+          label="값"
           name="value"
           spellCheck="false"
-          placeholder={id ? "Leave blank to keep current value" : selectedSecretType === "proxy_txt" ? "Paste one proxy URL per line or comma-separated proxy URLs" : "Paste one API key per line or comma-separated keys"}
+          placeholder={id ? "현재 값을 유지하려면 비워두십시오" : selectedSecretType === "proxy_txt" ? "프록시 URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API 키를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
         />
       )}
       <div className="mt-1 grid gap-2 border-t border-[var(--ptg-outline)] pt-3 sm:grid-cols-[auto_1fr_auto] sm:items-center">
         {id ? (
-          <AppButton className="danger-button justify-self-start" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>Delete</AppButton>
+          <AppButton className="danger-button justify-self-start" icon="trash" type="button" onClick={() => actions.deleteRecord("secret", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton>
         ) : <span />}
         <span className="hidden sm:block" />
-        <AppButton className="max-sm:w-full" variant="filled" icon="check" type="submit" loading={submitting}>{isCredential ? "Save Credential" : "Save Secret"}</AppButton>
+        <AppButton className="max-sm:w-full" variant="filled" icon="check" type="submit" loading={submitting}>{isCredential ? "접속증명 보관" : "비밀자료 보관"}</AppButton>
       </div>
     </form>
   );
