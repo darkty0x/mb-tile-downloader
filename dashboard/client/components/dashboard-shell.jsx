@@ -87,10 +87,7 @@ export function Header({ state, actions }) {
         </div>
         <GlobalSearch state={state} actions={actions} />
         <div className="flex items-center justify-end gap-2 max-md:justify-between">
-          <span className="hidden items-center gap-2 rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex">
-            <span>마지막 갱신:</span>
-            <strong className="text-[var(--ptg-on-surface)]">{lastSeen ? shortDate(lastSeen) : "대기중"}</strong>
-          </span>
+          <LastUpdatedChip value={lastSeen} />
           <NotificationsMenu notifications={notifications} actions={actions} state={state} />
           <IconButton
             icon="refresh"
@@ -101,6 +98,41 @@ export function Header({ state, actions }) {
         </div>
       </div>
     </header>
+  );
+}
+
+function LastUpdatedChip({ value }) {
+  const [pulse, setPulse] = useState(false);
+  const previousValueRef = useRef(value);
+
+  useEffect(() => {
+    if (previousValueRef.current === value) return undefined;
+    previousValueRef.current = value;
+    setPulse(false);
+    const start = setTimeout(() => setPulse(true), 20);
+    const stop = setTimeout(() => setPulse(false), 920);
+    return () => {
+      clearTimeout(start);
+      clearTimeout(stop);
+    };
+  }, [value]);
+
+  return (
+    <span
+      aria-live="polite"
+      className="last-updated-chip hidden items-center gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex"
+      data-pulse={pulse ? "true" : "false"}
+    >
+      <span className="last-updated-chip__icon grid h-7 w-7 place-items-center rounded-full bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+        <Icon name="refresh" className="h-4 w-4" />
+      </span>
+      <span className="min-w-0">
+        <span className="block text-[10.5px] font-[760] uppercase tracking-[0.08em] text-[var(--ptg-on-surface-variant)]">최근 갱신</span>
+        <strong className="last-updated-chip__value block whitespace-nowrap text-[12.5px] font-[850] leading-tight text-[var(--ptg-on-surface)]">
+          {value ? shortDate(value) : "대기중"}
+        </strong>
+      </span>
+    </span>
   );
 }
 
