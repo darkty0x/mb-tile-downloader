@@ -242,7 +242,7 @@ function buildNotifications(state, overview) {
     .reverse()
     .slice(0, 10)
     .map((event, index) => ({
-      id: `event-${event.eventId || event.createdAt || index}-${index}`,
+      id: `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`,
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
       icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
       title: event.type || "조종판 사건",
@@ -256,7 +256,13 @@ function buildNotifications(state, overview) {
 function NotificationsMenu({ notifications, actions, state }) {
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
-  const count = notifications.length;
+  const readIds = state.readNotificationIds || new Set();
+  const visibleNotifications = notifications.map((notification) => ({
+    ...notification,
+    read: readIds.has(notification.id),
+  }));
+  const unreadNotifications = visibleNotifications.filter((notification) => !notification.read);
+  const count = unreadNotifications.length;
 
   useEffect(() => {
     if (!open) return undefined;
@@ -277,6 +283,15 @@ function NotificationsMenu({ notifications, actions, state }) {
   const openTab = (tab) => {
     setOpen(false);
     actions.setSelectedTab(tab);
+  };
+
+  const markAllRead = () => {
+    actions.markNotificationsRead(notifications.map((notification) => notification.id));
+  };
+
+  const openNotification = (notification) => {
+    actions.markNotificationsRead([notification.id]);
+    openTab(notification.actionTab);
   };
 
   return (
@@ -303,10 +318,20 @@ function NotificationsMenu({ notifications, actions, state }) {
             <span className="min-w-0">
               <strong className="block text-[13px] font-[850]">알림</strong>
               <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                {state.webNotificationPermission === "granted" ? "웹경보가 켜져있습니다" : count ? `${count}개 리용가능` : "활성 알림 없음"}
+                {count ? `읽지 않은 알림 ${count}개` : state.webNotificationPermission === "granted" ? "웹경보가 켜져있습니다" : "읽지 않은 알림 없음"}
               </small>
             </span>
             <div className="flex shrink-0 items-center gap-1">
+              {count ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={markAllRead}
+                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
+                >
+                  읽음처리
+                </button>
+              ) : null}
               {state.webNotificationPermission === "default" ? (
                 <button
                   type="button"
@@ -323,13 +348,13 @@ function NotificationsMenu({ notifications, actions, state }) {
             </div>
           </header>
           <div className="ptg-scrollbar mt-2 grid max-h-[360px] gap-1 overflow-auto pr-1">
-            {notifications.length ? notifications.map((notification) => (
+            {visibleNotifications.length ? visibleNotifications.map((notification) => (
               <button
                 key={notification.id}
                 type="button"
                 role="menuitem"
-                onClick={() => openTab(notification.actionTab)}
-                className="state-layer grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left hover:bg-[var(--ptg-primary-soft)]"
+                onClick={() => openNotification(notification)}
+                className={`state-layer grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left transition hover:bg-[var(--ptg-primary-soft)] ${notification.read ? "opacity-65" : "bg-[var(--ptg-primary-soft)]"}`}
               >
                 <span className={`mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full ${
                   notification.kind === "error"

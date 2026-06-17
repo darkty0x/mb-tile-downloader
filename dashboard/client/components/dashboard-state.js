@@ -28,6 +28,7 @@ export function useDashboardState() {
   const [notice, setNotice] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
   const [webNotificationPermission, setWebNotificationPermission] = useState("unsupported");
+  const [readNotificationIds, setReadNotificationIds] = useState(new Set());
   const selectedMachineIdRef = useRef(selectedMachineId);
   const refreshInFlightRef = useRef(false);
   const seenNotificationEventsRef = useRef(new Set());
@@ -50,6 +51,21 @@ export function useDashboardState() {
     }
     setWebNotificationPermission(window.Notification.permission);
   }, []);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      const stored = JSON.parse(window.localStorage?.getItem("ptg.readNotifications") || "[]");
+      setReadNotificationIds(new Set(Array.isArray(stored) ? stored.filter(Boolean) : []));
+    } catch {
+      setReadNotificationIds(new Set());
+    }
+  }, []);
+
+  function persistReadNotificationIds(nextIds) {
+    if (typeof window === "undefined") return;
+    window.localStorage?.setItem("ptg.readNotifications", JSON.stringify([...nextIds].slice(-250)));
+  }
 
   async function api(path, options = {}) {
     const response = await fetch(path, {
@@ -233,6 +249,7 @@ export function useDashboardState() {
       notice,
       confirmRequest,
       webNotificationPermission,
+      readNotificationIds,
     },
     actions: {
       api,
@@ -246,6 +263,16 @@ export function useDashboardState() {
       refreshSecretPool,
       refreshSettings,
       resolveConfirm,
+      markNotificationsRead(notificationIds) {
+        const ids = [...new Set(notificationIds)].filter(Boolean);
+        if (!ids.length) return;
+        setReadNotificationIds((current) => {
+          const next = new Set(current);
+          ids.forEach((id) => next.add(id));
+          persistReadNotificationIds(next);
+          return next;
+        });
+      },
       async requestWebNotifications() {
         if (typeof window === "undefined" || !("Notification" in window)) {
           setWebNotificationPermission("unsupported");
