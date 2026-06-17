@@ -15,6 +15,7 @@ import {
   selectConfigTemplates,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
+import { createSecretValidator, isValidatableSecretType } from "./secret-validators.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
 import { createTelegramNotifier } from "./telegram.js";
@@ -218,6 +219,25 @@ async function rebalanceSecretAssignments({ store, secretVault } = {}) {
   });
 }
 
+async function validatePoolSecret({ secretValidator, secretType, value } = {}) {
+  if (!isValidatableSecretType(secretType)) return null;
+  if (!secretValidator?.validateSecret) return null;
+  const validation = await secretValidator.validateSecret({ secretType, value });
+  return {
+    ok: Boolean(validation?.ok),
+    status: validation?.status || (validation?.ok ? "active" : "invalid"),
+    message: validation?.message || (validation?.ok ? "validated" : "validation failed"),
+    checkedAt: validation?.checkedAt || new Date().toISOString(),
+    ...(validation?.details ? { details: validation.details } : {}),
+  };
+}
+
+function statusAfterValidation({ requestedStatus, validation } = {}) {
+  if (!validation) return requestedStatus;
+  if (!validation.ok) return validation.status;
+  return requestedStatus || validation.status;
+}
+
 async function resolveMachineTargets(store, body) {
   const requestedIds = uniqueStrings(Array.isArray(body.machineIds) ? body.machineIds : [body.machineId]);
   if (requestedIds.length === 0) return [{ machineId: null, label: "Global", splitName: "global" }];
@@ -248,6 +268,7 @@ function jobNameForTarget({ baseJobName, target, multipleTargets }) {
 export function createDashboardApp({
   store = createDashboardStore(),
   secretVault = null,
+  secretValidator = createSecretValidator(),
   telegramNotifier = null,
   agentToken = "",
   clientDir = DEFAULT_CLIENT_DIR,
@@ -633,13 +654,21 @@ export function createDashboardApp({
           const values = splitSecretValues(body.secretType, body.value);
           if (!values.length) throw new Error("secret value is required");
           const created = [];
+          const validations = [];
           for (const [index, value] of values.entries()) {
+            const validation = await validatePoolSecret({
+              secretValidator,
+              secretType: body.secretType,
+              value,
+            });
+            if (validation) validations.push({ valueIndex: index, ...validation });
             created.push(await secretVault.createSecret({
               ...body,
               value,
               label: values.length > 1
                 ? `${body.label || body.secretType} ${index + 1}`
                 : body.label,
+              status: statusAfterValidation({ requestedStatus: body.status, validation }),
             }));
           }
           if (["mapbox_token", "proxy_txt"].includes(body.secretType)) {
@@ -651,7 +680,29 @@ export function createDashboardApp({
               .listSecretsForBrowser({ machineId: secret.machineId || undefined }))
               .find((item) => item.secretId === secret.secretId),
             secrets: await secretVault.listSecretsForBrowser({ machineId: body.machineId || undefined }),
+            validations,
           });
+          return;
+        }
+
+        const secretValidateMatch = /^\/api\/secrets\/([^/]+)\/validate$/.exec(url.pathname);
+        if (req.method === "POST" && secretValidateMatch) {
+          if (!secretVault?.getSecretForDashboard) throw new Error("secret vault cannot decrypt dashboard secrets");
+          const secretId = decodeURIComponent(secretValidateMatch[1]);
+          const existing = await secretVault.getSecretForDashboard(secretId);
+          const validation = await validatePoolSecret({
+            secretValidator,
+            secretType: existing.secretType,
+            value: existing.value,
+          });
+          if (!validation) throw new Error(`${existing.secretType} secrets do not support validation`);
+          const updated = await secretVault.updateSecret(secretId, { status: validation.status });
+          if (isValidatableSecretType(existing.secretType)) {
+            await rebalanceSecretAssignments({ store, secretVault });
+          }
+          const [secret] = (await secretVault.listSecretsForBrowser({ machineId: updated.machineId || undefined }))
+            .filter((item) => item.secretId === updated.secretId);
+          json(res, 200, { validation, secret });
           return;
         }
 
@@ -673,6 +724,20 @@ export function createDashboardApp({
           }
           if (req.method === "PUT") {
             const body = await readJson(req);
+            if (body.value !== undefined) {
+              const current = await secretVault.getSecretForDashboard(secretId);
+              const validation = await validatePoolSecret({
+                secretValidator,
+                secretType: current.secretType,
+                value: body.value,
+              });
+              if (validation) {
+                body.status = statusAfterValidation({
+                  requestedStatus: body.status,
+                  validation,
+                });
+              }
+            }
             const secret = await secretVault.updateSecret(secretId, body);
             json(res, 200, {
               secret: (await secretVault

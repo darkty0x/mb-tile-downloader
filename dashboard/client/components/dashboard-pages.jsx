@@ -1416,6 +1416,9 @@ function SecretPoolsTable({ state, actions }) {
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{shortDate(secret.updatedAt || secret.createdAt)}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex justify-end gap-1.5">
+                        {["mapbox_token", "proxy_txt"].includes(secret.secretType) ? (
+                          <IconButton label="Validate" icon="sync" onClick={() => actions.validateSecret(secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+                        ) : null}
                         {secret.status === "active" ? <IconButton label="Disable" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
                         <IconButton label="Edit" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
                         <IconButton label="Delete" icon="trash" onClick={() => deleteIds([secret.secretId], "record").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />

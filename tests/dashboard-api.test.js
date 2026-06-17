@@ -45,6 +45,11 @@ async function withServer(t, options = {}) {
       now: () => new Date("2026-06-16T00:00:00.000Z"),
     }),
     agentToken: "agent-token",
+    secretValidator: {
+      async validateSecret() {
+        return { ok: true, status: "active", message: "test validator accepted" };
+      },
+    },
     ...options,
   });
   await new Promise((resolve) => app.listen(0, "127.0.0.1", resolve));
@@ -830,6 +835,106 @@ test("dashboard secret route assigns new pool items across registered machines",
       .sort(),
     ["worker-a", "worker-b"]
   );
+});
+
+test("dashboard validates Mapbox tokens and proxies before assigning pool items", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({ machineId: "worker-a", agentInstanceId: "agent-a" });
+  const server = await withServer(t, {
+    store,
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => `secret-${++id}`,
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+    secretValidator: {
+      async validateSecret({ secretType, value }) {
+        return {
+          ok: !String(value).includes("bad"),
+          status: String(value).includes("bad") ? "invalid" : "active",
+          message: String(value).includes("bad") ? `${secretType} rejected` : `${secretType} ok`,
+        };
+      },
+    },
+  });
+
+  const mapbox = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "mapbox_token",
+      label: "mapbox",
+      value: "pk.good-token,pk.bad-token",
+    },
+  });
+  const proxies = await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "proxy_txt",
+      label: "proxy",
+      value: "http://good-proxy.example:8080,http://bad-proxy.example:8080",
+    },
+  });
+  const agent = await request(server, {
+    path: "/api/agents/secrets?machineId=worker-a",
+    headers: { authorization: "Bearer agent-token" },
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(mapbox.status, 200);
+  assert.equal(proxies.status, 200);
+  assert.deepEqual(
+    listed.body.secrets
+      .filter((secret) => secret.secretType === "mapbox_token")
+      .map((secret) => [secret.status, secret.usage])
+      .sort(),
+    [["active", "assigned"], ["invalid", "disabled"]]
+  );
+  assert.deepEqual(
+    listed.body.secrets
+      .filter((secret) => secret.secretType === "proxy_txt")
+      .map((secret) => [secret.status, secret.usage])
+      .sort(),
+    [["active", "assigned"], ["invalid", "disabled"]]
+  );
+  assert.equal(agent.body.secrets.some((secret) => /bad/.test(secret.value)), false);
+});
+
+test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {
+  let id = 0;
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  vault.createSecret({
+    secretType: "proxy_txt",
+    label: "proxy",
+    value: "http://proxy.example:8080",
+  });
+  const server = await withServer(t, {
+    secretVault: vault,
+    secretValidator: {
+      async validateSecret() {
+        return { ok: false, status: "invalid", message: "proxy rejected" };
+      },
+    },
+  });
+
+  const validated = await request(server, {
+    method: "POST",
+    path: "/api/secrets/secret-1/validate",
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(validated.status, 200);
+  assert.equal(validated.body.validation.status, "invalid");
+  assert.equal(validated.body.secret.status, "invalid");
+  assert.equal(listed.body.secrets[0].usage, "disabled");
 });
 
 test("dashboard secret route stores credentials with redacted browser metadata", async (t) => {

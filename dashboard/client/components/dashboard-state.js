@@ -396,6 +396,16 @@ export function useDashboardState() {
         setNotice({ message: `Resource pool rebalanced (${result.changed || 0} assignment${result.changed === 1 ? "" : "s"})`, kind: "success" });
         return result;
       },
+      async validateSecret(secretId) {
+        const result = await api(`/api/secrets/${encodeURIComponent(secretId)}/validate`, { method: "POST" });
+        await refreshSecretPool();
+        await refreshMachineData();
+        setNotice({
+          message: result.validation?.message || "Secret validation completed",
+          kind: result.validation?.ok ? "success" : "warning",
+        });
+        return result;
+      },
     },
   };
 }
