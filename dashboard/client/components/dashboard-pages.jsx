@@ -208,8 +208,8 @@ function ResourceAlertsCard({ overview, actions }) {
     <Surface className="p-4">
       <SectionTitle
         title="API Key와 Proxy상태"
-        meta="설정의 경계값을 리용합니다"
-        action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>경계값</AppButton>}
+        meta="설정의 림계값을 리용합니다"
+        action={<AppButton icon="settings" onClick={() => actions.setSelectedTab("settings")}>림계값</AppButton>}
       />
       <div className="grid gap-2">
         {overview.resourceAlerts.length ? overview.resourceAlerts.map((alert) => (
@@ -219,7 +219,7 @@ function ResourceAlertsCard({ overview, actions }) {
               <StatusPill status="warn">낮음</StatusPill>
             </div>
             <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-              {alert.available}개 리용가능, 경계값 {alert.threshold}
+              {alert.available}개 리용가능, 림계값 {alert.threshold}
             </p>
           </div>
         )) : (

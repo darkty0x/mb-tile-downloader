@@ -271,7 +271,7 @@ function buildNotifications(state, overview) {
     kind: "warning",
     icon: "warning",
     title: `${alert.label} 부족`,
-    message: `${alert.available}개 리용가능, 경계값 ${alert.threshold}`,
+    message: `${alert.available}개 리용가능, 림계값 ${alert.threshold}`,
     time: "지금",
     actionTab: "alerts",
   }));
