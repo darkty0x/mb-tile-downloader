@@ -442,7 +442,6 @@ export async function runAgent({
   log(`dashboard agent registered machineId=${identity.machineId} dashboard=${env.DASHBOARD_URL}`);
 
   async function tick() {
-    await syncAndPublishSnapshot({ reason: "heartbeat" });
     const { commands = [] } = await client.pollCommands(identity.machineId);
     for (const command of commands) {
       await runCommand(command, {
@@ -455,6 +454,7 @@ export async function runAgent({
         agentLogPath,
       });
     }
+    await syncAndPublishSnapshot({ reason: "heartbeat" });
   }
 
   await tick();
