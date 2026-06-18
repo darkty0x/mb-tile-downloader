@@ -1509,38 +1509,47 @@ test("dashboard rebalance revalidates keys and queues env sync only for download
   assert.equal(listed.body.secrets.find((secret) => secret.label === "zip-worker-token").status, "invalid");
 });
 
-test("dashboard telegram env route queues root env writes for all machines with env snapshots", async (t) => {
+test("dashboard telegram env route uses DB global env template, not masked snapshots", async (t) => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),
   });
+  store.updateSettings({
+    rootEnvTemplate: {
+      sourceMachineId: "global",
+      updatedAt: "2026-06-16T00:00:00.000Z",
+      envText: [
+        "STORJ_ACCESS=storj-access",
+        "STORJ_PASSPHRASE=storj passphrase",
+        "STORJ_BUCKET=mapbox",
+        "DASHBOARD_URL=https://dashboard.example",
+        "AGENT_TOKEN=agent-token",
+        "TILE_DOWNLOADER_PROXY_MODE=fallback",
+        "TILE_DOWNLOADER_OUTPUT_MODE=dynamic",
+        "TILE_DOWNLOADER_OUTPUT_FOLDER=mb-tile-downloader/tiles",
+      ].join("\n"),
+    },
+  });
   store.registerMachine({
-    machineId: "worker-a",
-    agentInstanceId: "agent-a",
+    machineId: "server-04",
+    agentInstanceId: "agent-04",
     agentSnapshot: {
       envFiles: [{
         path: ".env",
         exists: true,
-        content: "PORT=3001\nTELEGRAM_BOT_TOKEN=old-token\nKEEP_ME=yes",
+        content: "MACHINE_ID=server-04\nSTORJ_ACCESS=local-should-not-be-used\nDASHBOARD_URL=https://wrong.example\n",
       }],
     },
   });
   store.registerMachine({
-    machineId: "worker-b",
-    agentInstanceId: "agent-b",
+    machineId: "server-05",
+    agentInstanceId: "agent-05",
     agentSnapshot: {
       envFiles: [{
         path: ".env",
         exists: true,
-        variables: [
-          { name: "DASHBOARD_URL", value: "https://dashboard.example" },
-        ],
+        content: "MACHINE_ID=server-05\nSTORJ_ACCESS=********\nDASHBOARD_URL=http.....xyz\n",
       }],
     },
-  });
-  store.registerMachine({
-    machineId: "worker-c",
-    agentInstanceId: "agent-c",
-    agentSnapshot: { envFiles: [] },
   });
   const server = await withServer(t, { store });
 
@@ -1552,22 +1561,57 @@ test("dashboard telegram env route queues root env writes for all machines with 
       chatId: "-100123",
     },
   });
-  const workerACommands = store.claimCommands({ machineId: "worker-a" });
-  const workerBCommands = store.claimCommands({ machineId: "worker-b" });
-  const workerCCommands = store.claimCommands({ machineId: "worker-c" });
+  const server04Commands = store.claimCommands({ machineId: "server-04" });
+  const server05Commands = store.claimCommands({ machineId: "server-05" });
 
   assert.equal(updated.status, 200);
-  assert.deepEqual(updated.body.queued.map((item) => item.machineId), ["worker-a", "worker-b"]);
-  assert.deepEqual(updated.body.skipped, [{ machineId: "worker-c", reason: ".env snapshot missing" }]);
-  assert.equal(workerACommands[0].commandType, "write_env");
-  assert.match(workerACommands[0].payload.envText, /PORT=3001/);
-  assert.match(workerACommands[0].payload.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
-  assert.match(workerACommands[0].payload.envText, /TELEGRAM_CHAT_ID=-100123/);
-  assert.match(workerACommands[0].payload.envText, /KEEP_ME=yes/);
-  assert.equal(workerBCommands[0].commandType, "write_env");
-  assert.match(workerBCommands[0].payload.envText, /DASHBOARD_URL=https:\/\/dashboard\.example/);
-  assert.match(workerBCommands[0].payload.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
-  assert.deepEqual(workerCCommands, []);
+  assert.deepEqual(updated.body.queued.map((item) => item.machineId), ["server-04", "server-05"]);
+  assert.deepEqual(updated.body.skipped, []);
+  assert.equal(server04Commands[0].commandType, "write_env");
+  assert.match(server04Commands[0].payload.envText, /MACHINE_ID=server-04/);
+  assert.match(server04Commands[0].payload.envText, /DASHBOARD_URL=https:\/\/dashboard\.example/);
+  assert.match(server04Commands[0].payload.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
+  assert.match(server04Commands[0].payload.envText, /TELEGRAM_CHAT_ID=-100123/);
+  assert.doesNotMatch(server04Commands[0].payload.envText, /\*{3,}|\.{3,}/);
+  assert.equal(server05Commands[0].commandType, "write_env");
+  assert.match(server05Commands[0].payload.envText, /MACHINE_ID=server-05/);
+  assert.match(server05Commands[0].payload.envText, /STORJ_ACCESS=storj-access/);
+  assert.doesNotMatch(server05Commands[0].payload.envText, /\*{3,}|\.{3,}/);
+});
+
+test("dashboard global env route stores DB template and queues per-machine root env writes", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({ machineId: "server-01", agentInstanceId: "agent-01" });
+  await store.registerMachine({ machineId: "server-02", agentInstanceId: "agent-02" });
+  const server = await withServer(t, { store });
+
+  const updated = await request(server, {
+    method: "POST",
+    path: "/api/env/global",
+    body: {
+      envText: [
+        "STORJ_ACCESS=storj-access",
+        "STORJ_PASSPHRASE=storj passphrase",
+        "STORJ_BUCKET=mapbox",
+        "DASHBOARD_URL=https://dashboard.example",
+        "AGENT_TOKEN=agent-token",
+        "TILE_DOWNLOADER_PROXY_MODE=fallback",
+        "TILE_DOWNLOADER_OUTPUT_MODE=dynamic",
+        "TILE_DOWNLOADER_OUTPUT_FOLDER=mb-tile-downloader/tiles",
+      ].join("\n"),
+    },
+  });
+
+  assert.equal(updated.status, 200);
+  assert.deepEqual(updated.body.queued.map((item) => item.machineId), ["server-01", "server-02"]);
+  const server01Commands = store.claimCommands({ machineId: "server-01" });
+  const server02Commands = store.claimCommands({ machineId: "server-02" });
+  assert.match(server01Commands[0].payload.envText, /MACHINE_ID=server-01/);
+  assert.match(server02Commands[0].payload.envText, /MACHINE_ID=server-02/);
+  assert.match(server02Commands[0].payload.envText, /STORJ_ACCESS=storj-access/);
+  assert.equal(store.getSettings().rootEnvTemplate.sourceMachineId, "global");
 });
 
 test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {

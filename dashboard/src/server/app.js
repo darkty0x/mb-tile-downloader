@@ -292,6 +292,67 @@ function rootEnvTextFromMachine(machine) {
   return "";
 }
 
+function envTextHasMaskedOrAbbreviatedValue(envText) {
+  return String(envText || "")
+    .split(/\r?\n/)
+    .some((line) => {
+      const trimmed = line.trim();
+      if (!trimmed || trimmed.startsWith("#")) return false;
+      const index = trimmed.indexOf("=");
+      if (index === -1) return false;
+      const value = trimmed.slice(index + 1).trim();
+      return /\*{3,}/.test(value) || /\.{3,}/.test(value);
+    });
+}
+
+function isUsableRootEnvTemplate(envText) {
+  const text = String(envText || "").trim();
+  if (!text) return false;
+  if (envTextHasMaskedOrAbbreviatedValue(text)) return false;
+  return [
+    "DASHBOARD_URL",
+    "AGENT_TOKEN",
+    "STORJ_BUCKET",
+    "TILE_DOWNLOADER_OUTPUT_MODE",
+    "TILE_DOWNLOADER_OUTPUT_FOLDER",
+  ].every((name) => new RegExp(`^${name}=.+$`, "m").test(text));
+}
+
+function parseRootEnvTemplate(envText) {
+  const text = String(envText || "").trim();
+  if (!isUsableRootEnvTemplate(text)) {
+    throw new Error("global .env template is missing required values or contains masked values");
+  }
+  return `${text}\n`;
+}
+
+async function rootEnvTemplateFromSettings({ store }) {
+  const settings = await store.getSettings();
+  if (isUsableRootEnvTemplate(settings.rootEnvTemplate?.envText)) {
+    return settings.rootEnvTemplate.envText;
+  }
+  return null;
+}
+
+async function mapboxTokensForMachine({ secretVault, machineId }) {
+  if (!secretVault) return [];
+  const secrets = await secretVault.listSecretsForAgent({ machineId });
+  return uniqueStrings(
+    secrets
+      .filter((secret) => secret.secretType === "mapbox_token" && secret.status === "active")
+      .map((secret) => secret.value)
+  );
+}
+
+async function rootEnvTextForMachine({ templateText, secretVault, machineId, updates = {} }) {
+  const mapboxTokens = await mapboxTokensForMachine({ secretVault, machineId });
+  return upsertEnvText(templateText, {
+    MACHINE_ID: normalizeMachineId(machineId),
+    ...(mapboxTokens.length ? { MAPBOX_ACCESS_TOKENS: mapboxTokens.join(",") } : {}),
+    ...updates,
+  });
+}
+
 function quoteEnvValue(value) {
   const text = String(value ?? "");
   if (/^[A-Za-z0-9_./:@+=,-]+$/.test(text)) return text;
@@ -689,17 +750,22 @@ export function createDashboardApp({
           const chatId = String(body.chatId || "").trim();
           if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN is required");
           const machines = await store.listMachines();
+          const templateText = await rootEnvTemplateFromSettings({ store });
           const queued = [];
           const skipped = [];
           for (const machine of machines) {
-            const envText = rootEnvTextFromMachine(machine);
-            if (envText === null) {
-              skipped.push({ machineId: machine.machineId, reason: ".env snapshot missing" });
+            if (!templateText) {
+              skipped.push({ machineId: machine.machineId, reason: "canonical .env template missing or masked" });
               continue;
             }
-            const nextEnvText = upsertEnvText(envText, {
-              TELEGRAM_BOT_TOKEN: botToken,
-              ...(chatId ? { TELEGRAM_CHAT_ID: chatId } : {}),
+            const nextEnvText = await rootEnvTextForMachine({
+              templateText,
+              secretVault,
+              machineId: machine.machineId,
+              updates: {
+                TELEGRAM_BOT_TOKEN: botToken,
+                ...(chatId ? { TELEGRAM_CHAT_ID: chatId } : {}),
+              },
             });
             const command = await store.queueCommand({
               machineId: machine.machineId,
@@ -710,6 +776,36 @@ export function createDashboardApp({
             queued.push({ machineId: machine.machineId, commandId: command.id });
           }
           json(res, 200, { queued, skipped });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/env/global") {
+          const body = await readJson(req);
+          const templateText = parseRootEnvTemplate(body.envText);
+          await store.updateSettings({
+            rootEnvTemplate: {
+              envText: templateText,
+              sourceMachineId: "global",
+              updatedAt: new Date().toISOString(),
+            },
+          });
+          const machines = await store.listMachines();
+          const queued = [];
+          for (const machine of machines) {
+            const nextEnvText = await rootEnvTextForMachine({
+              templateText,
+              secretVault,
+              machineId: machine.machineId,
+            });
+            const command = await store.queueCommand({
+              machineId: machine.machineId,
+              commandType: "write_env",
+              payload: { envText: nextEnvText },
+              requestedBy: "dashboard.global-env",
+            });
+            queued.push({ machineId: machine.machineId, commandId: command.id });
+          }
+          json(res, 200, { queued, rootEnvTemplate: { updatedAt: new Date().toISOString() } });
           return;
         }
 

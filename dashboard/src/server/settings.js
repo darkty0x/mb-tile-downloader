@@ -21,6 +21,11 @@ export const DEFAULT_DASHBOARD_SETTINGS = Object.freeze({
     commandRetryLimit: 3,
     reportBackoffMs: 5000,
   }),
+  rootEnvTemplate: Object.freeze({
+    envText: "",
+    sourceMachineId: "",
+    updatedAt: "",
+  }),
 });
 
 function normalizeNonNegativeInteger(value, name, fallback) {
@@ -73,6 +78,10 @@ export function normalizeDashboardSettings(input = {}, existing = DEFAULT_DASHBO
     ? source.retry
     : {};
   const currentRetry = current.retry || DEFAULT_DASHBOARD_SETTINGS.retry;
+  const rootEnvTemplate = source.rootEnvTemplate && typeof source.rootEnvTemplate === "object" && !Array.isArray(source.rootEnvTemplate)
+    ? source.rootEnvTemplate
+    : {};
+  const currentRootEnvTemplate = current.rootEnvTemplate || DEFAULT_DASHBOARD_SETTINGS.rootEnvTemplate;
 
   return {
     alertThresholds: {
@@ -139,6 +148,17 @@ export function normalizeDashboardSettings(input = {}, existing = DEFAULT_DASHBO
         "settings.retry.reportBackoffMs",
         currentRetry.reportBackoffMs
       ),
+    },
+    rootEnvTemplate: {
+      envText: rootEnvTemplate.envText === undefined || rootEnvTemplate.envText === null
+        ? String(currentRootEnvTemplate.envText || "")
+        : String(rootEnvTemplate.envText),
+      sourceMachineId: rootEnvTemplate.sourceMachineId === undefined || rootEnvTemplate.sourceMachineId === null
+        ? String(currentRootEnvTemplate.sourceMachineId || "")
+        : String(rootEnvTemplate.sourceMachineId),
+      updatedAt: rootEnvTemplate.updatedAt === undefined || rootEnvTemplate.updatedAt === null
+        ? String(currentRootEnvTemplate.updatedAt || "")
+        : String(rootEnvTemplate.updatedAt),
     },
   };
 }
