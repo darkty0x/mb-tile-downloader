@@ -139,6 +139,17 @@ export function LoginScreen({ state, actions }) {
   );
 }
 
+export function AuthCheckingScreen() {
+  return (
+    <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_20%_10%,rgba(103,80,164,0.18),transparent_34%),linear-gradient(135deg,#fff7ff_0%,#f4f7ff_52%,#eefaf6_100%)] p-4">
+      <section className="screen-enter grid place-items-center gap-3 rounded-[28px] border border-[var(--ptg-outline)] bg-white/82 px-8 py-7 shadow-[0_24px_80px_rgba(29,27,32,0.16)] backdrop-blur-xl">
+        <span className="inline-flex h-14 w-14 animate-spin items-center justify-center rounded-[22px] border-2 border-[rgba(103,80,164,0.18)] border-t-[var(--ptg-primary)]" aria-label="가입상태 확인중" />
+        <strong className="text-[13px] font-[760] text-[var(--ptg-on-surface-variant)]">가입상태 확인중</strong>
+      </section>
+    </main>
+  );
+}
+
 function LastUpdatedChip({ value }) {
   const [pulse, setPulse] = useState(false);
   const previousValueRef = useRef(value);

@@ -2,11 +2,15 @@
 
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
-import { ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
+import { AuthCheckingScreen, ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
 import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
+
+  if (state.authStatus === "checking") {
+    return <AuthCheckingScreen />;
+  }
 
   if (state.authStatus !== "authenticated") {
     return <LoginScreen state={state} actions={actions} />;

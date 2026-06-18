@@ -155,18 +155,23 @@ export function useDashboardState() {
   }
 
   useEffect(() => {
-    const timer = setTimeout(async () => {
+    let cancelled = false;
+    (async () => {
       try {
         const { user } = await api("/api/auth/me");
+        if (cancelled) return;
         setCurrentUser(user);
         setAuthStatus("authenticated");
         await refreshAll();
       } catch {
+        if (cancelled) return;
         setCurrentUser(null);
         setAuthStatus("unauthenticated");
       }
-    }, 250);
-    return () => clearTimeout(timer);
+    })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   useEffect(() => {

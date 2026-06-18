@@ -828,7 +828,8 @@ function mapboxTokensFromSnapshot(snapshotSecrets = {}, envFiles = []) {
 }
 
 function ServerPageEnv({ state, actions }) {
-  const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
+  const envFiles = (state.selectedMachine?.agentSnapshot?.envFiles || [])
+    .filter((file) => file.path === ".env");
   const [envDrafts, setEnvDrafts] = useState({});
   const [savingPath, setSavingPath] = useState(null);
   return (
