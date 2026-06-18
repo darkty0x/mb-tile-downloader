@@ -174,6 +174,16 @@ function createAgentControlFiles({ stateDir }) {
   };
 }
 
+function activeCommandMatchesConfig(runner, configId) {
+  if (!configId) return true;
+  const spec = runner?.activeCommandSpec;
+  if (!spec) return false;
+  const needle = `${String(configId)}.json`;
+  return [spec.command, ...(spec.args || [])].some((part) =>
+    String(part || "").replace(/\\/g, "/").endsWith(`/dashboard/configs/${needle}`)
+  );
+}
+
 export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null, projectDir = process.cwd(), agentLogPath = path.join(".tile-state", "dashboard-agent.log") }) {
   try {
     if (command.commandType === "pause_after_range") {
@@ -215,20 +225,28 @@ export async function runCommand(command, { client, runner, machineId, control =
     }
 
     if (command.commandType === "stop_pipeline") {
-      await control?.requestStopPipeline?.();
-      const stopped = runner.stop();
+      const scopedConfigId = command.payload?.configId || null;
+      const configMatches = activeCommandMatchesConfig(runner, scopedConfigId);
+      if (configMatches) await control?.requestStopPipeline?.();
+      const stopped = configMatches ? runner.stop() : false;
       const stoppedJobs = await client.stopRunningJobs(machineId, {
         commandId: command.id,
+        configId: scopedConfigId,
         reason: "dashboard stop command",
       });
       await client.postEvent({
         machineId,
         severity: stopped ? "warn" : "info",
         type: "command.accepted",
-        message: stopped ? "Stop signal sent to the active managed process." : "No active managed process was running.",
+        message: stopped
+          ? "Stop signal sent to the active managed process."
+          : scopedConfigId && !configMatches
+            ? "No active managed process matched the deleted config."
+            : "No active managed process was running.",
         data: {
           commandId: command.id,
           commandType: command.commandType,
+          configId: scopedConfigId,
           stoppedJobs: stoppedJobs?.jobs?.length || 0,
         },
       });

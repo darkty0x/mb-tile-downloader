@@ -910,7 +910,28 @@ export function createDashboardApp({
         }
         if (req.method === "DELETE" && configMatch) {
           const configId = decodeURIComponent(configMatch[1]);
-          json(res, 200, { config: await store.deleteConfig(configId) });
+          const config = await store.deleteConfig(configId);
+          let stoppedJobs = [];
+          let command = null;
+          if (config.machineId) {
+            stoppedJobs = await store.stopRunningJobs({
+              machineId: config.machineId,
+              configId: config.configId,
+              error: "config deleted",
+            });
+            if (config.active || stoppedJobs.length) {
+              command = await store.queueCommand({
+                machineId: config.machineId,
+                commandType: "stop_pipeline",
+                payload: {
+                  configId: config.configId,
+                  reason: "config_deleted",
+                },
+                requestedBy: "config.delete",
+              });
+            }
+          }
+          json(res, 200, { config, stoppedJobs, command });
           return;
         }
 
