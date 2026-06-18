@@ -290,22 +290,60 @@ function QuickActionsCard({ actions }) {
 }
 
 function eventNotificationId(event, index = 0) {
-  return `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`;
+  return `event-${event.id || event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`;
 }
 
-function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotificationIds = new Set() }) {
+function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotificationIds = new Set(), actions, machineId }) {
   const visible = events.slice(0, limit);
-  const isRead = (event, index) => readNotificationIds.has(eventNotificationId(event, index));
-  const readCount = visible.filter((event, index) => isRead(event, index)).length;
-  const unreadCount = Math.max(0, visible.length - readCount);
+  const isRead = (event, index) => Boolean(event.readAt) || readNotificationIds.has(eventNotificationId(event, index));
+  const readCount = events.filter((event, index) => isRead(event, index)).length;
+  const unreadCount = Math.max(0, events.length - readCount);
   return (
     <Surface className="p-4">
-      <SectionTitle title={title} meta={`Event ${events.length}개 | 않읽음 ${unreadCount}개 | 읽음 ${readCount}개`} />
+      <SectionTitle
+        title={title}
+        meta={`Event ${events.length}개 | 않읽음 ${unreadCount}개 | 읽음 ${readCount}개`}
+        action={actions ? (
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton
+              icon="check"
+              onClick={() => actions.markEventsRead({ machineId })}
+              disabled={!unreadCount}
+            >
+              모두 읽음
+            </AppButton>
+            <AppButton
+              variant="danger"
+              icon="trash"
+              onClick={() => actions.deleteEvents({ machineId, readState: "read" })}
+              disabled={!readCount}
+            >
+              읽음 삭제
+            </AppButton>
+            <AppButton
+              variant="danger"
+              icon="trash"
+              onClick={() => actions.deleteEvents({ machineId, readState: "unread" })}
+              disabled={!unreadCount}
+            >
+              않읽음 삭제
+            </AppButton>
+            <AppButton
+              variant="danger"
+              icon="trash"
+              onClick={() => actions.deleteEvents({ machineId })}
+              disabled={!events.length}
+            >
+              모두 삭제
+            </AppButton>
+          </div>
+        ) : null}
+      />
       <div className="grid gap-2">
         {visible.length ? visible.map((event, index) => {
           const read = isRead(event, index);
           return (
-          <div key={`${event.createdAt}-${event.type}-${index}`} className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border px-3 py-2.5 transition ${read ? "border-[var(--ptg-outline)] bg-white opacity-70" : "border-[rgba(103,80,164,0.32)] bg-[var(--ptg-primary-soft)]"}`}>
+          <div key={event.id || `${event.createdAt}-${event.type}-${index}`} className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border px-3 py-2.5 transition ${read ? "border-[var(--ptg-outline)] bg-white opacity-70" : "border-[rgba(103,80,164,0.32)] bg-[var(--ptg-primary-soft)]"}`}>
             <span
               aria-label={read ? "읽음" : "않읽음"}
               className={`mt-1 h-2.5 w-2.5 rounded-full ${read
@@ -1010,11 +1048,12 @@ export function ConfigsDashboard({ state, actions }) {
   );
 }
 
-export function EventsDashboard({ state }) {
+export function EventsDashboard({ state, actions }) {
   const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
+  const scopedMachineId = state.globalEvents.length ? undefined : state.selectedMachineId;
   return (
     <section className="screen-enter mt-4 grid gap-4">
-      <EventStreamCard events={events} title="관리체계 Console" limit={20} readNotificationIds={state.readNotificationIds} />
+      <EventStreamCard events={events} title="관리체계 Console" limit={20} readNotificationIds={state.readNotificationIds} actions={actions} machineId={scopedMachineId} />
       <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
         {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "아직 Event가 없습니다"}
       </pre>

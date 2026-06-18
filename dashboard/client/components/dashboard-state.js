@@ -342,6 +342,39 @@ export function useDashboardState() {
           return next;
         });
       },
+      async markEventsRead({ machineId, eventIds } = {}) {
+        const body = {
+          ...(machineId ? { machineId } : {}),
+          ...(Array.isArray(eventIds) ? { eventIds } : {}),
+        };
+        await api("/api/events/read", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        setNotice({ message: "Event가 읽음상태로 표시되였습니다", kind: "success" });
+        await refreshAll({ showLoading: false });
+      },
+      async deleteEvents({ machineId, eventIds, readState } = {}) {
+        const label = readState === "read" ? "읽은 Event" : readState === "unread" ? "않읽은 Event" : "Event";
+        const confirmed = await confirmDanger({
+          title: `${label} 삭제 확인`,
+          message: `${label}를 삭제하겠습니까? 이 동작은 되돌릴수 없습니다.`,
+          confirmLabel: "삭제",
+          storageKey: `delete-events-${readState || "all"}`,
+        });
+        if (!confirmed) return;
+        const body = {
+          ...(machineId ? { machineId } : {}),
+          ...(Array.isArray(eventIds) ? { eventIds } : {}),
+          ...(readState ? { readState } : {}),
+        };
+        const result = await api("/api/events", {
+          method: "DELETE",
+          body: JSON.stringify(body),
+        });
+        setNotice({ message: `${result.count || 0}개 Event가 삭제되였습니다`, kind: "success" });
+        await refreshAll({ showLoading: false });
+      },
       async requestWebNotifications() {
         if (typeof window === "undefined" || !("Notification" in window)) {
           setWebNotificationPermission("unsupported");

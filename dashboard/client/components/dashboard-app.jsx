@@ -40,7 +40,7 @@ export default function DashboardApp() {
           ) : state.selectedTab === "configs" ? (
             <ConfigsDashboard state={state} actions={actions} />
           ) : state.selectedTab === "events" ? (
-            <EventsDashboard state={state} />
+            <EventsDashboard state={state} actions={actions} />
           ) : state.selectedTab === "alerts" ? (
             <AlertsDashboard state={state} actions={actions} />
           ) : (
