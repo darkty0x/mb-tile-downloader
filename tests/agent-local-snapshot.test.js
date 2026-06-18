@@ -72,3 +72,43 @@ test("local snapshot reports exact tile storage beyond shallow scan limits", asy
   assert.equal(tiles.sizeBytes, 2005 * 4);
   assert.equal(tiles.truncated, false);
 });
+
+test("local snapshot omits mapbox tokens from env list and reports them as API keys", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-env-"));
+  await mkdir(path.join(dir, "tiles"), { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nMAPBOX_ACCESS_TOKENS=pk.one,pk.two\nPORT=3001\n");
+
+  const snapshot = await collectLocalSnapshot({ projectDir: dir, stateDir: path.join(dir, ".tile-state") });
+
+  assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "MAPBOX_ACCESS_TOKENS"), false);
+  assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "PORT"), true);
+  assert.deepEqual(snapshot.secrets.mapboxTokens, ["pk.one", "pk.two"]);
+  assert.equal(snapshot.secrets.mapboxTokenCount, 2);
+});
+
+test("local snapshot scans every configured tile root exactly", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-roots-"));
+  const tileRootA = path.join(dir, "tiles-a");
+  const tileRootB = path.join(dir, "tiles-b");
+  await mkdir(path.join(tileRootA, "vector", "17", "1"), { recursive: true });
+  await mkdir(path.join(tileRootB, "vector", "17", "2"), { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\n");
+  await writeFile(path.join(tileRootA, "vector", "17", "1", "1.pbf"), "root-a");
+  await writeFile(path.join(tileRootB, "vector", "17", "2", "2.pbf"), "root-b");
+
+  const snapshot = await collectLocalSnapshot({
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    env: {
+      TILE_DOWNLOADER_OUTPUT_ROOTS: `${tileRootA},${tileRootB}`,
+    },
+  });
+  const tileItems = snapshot.storage.filter((item) => item.type === "tiles" && item.exists);
+
+  assert.equal(tileItems.length, 2);
+  assert.equal(tileItems.reduce((sum, item) => sum + item.fileCount, 0), 2);
+  assert.equal(tileItems.reduce((sum, item) => sum + item.sizeBytes, 0), "root-a".length + "root-b".length);
+  assert.equal(tileItems.some((item) => item.truncated), false);
+});

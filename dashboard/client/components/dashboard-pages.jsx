@@ -5,7 +5,7 @@ import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-mod
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
-import { SECRET_LABELS, SERVER_TABS, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers", "sky"],
@@ -30,15 +30,20 @@ function kpiTone(key, metric) {
   return "primary";
 }
 
-function diskPeakForMachine(machine) {
-  return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
-}
-
 function pipelineTone(status) {
   if (status === "complete") return "success";
   if (status === "running") return "primary";
   if (status === "error") return "danger";
   return "muted";
+}
+
+function displayPlatformLabel(value) {
+  const text = String(value || "").trim();
+  if (!text) return "대기중";
+  if (text === "win32") return "Windows";
+  if (text === "darwin") return "macOS";
+  if (text === "linux") return "Linux";
+  return text;
 }
 
 function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac", compactUnit = "" }) {
@@ -167,7 +172,7 @@ function DiskCapacityCard({ state }) {
     .slice(0, 5);
   return (
     <Surface className="p-4">
-      <SectionTitle title="구동기용량" meta="봉사기별로 가장 많이 사용한 구동기" />
+      <SectionTitle title="구동기용량" meta="봉사기별 전체 사용비률" />
       <div className="grid gap-2">
         {rows.length ? rows.map(({ machine, peak, disk }) => (
           <div key={machine.machineId} className="grid grid-cols-[minmax(0,1fr)_92px_44px] items-center gap-3 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
@@ -480,12 +485,18 @@ export function ServerManagementPage({ state, actions }) {
     events: state.events,
     machineId: targetMachineId,
   });
+  const envVariableCount = snapshot.envFiles?.reduce((sum, file) => sum + (Number(file.variableCount) || 0), 0) || 0;
+  const localProxyCount = Number(snapshot.secrets?.proxy?.availableCount) || 0;
+  const localMapboxCount = Number(snapshot.secrets?.mapboxTokenCount) || 0;
   const counts = {
     configs: serverState.configs.length || snapshot.configs?.length || 0,
-    env: serverState.envProfiles.length || snapshot.envFiles?.filter((file) => file.exists).length || 0,
-    secrets: serverState.secrets.length || (snapshot.secrets ? Number(Boolean(snapshot.secrets.proxy?.exists)) + Number(snapshot.secrets.mapboxTokenCount || 0) : 0),
+    env: serverState.envProfiles.length || envVariableCount,
+    secrets: serverState.secrets.length || localProxyCount + localMapboxCount,
     console: serverState.events.length || snapshot.console?.recentLines?.length || 0,
   };
+  const endpointParts = connection
+    ? [endpoint, connection.credential?.username, displayMachineId(targetMachineId)]
+    : ["Agent 련결", displayMachineId(targetMachineId)];
   return (
     <section className="screen-enter mt-4 grid gap-4">
       <Surface className="p-4">
@@ -496,7 +507,7 @@ export function ServerManagementPage({ state, actions }) {
             </span>
             <div className="min-w-0">
               <h2 className="truncate text-[22px] font-[900] leading-tight">{connection?.label || machine?.displayName || displayMachineId(targetMachineId)}</h2>
-              <p className="mt-1 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{endpoint} | {connection?.credential?.username || "Agent"} | {displayMachineId(targetMachineId)}</p>
+              <p className="mt-1 truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{endpointParts.filter(Boolean).join(" | ")}</p>
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-2">
@@ -509,7 +520,7 @@ export function ServerManagementPage({ state, actions }) {
         </div>
         <div className="mt-4 grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
           <MiniMetric label="Agent ID" value={displayMachineId(targetMachineId)} />
-          <MiniMetric label="체계" value={machine?.platform || "대기중"} />
+          <MiniMetric label="체계" value={displayPlatformLabel(machine?.platform)} />
           <MiniMetric label="사용한 용량" value={machine ? `${diskPeakForMachine(machine)}%` : "--"} />
           <MiniMetric label="마지막 확인" value={machine ? shortDate(machine.lastSeenAt) : "대기중"} />
         </div>
@@ -576,7 +587,7 @@ function ServerPageControl({ state, machine, overview }) {
       <PipelineOverview
         overview={overview}
         title="선택된 봉사기 공정흐름"
-        meta={overview.activeJob ? `작업 ${overview.activeJob.jobId}` : "대기중인 작업 또는 최근 단계자료"}
+        meta={overview.activeJob ? `작업 ${overview.activeJob.jobId}` : "현재의 작업상태"}
       />
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {facts.map(([icon, label, value]) => (
@@ -642,9 +653,39 @@ function storageBreakdownForDisk(disk, storage) {
   }));
 }
 
+function aggregateStorageItems(storage) {
+  const labels = {
+    tiles: "Tile Content",
+    zip: "Zip Archives",
+  };
+  const result = new Map();
+  for (const item of storage) {
+    if (!["tiles", "zip"].includes(item.type)) continue;
+    const current = result.get(item.type) || {
+      ...item,
+      label: labels[item.type] || item.label,
+      path: item.type === "tiles" ? "tiles" : item.path,
+      absolutePath: item.absolutePath,
+      exists: false,
+      sizeBytes: 0,
+      fileCount: 0,
+      dirCount: 0,
+      truncated: false,
+    };
+    current.exists = current.exists || Boolean(item.exists);
+    current.sizeBytes += Number(item.sizeBytes) || 0;
+    current.fileCount += Number(item.fileCount) || 0;
+    current.dirCount += Number(item.dirCount) || 0;
+    current.truncated = current.truncated || Boolean(item.truncated);
+    result.set(item.type, current);
+  }
+  return ["tiles", "zip"].map((type) => result.get(type)).filter(Boolean);
+}
+
 function ServerPageStorage({ machine }) {
   const disks = [...(machine?.disk || [])].sort((a, b) => Number(Boolean(b.containsProject)) - Number(Boolean(a.containsProject)));
   const storage = (machine?.agentSnapshot?.storage || []).filter((item) => ["tiles", "zip"].includes(item.type));
+  const storageSummary = aggregateStorageItems(storage);
   return (
     <section className="grid gap-3">
       <SectionTitle title="구동기용량" meta={`${disks.length}개 구동기 | 사용공간`} />
@@ -672,7 +713,7 @@ function ServerPageStorage({ machine }) {
                 {breakdown.map((item) => (
                   <div key={item.type} className="grid grid-cols-[minmax(100px,160px)_minmax(0,1fr)_auto] items-center gap-2 text-[11.5px] max-sm:grid-cols-1">
                     <span className="min-w-0 truncate font-[750] text-[var(--ptg-on-surface)]">
-                      {item.label}{item.truncated ? " (부분)" : ""}
+                      {item.label}
                     </span>
                     <span className="h-2 overflow-hidden rounded-full bg-[#e7edf5]">
                       <span className="block h-full rounded-full" style={{ width: `${item.pctOfUsed}%`, background: item.color }} />
@@ -687,9 +728,9 @@ function ServerPageStorage({ machine }) {
           );
         }) : <EmptyLine>아직 구동기사용량과 관련한 정보가 없습니다</EmptyLine>}
       </div>
-      {storage.length ? (
+      {storageSummary.length ? (
         <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2 shadow-sm">
-          {storage.map((item) => (
+          {storageSummary.map((item) => (
             <div key={`${item.type}-${item.path}`} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2.5 hover:bg-[var(--ptg-surface-container)]">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]">
                 <Icon name={item.type === "zip" ? "zip" : "layers"} className="h-3.5 w-3.5" />
@@ -697,7 +738,7 @@ function ServerPageStorage({ machine }) {
               <span className="min-w-0">
                 <strong className="block truncate text-[12.5px]">{item.label}</strong>
                 <small className="block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-                  {item.path} | {item.exists ? `화일 ${item.fileCount}개, 등록부 ${item.dirCount}개` : "찾을수 없음"}{item.truncated ? " | 부분검사" : ""}
+                  {item.path} | {item.exists ? `화일 ${item.fileCount}개, 등록부 ${item.dirCount}개` : "찾을수 없음"}
                 </small>
               </span>
               <strong className="text-right text-[12px]">{formatBytes(item.sizeBytes)}</strong>
@@ -769,36 +810,46 @@ function ServerPageEnv({ state }) {
 
 function ServerPageSecrets({ state, actions }) {
   const snapshotSecrets = state.selectedMachine?.agentSnapshot?.secrets || {};
+  const mapboxSecrets = state.secrets.filter((secret) => secret.secretType === "mapbox_token");
+  const proxySecrets = state.secrets.filter((secret) => secret.secretType === "proxy_txt");
+  const localMapboxTokens = Array.isArray(snapshotSecrets.mapboxTokens) ? snapshotSecrets.mapboxTokens : [];
+  const renderDashboardSecret = (secret) => (
+    <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+      <div className="min-w-0">
+        <strong className="block truncate text-[12.5px]">{secret.label}</strong>
+        <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+      </div>
+      <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
+      <TableActions type="secret" id={secret.secretId} actions={actions} />
+    </div>
+  );
   return (
-    <section className="grid gap-2">
-      <SectionTitle title="API Key" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
-      {state.secrets.length ? state.secrets.map((secret) => (
-        <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
-          <div className="min-w-0">
-            <strong className="block truncate text-[12.5px]">{secret.label}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+    <section className="grid gap-3">
+      <SectionTitle title="API Key 및 Proxy" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
+      <div className="grid gap-2 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3">
+        <SectionTitle title="Mapbox API Key" meta={`${mapboxSecrets.length || localMapboxTokens.length}개`} />
+        {mapboxSecrets.length ? mapboxSecrets.map(renderDashboardSecret) : localMapboxTokens.length ? localMapboxTokens.map((token, index) => (
+          <div key={`local-mapbox-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+            <span className="min-w-0">
+              <strong className="block truncate text-[12.5px]">MAPBOX_ACCESS_TOKENS #{index + 1}</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">Mapbox API Key | {token}</small>
+            </span>
+            <StatusPill status="active">Local .env</StatusPill>
           </div>
-          <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
-          <TableActions type="secret" id={secret.secretId} actions={actions} />
-        </div>
-      )) : snapshotSecrets.proxy || snapshotSecrets.mapboxTokenCount ? (
-        <>
+        )) : <EmptyLine>Mapbox API Key가 없습니다</EmptyLine>}
+      </div>
+      <div className="grid gap-2 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3">
+        <SectionTitle title="Proxy" meta={`${proxySecrets.length || snapshotSecrets.proxy?.availableCount || 0}개`} />
+        {proxySecrets.length ? proxySecrets.map(renderDashboardSecret) : snapshotSecrets.proxy ? (
           <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
             <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">Proxy 목록</strong>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.proxy?.path || "proxy.txt"} | Local 항목 {snapshotSecrets.proxy?.availableCount || 0}개</small>
+              <strong className="block truncate text-[12.5px]">proxy.txt</strong>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.proxy.path || "proxy.txt"} | Local Proxy {snapshotSecrets.proxy.availableCount || 0}개</small>
             </span>
-            <StatusPill status={snapshotSecrets.proxy?.exists ? "active" : "neutral"}>{snapshotSecrets.proxy?.exists ? "읽음" : "없음"}</StatusPill>
+            <StatusPill status={snapshotSecrets.proxy.exists ? "active" : "neutral"}>{snapshotSecrets.proxy.exists ? "읽음" : "없음"}</StatusPill>
           </div>
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
-            <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">Mapbox Token</strong>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.generatedEnvPath || "generated env"} | 가리움</small>
-            </span>
-            <StatusPill status={snapshotSecrets.mapboxTokenCount ? "active" : "neutral"}>{snapshotSecrets.mapboxTokenCount || 0}</StatusPill>
-          </div>
-        </>
-      ) : <EmptyLine>이 봉사기에 배정된 API Key가 없습니다</EmptyLine>}
+        ) : <EmptyLine>Proxy가 없습니다</EmptyLine>}
+      </div>
     </section>
   );
 }
@@ -1537,7 +1588,7 @@ function SecretPoolsTable({ state, actions }) {
     <div className="grid gap-4">
       <ResourcePoolTypeTable
         actions={actions}
-        addLabel="Key 추가"
+        addLabel="API Key 추가"
         emptyLabel="일치한 Mapbox API Key가 없습니다"
         secretType="mapbox_token"
         state={state}
@@ -1595,7 +1646,7 @@ function ServersTable({ state, actions }) {
           </thead>
           <tbody>
             {filtered.length ? filtered.map((machine) => {
-              const diskPeak = Math.max(0, ...((machine.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+              const diskPeak = diskPeakForMachine(machine);
               return (
                 <tr
                   key={machine.machineId}
@@ -1609,7 +1660,7 @@ function ServersTable({ state, actions }) {
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
                     {diskPeak ? <><UsageBar percent={diskPeak} className="mr-2 w-[48px] sm:w-[72px] 2xl:w-[110px]" /><strong>{diskPeak}%</strong></> : "--"}
                   </td>
-                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{machine.platform || "알수없음"}</td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{displayPlatformLabel(machine.platform)}</td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{shortDate(machine.lastSeenAt)}</td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 text-right max-sm:px-1.5">
                     <div className="flex justify-end gap-1.5">

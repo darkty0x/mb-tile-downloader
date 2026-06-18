@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
+import { diskPeakForMachine } from "../dashboard/client/components/dashboard-core.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -126,6 +127,18 @@ test("server command rows follow selected machine lifecycle state", () => {
     }).map(([type]) => type),
     ["resume_pipeline", "stop_pipeline", "sync_config", "sync_env"]
   );
+});
+
+test("machine disk usage uses summed capacity instead of highest drive percent", () => {
+  const machine = {
+    disk: [
+      { mount: "C:", totalBytes: 100, usedBytes: 82, percentUsed: 82 },
+      { mount: "D:", totalBytes: 900, usedBytes: 90, percentUsed: 10 },
+    ],
+  };
+
+  assert.equal(diskPeakForMachine(machine), 17);
+  assert.equal(buildOverviewModel({ machines: [machine] }).diskPressure, 17);
 });
 
 test("global search returns navigable servers configs and events", () => {

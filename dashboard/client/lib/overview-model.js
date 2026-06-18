@@ -100,7 +100,17 @@ function thresholdValue(settings, name, fallback) {
 }
 
 function diskPeak(machine) {
-  return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+  const disks = machine?.disk || [];
+  const totalBytes = disks.reduce((sum, disk) => sum + (Number(disk.totalBytes) || 0), 0);
+  const usedBytes = disks.reduce((sum, disk) => {
+    const explicitUsed = Number(disk.usedBytes);
+    if (Number.isFinite(explicitUsed) && explicitUsed >= 0) return sum + explicitUsed;
+    const total = Number(disk.totalBytes) || 0;
+    const free = Number(disk.freeBytes) || 0;
+    return sum + Math.max(0, total - free);
+  }, 0);
+  if (totalBytes > 0) return Math.round((usedBytes / totalBytes) * 100);
+  return Math.max(0, ...disks.map((disk) => Number(disk.percentUsed) || 0));
 }
 
 function secretCounts(secrets, secretType) {
@@ -109,6 +119,31 @@ function secretCounts(secrets, secretType) {
   const assigned = items.filter((secret) => secret.status === "active" && secret.machineId).length;
   const disabled = items.length - available - assigned;
   return { total: items.length, available, assigned, disabled };
+}
+
+function scopedJobsForMachine(jobs = [], machineId) {
+  return jobs.filter((job) => jobMachineMatches(job, machineId));
+}
+
+function activeJobCount(jobs = [], machineId) {
+  return scopedJobsForMachine(jobs, machineId).filter((job) => RUNNING_JOB_STATUSES.has(job.status)).length;
+}
+
+function queuedJobCount(jobs = [], machineId) {
+  return scopedJobsForMachine(jobs, machineId).filter((job) => job.status === "queued").length;
+}
+
+function averageDownloadThroughput(jobs = [], machineId) {
+  const downloadingJobs = scopedJobsForMachine(jobs, machineId)
+    .filter((job) => RUNNING_JOB_STATUSES.has(job.status))
+    .filter((job) => String(job.stage || "").toLowerCase() === "download")
+    .map((job) => Number(job.progress?.tilesPerSecond ?? job.progress?.tileRate ?? job.progress?.rate))
+    .filter((rate) => Number.isFinite(rate) && rate > 0);
+  if (!downloadingJobs.length) return { average: 0, count: 0 };
+  return {
+    average: downloadingJobs.reduce((sum, rate) => sum + rate, 0) / downloadingJobs.length,
+    count: downloadingJobs.length,
+  };
 }
 
 function pipelineStatus(events, step) {
@@ -308,8 +343,10 @@ export function buildOverviewModel({
 } = {}) {
   const online = machines.filter((machine) => machine.status === "online").length;
   const failedJobs = events.filter((event) => event.severity === "error" || event.type === "range.failed").length;
-  const activeJobs = jobs.filter((job) => jobMachineMatches(job, machineId) && RUNNING_JOB_STATUSES.has(job.status)).length
+  const activeJobs = activeJobCount(jobs, machineId)
     || events.filter((event) => /\.started$/.test(event.type || "")).length;
+  const queuedJobs = queuedJobCount(jobs, machineId);
+  const throughput = averageDownloadThroughput(jobs, machineId);
   const diskPressure = Math.max(0, ...machines.map(diskPeak));
   const mapbox = secretCounts(secretPool, "mapbox_token");
   const proxies = secretCounts(secretPool, "proxy_txt");
@@ -341,8 +378,12 @@ export function buildOverviewModel({
   return {
     kpis: {
       serversOnline: { label: "련결된 봉사기", value: `${online} / ${machines.length}`, detail: machines.length ? `${Math.round((online / machines.length) * 100)}% 련결됨` : "agent 대기중" },
-      activeJobs: { label: "활성화된 작업공정", value: activeJobs, detail: `${Math.max(0, configs.length - activeJobs)}개 대기` },
-      throughput: { label: "타일 처리속도", value: "0 타일/초", detail: "실시간 Agent 지표 대기중" },
+      activeJobs: { label: "활성화된 작업공정", value: activeJobs, detail: `${queuedJobs}개 대기` },
+      throughput: {
+        label: "타일 처리속도",
+        value: `${Math.round(throughput.average)} 타일/초`,
+        detail: throughput.count ? `내리적재중인 봉사기 ${throughput.count}대 평균` : "내리적재중인 봉사기 없음",
+      },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
       failedJobs: { label: "실패한 타일수", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
       resourceAlerts: { label: "API Key 및 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },

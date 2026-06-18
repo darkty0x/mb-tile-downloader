@@ -2,6 +2,8 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
 import { materializeConfig } from "./config-sync.js";
@@ -16,6 +18,7 @@ import { materializeSecrets } from "./secret-materializer.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 export const AGENT_PROTOCOL_VERSION = 1;
+const execFileAsync = promisify(execFile);
 
 export function isCliEntrypoint(metaUrl = import.meta.url, argvPath = process.argv[1]) {
   if (!argvPath) return false;
@@ -43,6 +46,34 @@ async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo, options =
       },
     ];
   }
+}
+
+async function collectPlatformLabel(platform = process.platform) {
+  if (platform === "win32") {
+    try {
+      const { stdout } = await execFileAsync("powershell.exe", [
+        "-NoProfile",
+        "-Command",
+        "(Get-CimInstance Win32_OperatingSystem).Caption",
+      ]);
+      const caption = stdout.trim();
+      if (caption) return caption;
+    } catch {
+      return `Windows ${os.release()}`;
+    }
+  }
+  if (platform === "darwin") return `macOS ${os.release()}`;
+  if (platform === "linux") {
+    try {
+      const { readFile } = await import("node:fs/promises");
+      const osRelease = await readFile("/etc/os-release", "utf8");
+      const pretty = /^PRETTY_NAME="?([^"\n]+)"?/m.exec(osRelease)?.[1];
+      if (pretty) return pretty;
+    } catch {
+      return `Linux ${os.release()}`;
+    }
+  }
+  return `${os.type()} ${os.release()}`;
 }
 
 function commandExitError(commandType, result = {}) {
@@ -213,6 +244,7 @@ export async function runAgent({
   log = () => {},
 } = {}) {
   const identity = await loadAgentIdentity({ stateDir, machineId: env.MACHINE_ID });
+  const platformLabel = await collectPlatformLabel(process.platform);
   const client = createClient({
     baseUrl: env.DASHBOARD_URL,
     agentToken: env.AGENT_TOKEN,
@@ -259,7 +291,7 @@ export async function runAgent({
     await client.heartbeat({
       ...identity,
       status: "online",
-      platform: process.platform,
+      platform: platformLabel,
       hostname: os.hostname(),
       disk,
       agentSnapshot,
@@ -272,7 +304,7 @@ export async function runAgent({
   await client.register({
     ...identity,
     displayName: env.MACHINE_DISPLAY_NAME || identity.machineId,
-    platform: process.platform,
+    platform: platformLabel,
     version: env.npm_package_version || "unknown",
     agentProtocolVersion: AGENT_PROTOCOL_VERSION,
   });

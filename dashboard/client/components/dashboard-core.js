@@ -3,7 +3,7 @@ export const TABS = [
   ["servers", "봉사기", "servers"],
   ["configs", "Config 화일", "config"],
   ["pipelines", "공정흐름", "pipelines"],
-  ["secrets", "API Key", "secrets"],
+  ["secrets", "API Key 및 Proxy", "secrets"],
   ["credentials", "계정정보", "credentials"],
   ["events", "Event 기록", "console"],
   ["alerts", "경보", "alerts"],
@@ -23,10 +23,10 @@ export const PAGE_META = {
 };
 
 export const SERVER_TABS = [
-  ["control", "조종", "control"],
+  ["control", "공정흐름", "control"],
   ["configs", "Config", "config"],
   ["env", ".Env", "env"],
-  ["secrets", "API Key", "secrets"],
+  ["secrets", "API Key 및 Proxy", "secrets"],
   ["console", "Console", "console"],
 ];
 
@@ -216,5 +216,15 @@ export function fleetState(state) {
 }
 
 export function diskPeakForMachine(machine) {
-  return Math.max(0, ...((machine?.disk || []).map((disk) => Number(disk.percentUsed) || 0)));
+  const disks = machine?.disk || [];
+  const totalBytes = disks.reduce((sum, disk) => sum + (Number(disk.totalBytes) || 0), 0);
+  const usedBytes = disks.reduce((sum, disk) => {
+    const explicitUsed = Number(disk.usedBytes);
+    if (Number.isFinite(explicitUsed) && explicitUsed >= 0) return sum + explicitUsed;
+    const total = Number(disk.totalBytes) || 0;
+    const free = Number(disk.freeBytes) || 0;
+    return sum + Math.max(0, total - free);
+  }, 0);
+  if (totalBytes > 0) return Math.round((usedBytes / totalBytes) * 100);
+  return Math.max(0, ...disks.map((disk) => Number(disk.percentUsed) || 0));
 }

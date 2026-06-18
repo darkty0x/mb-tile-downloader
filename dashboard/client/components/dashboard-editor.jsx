@@ -251,7 +251,7 @@ export function EditorDrawer({ state, actions }) {
   return (
     <ModalShell
       title={editorTitle(editor.type, record, editor)}
-      subtitle={editor.type.includes("secret") ? "전체범위" : displayMachineId(state.selectedMachine?.machineId)}
+      subtitle={""}
       width="w-[min(620px,calc(100vw-32px))]"
       onClose={() => actions.setEditor({ type: "summary" })}
     >
@@ -423,7 +423,7 @@ function ConfigRangeBuilder({ actions }) {
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div>
           <h4 className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">범위</h4>
-          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">선택한 Config 화일 류형에 필요합니다. 예비값에는 범위이 들어있지 않습니다.</p>
+          <p className="mt-0.5 text-[11px] font-[500] text-[var(--ptg-on-surface-variant)]">선택한 Config 화일 류형에 필요합니다. 예비값에는 범위가 들어있지 않습니다.</p>
         </div>
         <AppButton type="button" icon="check" onClick={validate}>범위 검증</AppButton>
       </div>
@@ -840,7 +840,7 @@ function SecretForm({ record, editor, state, actions }) {
           </div>
           {selectedSecretType === "mapbox_token" ? (
             <div className="mt-3">
-              <SwitchField name="validateExisting" label="기존 API Key를 검증한 다음 배정" defaultChecked />
+              <SwitchField name="validateExisting" label="API Key를 검증한 다음 배정" defaultChecked />
             </div>
           ) : null}
         </section>

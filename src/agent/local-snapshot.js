@@ -9,6 +9,7 @@ import { resolveOutputStorage } from "../runtime/output-storage.js";
 const MAX_DIR_ENTRIES = 80;
 const MAX_CONSOLE_LINES = 80;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL|PASS)/i;
+const API_ENV_NAMES = new Set(["MAPBOX_ACCESS_TOKENS"]);
 
 function slashPath(value) {
   return String(value || "").replace(/\\/g, "/");
@@ -69,7 +70,14 @@ async function listJsonConfigs(configDir) {
   return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-async function summarizeEnvFile(projectDir, filePath) {
+function splitList(value) {
+  return String(value || "")
+    .split(/[,\r\n;]+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+async function summarizeEnvFile(projectDir, filePath, { omitNames = new Set() } = {}) {
   const fileStat = await existsStat(filePath);
   if (!fileStat?.isFile()) {
     return {
@@ -95,7 +103,8 @@ async function summarizeEnvFile(projectDir, filePath) {
         value,
         secret: SECRET_NAME_PATTERN.test(name),
       };
-    });
+    })
+    .filter((item) => !omitNames.has(item.name));
   return {
     path: rel(projectDir, filePath),
     exists: true,
@@ -104,6 +113,25 @@ async function summarizeEnvFile(projectDir, filePath) {
     sizeBytes: fileStat.size,
     updatedAt: fileStat.mtime.toISOString(),
   };
+}
+
+async function readEnvValue(filePath, name) {
+  const fileStat = await existsStat(filePath);
+  if (!fileStat?.isFile()) return "";
+  const content = await readFile(filePath, "utf8");
+  for (const line of content.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const index = trimmed.indexOf("=");
+    if (index === -1) continue;
+    if (trimmed.slice(0, index).trim() !== name) continue;
+    let value = trimmed.slice(index + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    return value;
+  }
+  return "";
 }
 
 async function countNonEmptyLines(filePath) {
@@ -221,21 +249,36 @@ function uniquePaths(paths, platform = process.platform) {
 }
 
 function tileDirsForDisks({ disks = [], projectDir, platform = process.platform }) {
+  const candidates = [];
   if (platform === "win32") {
     const parsed = path.win32.parse(projectDir);
     const relativeProject = path.win32.relative(parsed.root, projectDir);
-    if (!relativeProject || relativeProject.startsWith("..")) return [];
-    return disks.map((disk) => {
+    const projectName = path.win32.basename(projectDir);
+    for (const disk of disks) {
       const mount = String(disk.mount || disk.name || "").replace(/[\\/]+$/, "");
-      return mount ? path.win32.resolve(`${mount}\\`, relativeProject, "tiles") : null;
-    }).filter(Boolean);
+      if (!mount) continue;
+      const root = `${mount}\\`;
+      candidates.push(path.win32.resolve(root, "tiles"));
+      if (projectName) candidates.push(path.win32.resolve(root, projectName, "tiles"));
+      if (relativeProject && !relativeProject.startsWith("..")) {
+        candidates.push(path.win32.resolve(root, relativeProject, "tiles"));
+      }
+    }
+    return candidates.filter(Boolean);
   }
 
   const projectDisk = disks.find((disk) => disk.containsProject);
-  if (!projectDisk?.mount) return [];
-  const relativeProject = path.relative(projectDisk.mount, projectDir);
-  if (!relativeProject || relativeProject.startsWith("..")) return [];
-  return disks.map((disk) => disk.mount ? path.resolve(disk.mount, relativeProject, "tiles") : null).filter(Boolean);
+  const relativeProject = projectDisk?.mount ? path.relative(projectDisk.mount, projectDir) : "";
+  const projectName = path.basename(projectDir);
+  for (const disk of disks) {
+    if (!disk.mount) continue;
+    candidates.push(path.resolve(disk.mount, "tiles"));
+    if (projectName) candidates.push(path.resolve(disk.mount, projectName, "tiles"));
+    if (relativeProject && !relativeProject.startsWith("..")) {
+      candidates.push(path.resolve(disk.mount, relativeProject, "tiles"));
+    }
+  }
+  return candidates.filter(Boolean);
 }
 
 async function readRecentLines(filePath, limit = MAX_CONSOLE_LINES) {
@@ -270,8 +313,11 @@ export async function collectLocalSnapshot({
     projectDir: resolvedProject,
   });
   const proxyInfo = await countNonEmptyLines(path.join(resolvedProject, "proxy.txt"));
+  const rootMapboxTokens = splitList(await readEnvValue(path.join(resolvedProject, ".env"), "MAPBOX_ACCESS_TOKENS"));
+  const syncedMapboxTokens = splitList(synced.secretEnv?.MAPBOX_ACCESS_TOKENS);
+  const mapboxTokens = syncedMapboxTokens.length ? syncedMapboxTokens : rootMapboxTokens;
   const envFiles = [
-    await summarizeEnvFile(resolvedProject, path.join(resolvedProject, ".env")),
+    await summarizeEnvFile(resolvedProject, path.join(resolvedProject, ".env"), { omitNames: API_ENV_NAMES }),
   ];
   const disks = await safeCollectDiskInfo({ platform, projectDir: resolvedProject });
 
@@ -313,7 +359,8 @@ export async function collectLocalSnapshot({
         sizeBytes: proxyInfo.sizeBytes,
         updatedAt: proxyInfo.updatedAt,
       },
-      mapboxTokenCount: Number(synced.secretEnv?.MAPBOX_ACCESS_TOKENS?.split(",").filter(Boolean).length || 0),
+      mapboxTokenCount: mapboxTokens.length,
+      mapboxTokens,
       generatedEnvPath: rel(resolvedProject, synced.secretsEnvPath),
     },
     storage: [...tileStorage, ...storage],
