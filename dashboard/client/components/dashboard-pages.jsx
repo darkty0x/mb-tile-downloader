@@ -898,7 +898,10 @@ function ServerPageSecrets({ state, actions }) {
   const mapboxSecrets = state.secrets.filter((secret) => secret.secretType === "mapbox_token");
   const proxySecrets = state.secrets.filter((secret) => secret.secretType === "proxy_txt");
   const localMapboxTokens = mapboxTokensFromSnapshot(snapshotSecrets, envFiles);
-  const localMapboxItems = mapboxSecrets.length ? [] : localMapboxTokens.map((token, index) => ({
+  const assignedMapboxValues = new Set(mapboxSecrets.map(secretValueForDisplay).filter(Boolean));
+  const localMapboxItems = localMapboxTokens
+    .filter((token) => !assignedMapboxValues.has(token))
+    .map((token, index) => ({
     secretId: `local-mapbox-${index}`,
     localOnly: true,
     secretType: "mapbox_token",

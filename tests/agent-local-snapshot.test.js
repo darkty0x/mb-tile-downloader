@@ -77,13 +77,32 @@ test("local snapshot omits mapbox tokens from env list and reports them as API k
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-env-"));
   await mkdir(path.join(dir, "tiles"), { recursive: true });
   await mkdir(path.join(dir, "archives"), { recursive: true });
-  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nMAPBOX_ACCESS_TOKENS=pk.one,pk.two\nPORT=3001\n");
+  await writeFile(
+    path.join(dir, ".env"),
+    [
+      "MACHINE_ID=server-01",
+      "STORJ_ACCESS=secret-access-value",
+      "STORJ_PASSPHRASE=secret pass phrase",
+      "DASHBOARD_URL=https://dashboard.example.com",
+      "AGENT_TOKEN=agent-token-value",
+      "MAPBOX_ACCESS_TOKENS=pk.one,pk.two",
+      "PORT=3001",
+      "",
+    ].join("\n")
+  );
 
   const snapshot = await collectLocalSnapshot({ projectDir: dir, stateDir: path.join(dir, ".tile-state") });
 
   assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "MAPBOX_ACCESS_TOKENS"), false);
   assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "PORT"), true);
+  assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "STORJ_ACCESS").value, "secret-access-value");
+  assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "STORJ_PASSPHRASE").value, "secret pass phrase");
+  assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "AGENT_TOKEN").value, "agent-token-value");
   assert.equal(snapshot.envFiles[0].content.includes("MAPBOX_ACCESS_TOKENS"), false);
+  assert.match(snapshot.envFiles[0].content, /STORJ_ACCESS=secret-access-value/);
+  assert.match(snapshot.envFiles[0].content, /STORJ_PASSPHRASE=secret pass phrase/);
+  assert.match(snapshot.envFiles[0].content, /AGENT_TOKEN=agent-token-value/);
+  assert.doesNotMatch(snapshot.envFiles[0].content, /\*{3,}/);
   assert.match(snapshot.envFiles[0].content, /PORT=3001/);
   assert.deepEqual(snapshot.secrets.mapboxTokens, ["pk.one", "pk.two"]);
   assert.equal(snapshot.secrets.mapboxTokenCount, 2);
