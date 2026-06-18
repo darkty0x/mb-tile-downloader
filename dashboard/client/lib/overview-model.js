@@ -151,6 +151,21 @@ function failedTileCount(jobs = [], machineId) {
   }, 0);
 }
 
+function failedTileMachines(jobs = [], machineId) {
+  const counts = new Map();
+  for (const job of scopedJobsForMachine(jobs, machineId)) {
+    const progress = job?.progress || {};
+    const value = Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0);
+    if (!Number.isFinite(value) || value <= 0) continue;
+    const key = normalizeMachineId(job.machineId);
+    if (!key) continue;
+    counts.set(key, (counts.get(key) || 0) + value);
+  }
+  return [...counts.entries()]
+    .map(([machineId, failedTiles]) => ({ machineId, failedTiles }))
+    .sort((a, b) => b.failedTiles - a.failedTiles || a.machineId.localeCompare(b.machineId));
+}
+
 function pipelineStatus(events, step) {
   const completed = events.some((event) => event.type === `range.${step}.completed`);
   if (completed) return "complete";
@@ -365,6 +380,7 @@ export function buildOverviewModel({
   const online = machines.filter((machine) => machine.status === "online").length;
   const dashboardEvents = events.filter((event) => !isConsoleOutputEvent(event));
   const failedTiles = failedTileCount(jobs, machineId);
+  const failedMachines = failedTileMachines(jobs, machineId);
   const activeJobs = activeJobCount(jobs, machineId)
     || dashboardEvents.filter((event) => /\.started$/.test(event.type || "")).length;
   const queuedJobs = queuedJobCount(jobs, machineId);
@@ -417,6 +433,7 @@ export function buildOverviewModel({
     storjShareUrl: pipelineModel.storjShareUrl,
     storjRawLinkPrefix: pipelineModel.storjRawLinkPrefix,
     activeJob: pipelineModel.activeJob,
+    failedTileMachines: failedMachines,
     diskPressure,
     health,
     resourceAlerts,

@@ -70,6 +70,19 @@ function InsightCard({ icon, label, value, detail, tone = "primary", palette = "
   );
 }
 
+function ClickableInsightCard({ onClick, ...props }) {
+  if (!onClick) return <InsightCard {...props} />;
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="group block min-w-0 rounded-[22px] text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] focus-visible:ring-offset-2"
+    >
+      <InsightCard {...props} />
+    </button>
+  );
+}
+
 function MiniMetric({ label, value }) {
   return (
     <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2">
@@ -79,14 +92,41 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태" }) {
+function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
     ["완료예상", overview.pipelineEta || "대기중"],
   ];
+  const activeJob = overview.activeJob;
+  const progress = activeJob?.progress || {};
+  const detailRows = activeJob ? [
+    ["봉사기", displayMachineId(activeJob.machineId)],
+    ["작업단계", overview.pipelineStage || activeJob.stage || "대기중"],
+    ["타일", `${Number(progress.tilesDone ?? progress.done ?? 0).toLocaleString()} / ${Number(progress.tilesTotal ?? progress.total ?? 0).toLocaleString()}`],
+    ["처리속도", `${Math.round(Number(progress.tilesPerSecond ?? progress.tileRate ?? progress.rate) || 0).toLocaleString()} 타일/초`],
+    ["빠짐", Number(progress.tilesMissing ?? progress.missing ?? 0).toLocaleString()],
+    ["실패", Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0).toLocaleString()],
+  ] : [
+    ["봉사기", "대기중"],
+    ["작업단계", overview.pipelineStage || "대기중"],
+    ["타일", "0 / 0"],
+    ["처리속도", "0 타일/초"],
+  ];
   return (
-    <Surface className="p-4">
+    <Surface className={`p-4 ${onClick ? "state-layer cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--ptg-primary)] hover:shadow-[0_16px_36px_rgba(38,24,92,0.12)]" : ""}`}>
+      <div
+        role={onClick ? "button" : undefined}
+        tabIndex={onClick ? 0 : undefined}
+        onClick={onClick}
+        onKeyDown={(event) => {
+          if (!onClick) return;
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+            onClick();
+          }
+        }}
+      >
       <SectionTitle
         title={title}
         meta={meta}
@@ -122,6 +162,14 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
           );
         })}
       </div>
+      <div className="mt-5 grid grid-cols-3 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
+        {detailRows.map(([label, value]) => (
+          <div key={label} className="rounded-[14px] border border-[var(--ptg-outline)] bg-white/72 px-3 py-2">
+            <span className="block truncate text-[10.5px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</span>
+            <strong className="mt-1 block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{value}</strong>
+          </div>
+        ))}
+      </div>
       {overview.storjShareUrl ? (
         <div className="mt-4 rounded-[16px] border border-[var(--ptg-success)] bg-[rgba(0,166,118,0.10)] p-3">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -140,6 +188,7 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
           </div>
         </div>
       ) : null}
+      </div>
     </Surface>
   );
 }
@@ -405,6 +454,31 @@ function machineNameForId(state, machineId) {
   return machine?.displayName || displayMachineId(machineId);
 }
 
+function failedTileCountForMachine(overview, machineId) {
+  const match = (overview.failedTileMachines || []).find((item) => sameMachineId(item.machineId, machineId));
+  return Number(match?.failedTiles) || 0;
+}
+
+function openFailedTileTarget(overview, actions) {
+  const failedMachines = overview.failedTileMachines || [];
+  if (failedMachines.length === 1) {
+    return actions.manageMachine(failedMachines[0].machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+  }
+  actions.setSelectedTab("servers");
+}
+
+function openKpiTarget(key, overview, actions) {
+  if (key === "serversOnline" || key === "storagePressure") {
+    actions.setSelectedTab("servers");
+  } else if (key === "activeJobs" || key === "throughput") {
+    actions.setSelectedTab("pipelines");
+  } else if (key === "failedJobs") {
+    openFailedTileTarget(overview, actions);
+  } else if (key === "resourceAlerts") {
+    actions.setSelectedTab("secrets");
+  }
+}
+
 export function OverviewDashboard({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
   return (
@@ -415,7 +489,7 @@ export function OverviewDashboard({ state, actions }) {
           const isThroughput = key === "throughput";
           const value = isThroughput ? String(metric.value).replace(/\s*타일\/초$/, "") : metric.value;
           return (
-            <InsightCard
+            <ClickableInsightCard
               key={key}
               icon={icon}
               label={metric.label}
@@ -424,13 +498,14 @@ export function OverviewDashboard({ state, actions }) {
               tone={kpiTone(key, metric)}
               palette={palette}
               compactUnit={isThroughput ? "타일/초" : ""}
+              onClick={() => openKpiTarget(key, overview, actions)}
             />
           );
         })}
       </section>
       <section className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4 max-2xl:grid-cols-1">
         <div className="grid min-w-0 gap-4">
-          <PipelineOverview overview={overview} />
+          <PipelineOverview overview={overview} onClick={() => actions.setSelectedTab("pipelines")} />
           <section className="grid min-w-0 grid-cols-[minmax(220px,0.7fr)_minmax(260px,0.85fr)_minmax(260px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
             <FleetHealthCard overview={overview} />
             <DiskCapacityCard state={state} />
@@ -1895,6 +1970,7 @@ function SecretPoolsTable({ state, actions }) {
 }
 
 function ServersTable({ state, actions }) {
+  const overview = buildOverviewModel(fleetState(state));
   const filtered = state.machines.filter((machine) =>
     `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
   );
@@ -1935,16 +2011,29 @@ function ServersTable({ state, actions }) {
           <tbody>
             {filtered.length ? filtered.map((machine) => {
               const diskPeak = diskPeakForMachine(machine);
+              const failedTiles = failedTileCountForMachine(overview, machine.machineId);
               return (
                 <tr
                   key={machine.machineId}
-                  className="bg-white transition hover:bg-[var(--ptg-primary-soft)]"
+                  className={`bg-white transition hover:bg-[var(--ptg-primary-soft)] ${failedTiles ? "bg-[#fff5f3] ring-1 ring-inset ring-[rgba(186,26,26,0.18)]" : ""}`}
                 >
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
-                    <strong className="block max-w-[280px] truncate text-[12.5px]">{machine.displayName || machine.machineId}</strong>
+                    <span className="flex max-w-[280px] min-w-0 items-center gap-2">
+                      {failedTiles ? (
+                        <span title={`실패한 타일 ${failedTiles.toLocaleString()}개`} className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-lg bg-[#fff0ef] text-[var(--ptg-error)]">
+                          <Icon name="failed" className="h-4 w-4" />
+                        </span>
+                      ) : null}
+                      <strong className="block min-w-0 truncate text-[12.5px]">{machine.displayName || machine.machineId}</strong>
+                    </span>
                     <small className="mt-0.5 block max-w-[300px] truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{displayMachineId(machine.machineId)}</small>
                   </td>
-                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5"><StatusPill status={statusKind(machine.status)}>{displayStatus(machine.status)}</StatusPill></td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
+                    <span className="flex flex-wrap items-center gap-1.5">
+                      <StatusPill status={statusKind(machine.status)}>{displayStatus(machine.status)}</StatusPill>
+                      {failedTiles ? <StatusPill status="error">타일실패 {failedTiles.toLocaleString()}</StatusPill> : null}
+                    </span>
+                  </td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
                     {diskPeak ? <><UsageBar percent={diskPeak} className="mr-2 w-[48px] sm:w-[72px] 2xl:w-[110px]" /><strong>{diskPeak}%</strong></> : "--"}
                   </td>

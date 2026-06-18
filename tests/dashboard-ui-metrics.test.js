@@ -122,6 +122,10 @@ test("overview model counts failed tile progress instead of generic failed event
 
   assert.equal(model.kpis.failedJobs.value, 10);
   assert.equal(model.kpis.failedJobs.detail, "주의 필요");
+  assert.deepEqual(model.failedTileMachines, [
+    { machineId: "server-01", failedTiles: 7 },
+    { machineId: "server-02", failedTiles: 3 },
+  ]);
 });
 
 test("overview model counts assigned active resources as usable", () => {
