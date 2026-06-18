@@ -334,12 +334,6 @@ export async function runAgent({
       await mkdir(path.dirname(agentLogPath), { recursive: true });
       await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");
       if (await forwarder.handleLine(line, stream)) return;
-      await client.postEvent({
-        machineId: identity.machineId,
-        severity: stream === "stderr" ? "warn" : "info",
-        type: "process.output",
-        message: line,
-      });
     },
   });
 

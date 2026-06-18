@@ -291,7 +291,7 @@ test("agent writes forwarded process output to the local console snapshot log", 
 
   assert.match(runnerEnv.DASHBOARD_AGENT_LOG_PATH, /\.tile-state\/dashboard-agent\.log$/);
   assert.match(await readFile(path.join(stateDir, "dashboard-agent.log"), "utf8"), /preflight wrote this line/);
-  assert.deepEqual(calls.at(-2), ["event", "preflight wrote this line"]);
+  assert.equal(calls.some((call) => call[0] === "event" && call[1] === "preflight wrote this line"), false);
   assert.deepEqual(calls.at(-1), ["ack", "cmd-preflight"]);
 });
 

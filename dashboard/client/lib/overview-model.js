@@ -308,12 +308,20 @@ function rangeTileCount(range = {}) {
   return width * height;
 }
 
+function rangeZoomLabel(range = {}) {
+  const start = range.zoom ?? range.z ?? range.zoomStart;
+  const end = range.zoomEnd ?? start;
+  if (start === undefined || start === null || start === "") return "-";
+  if (end === undefined || end === null || end === "" || String(end) === String(start)) return String(start);
+  return `${start}-${end}`;
+}
+
 function buildActiveRanges(configs) {
   return configs
     .filter((config) => config.active || configs.length === 1)
     .flatMap((config) => (config.config?.ranges || []).slice(0, 3).map((range, index) => ({
       name: config.name || `range-${index + 1}`,
-      z: range.zoom ?? range.z ?? "-",
+      z: rangeZoomLabel(range),
       tiles: rangeTileCount(range),
       progress: 0,
       throughput: 0,

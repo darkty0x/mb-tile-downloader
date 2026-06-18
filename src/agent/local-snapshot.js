@@ -142,16 +142,21 @@ async function readEnvValue(filePath, name) {
 
 async function countNonEmptyLines(filePath) {
   const fileStat = await existsStat(filePath);
-  if (!fileStat?.isFile()) return { exists: false, count: 0, sizeBytes: 0, updatedAt: null };
+  if (!fileStat?.isFile()) return { exists: false, count: 0, values: [], sizeBytes: 0, updatedAt: null };
   let count = 0;
+  const values = [];
   const stream = createReadStream(filePath, { encoding: "utf8" });
   const reader = readline.createInterface({ input: stream, crlfDelay: Infinity });
   for await (const line of reader) {
-    if (line.trim()) count += 1;
+    const value = line.trim();
+    if (!value) continue;
+    count += 1;
+    values.push(value);
   }
   return {
     exists: true,
     count,
+    values,
     sizeBytes: fileStat.size,
     updatedAt: fileStat.mtime.toISOString(),
   };
@@ -417,6 +422,7 @@ export async function collectLocalSnapshot({
         path: rel(resolvedProject, "proxy.txt"),
         exists: proxyInfo.exists,
         availableCount: proxyInfo.count,
+        values: proxyInfo.values || [],
         sizeBytes: proxyInfo.sizeBytes,
         updatedAt: proxyInfo.updatedAt,
       },

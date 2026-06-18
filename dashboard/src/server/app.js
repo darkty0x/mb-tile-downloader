@@ -220,12 +220,57 @@ async function serveClient(req, res, clientDir) {
     return true;
   } catch (err) {
     if (err.code !== "ENOENT") throw err;
-    return false;
+    if (path.extname(requested)) return false;
+    const indexPath = path.resolve(clientDir, "./index.html");
+    const body = await readFile(indexPath);
+    res.writeHead(200, {
+      "content-type": "text/html; charset=utf-8",
+      "content-length": body.length,
+    });
+    res.end(body);
+    return true;
   }
 }
 
 function uniqueStrings(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
+}
+
+async function importDiscoveredAgentSecrets({ secretVault, machine } = {}) {
+  if (!secretVault?.createSecret || !machine?.machineId) return { imported: 0, assigned: 0 };
+  const machineId = normalizeMachineId(machine.machineId);
+  const snapshot = machine.agentSnapshot || {};
+  const discovered = [
+    ...uniqueStrings(snapshot.secrets?.mapboxTokens || []).map((value, index) => ({
+      secretType: "mapbox_token",
+      value,
+      label: `${machineId} MAPBOX_ACCESS_TOKENS ${index + 1}`,
+    })),
+    ...uniqueStrings(snapshot.secrets?.proxy?.values || []).map((value, index) => ({
+      secretType: "proxy_txt",
+      value,
+      label: `${machineId} proxy.txt ${index + 1}`,
+    })),
+  ];
+  let imported = 0;
+  let assigned = 0;
+  for (const item of discovered) {
+    const secret = await secretVault.createSecret({
+      machineId,
+      secretType: item.secretType,
+      label: item.label,
+      status: "active",
+      value: item.value,
+    });
+    imported += 1;
+    if (!secret.machineId && secretVault.updateSecret) {
+      await secretVault.updateSecret(secret.secretId, { machineId });
+      assigned += 1;
+    } else if (normalizeMachineId(secret.machineId) === machineId) {
+      assigned += 1;
+    }
+  }
+  return { imported, assigned };
 }
 
 function rootEnvTextFromMachine(machine) {
@@ -426,13 +471,17 @@ export function createDashboardApp({
 
         if (req.method === "POST" && url.pathname === "/api/agents/register") {
           const body = await readJson(req);
-          json(res, 200, await store.registerMachine(body));
+          const result = await store.registerMachine(body);
+          const discoveredSecrets = await importDiscoveredAgentSecrets({ secretVault, machine: result.machine });
+          json(res, 200, { ...result, discoveredSecrets });
           return;
         }
 
         if (req.method === "POST" && url.pathname === "/api/agents/heartbeat") {
           const body = await readJson(req);
-          json(res, 200, { machine: await store.heartbeatMachine(body) });
+          const machine = await store.heartbeatMachine(body);
+          const discoveredSecrets = await importDiscoveredAgentSecrets({ secretVault, machine });
+          json(res, 200, { machine, discoveredSecrets });
           return;
         }
 

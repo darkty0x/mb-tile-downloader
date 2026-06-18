@@ -5,7 +5,28 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { buildCredentialSecretValue } from "../lib/overview-model";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
+const PAGE_NAMES = new Set(["overview", "servers", "configs", "pipelines", "secrets", "credentials", "events", "alerts", "settings", "account"]);
+const SERVER_TAB_NAMES = new Set(["control", "configs", "env", "secrets", "console"]);
+
+function initialRouteState() {
+  if (typeof window === "undefined") {
+    return { selectedTab: "overview", selectedServerTab: "control", selectedMachineId: null };
+  }
+  const url = new URL(window.location.href);
+  const pathPage = url.pathname.split("/").filter(Boolean)[0];
+  const queryPage = url.searchParams.get("page");
+  const selectedTab = PAGE_NAMES.has(pathPage) ? pathPage : PAGE_NAMES.has(queryPage) ? queryPage : "overview";
+  const serverTab = url.searchParams.get("serverTab") || url.searchParams.get("tab");
+  return {
+    selectedTab,
+    selectedServerTab: SERVER_TAB_NAMES.has(serverTab) ? serverTab : "control",
+    selectedMachineId: normalizeMachineId(url.searchParams.get("machineId")) || null,
+  };
+}
+
 export function useDashboardState() {
+  const initialRouteRef = useRef(null);
+  if (initialRouteRef.current === null) initialRouteRef.current = initialRouteState();
   const [authStatus, setAuthStatus] = useState("checking");
   const [currentUser, setCurrentUser] = useState(null);
   const [machineSearch, setMachineSearch] = useState("");
@@ -22,9 +43,9 @@ export function useDashboardState() {
   const [globalEvents, setGlobalEvents] = useState([]);
   const [serverValidationResults, setServerValidationResults] = useState({});
   const [settings, setSettings] = useState(DEFAULT_DASHBOARD_SETTINGS);
-  const [selectedMachineId, setSelectedMachineId] = useState(null);
-  const [selectedTab, setSelectedTab] = useState("overview");
-  const [selectedServerTab, setSelectedServerTab] = useState("control");
+  const [selectedMachineId, setSelectedMachineId] = useState(initialRouteRef.current.selectedMachineId);
+  const [selectedTab, setSelectedTab] = useState(initialRouteRef.current.selectedTab);
+  const [selectedServerTab, setSelectedServerTab] = useState(initialRouteRef.current.selectedServerTab);
   const [editor, setEditor] = useState({ type: "summary" });
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
@@ -39,6 +60,33 @@ export function useDashboardState() {
   useEffect(() => {
     selectedMachineIdRef.current = selectedMachineId;
   }, [selectedMachineId]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || authStatus !== "authenticated") return;
+    const page = PAGE_NAMES.has(selectedTab) ? selectedTab : "overview";
+    const url = new URL(window.location.href);
+    url.pathname = page === "overview" ? "/" : `/${page}`;
+    url.search = "";
+    if (selectedMachineId) url.searchParams.set("machineId", selectedMachineId);
+    if (page === "servers" && selectedServerTab !== "control") url.searchParams.set("serverTab", selectedServerTab);
+    const next = `${url.pathname}${url.search}`;
+    const current = `${window.location.pathname}${window.location.search}`;
+    if (next !== current) window.history.replaceState({}, "", next);
+  }, [authStatus, selectedTab, selectedMachineId, selectedServerTab]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handlePopState = () => {
+      const route = initialRouteState();
+      setSelectedTab(route.selectedTab);
+      setSelectedServerTab(route.selectedServerTab);
+      setSelectedMachineId(route.selectedMachineId);
+      selectedMachineIdRef.current = route.selectedMachineId;
+      if (route.selectedMachineId) refreshMachineData(route.selectedMachineId).catch((err) => setNotice({ message: err.message, kind: "error" }));
+    };
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
 
   useEffect(() => {
     if (!notice) return undefined;

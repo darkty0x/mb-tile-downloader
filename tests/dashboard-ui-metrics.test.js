@@ -63,6 +63,28 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.activeRanges[0].name, "ukraine-range-01");
 });
 
+test("overview model displays dashboard-created zoom ranges", () => {
+  const model = buildOverviewModel({
+    configs: [
+      {
+        name: "1-ukraine-mapbox-pbf-cig",
+        active: true,
+        config: {
+          ranges: [
+            { zoomStart: 19, zoomEnd: 19, xStart: 309998, xEnd: 313424, yStart: 168505, yEnd: 186571 },
+            { zoomStart: 18, zoomEnd: 19, xStart: 1, xEnd: 2, yStart: 3, yEnd: 4 },
+          ],
+        },
+      },
+    ],
+  });
+
+  assert.equal(model.activeRanges[0].z, "19");
+  assert.equal(model.activeRanges[0].tiles, 61915609);
+  assert.equal(model.activeRanges[1].z, "18-19");
+  assert.equal(model.activeRanges[1].tiles, 4);
+});
+
 test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "offline", disk: [] }],

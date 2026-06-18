@@ -106,6 +106,18 @@ test("dashboard serves static assets from configured built client directory", as
   assert.match(response.body, /built dashboard/);
 });
 
+test("dashboard serves client app for routed page URLs", async (t) => {
+  const clientDir = await mkdtemp(path.join(os.tmpdir(), "mb-dashboard-client-route-"));
+  await writeFile(path.join(clientDir, "index.html"), "<!doctype html><title>built dashboard</title>");
+  const server = await withServer(t, { clientDir });
+
+  const response = await requestText(server, { path: "/servers?machineId=server-01&serverTab=env" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.contentType, "text/html; charset=utf-8");
+  assert.match(response.body, /built dashboard/);
+});
+
 test("agent registration requires agent token", async (t) => {
   const server = await withServer(t);
 
@@ -150,6 +162,63 @@ test("agent can register and send heartbeat with disk snapshot", async (t) => {
   assert.equal(heartbeat.status, 200);
   assert.equal(heartbeat.body.machine.disk[0].name, "C:");
   assert.equal(heartbeat.body.machine.agentSnapshot.managed.configPath, ".tile-state/dashboard/configs/cfg-a.json");
+});
+
+test("agent snapshots import local mapbox tokens and proxies into the secret vault", async (t) => {
+  let id = 0;
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => `secret-${++id}`,
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+  const headers = { authorization: "Bearer agent-token" };
+
+  const registered = await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: {
+      machineId: "SERVER-01",
+      agentInstanceId: "agent-1",
+      agentSnapshot: {
+        secrets: {
+          mapboxTokens: ["pk.mapbox-a", "pk.mapbox-b", "pk.mapbox-a"],
+          proxy: { values: ["http://proxy-a.example:3129", "http://proxy-b.example:3129", "http://proxy-a.example:3129"] },
+        },
+      },
+    },
+  });
+  const heartbeat = await request(server, {
+    method: "POST",
+    path: "/api/agents/heartbeat",
+    headers,
+    body: {
+      machineId: "server-01",
+      agentInstanceId: "agent-1",
+      agentSnapshot: {
+        secrets: {
+          mapboxTokens: ["pk.mapbox-a", "pk.mapbox-b"],
+          proxy: { values: ["http://proxy-a.example:3129", "http://proxy-b.example:3129"] },
+        },
+      },
+    },
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+  const mapboxTokens = listed.body.secrets.filter((secret) => secret.secretType === "mapbox_token");
+  const proxies = listed.body.secrets.filter((secret) => secret.secretType === "proxy_txt");
+
+  assert.equal(registered.status, 200);
+  assert.deepEqual(registered.body.discoveredSecrets, { imported: 4, assigned: 4 });
+  assert.equal(heartbeat.status, 200);
+  assert.deepEqual(heartbeat.body.discoveredSecrets, { imported: 4, assigned: 4 });
+  assert.equal(mapboxTokens.length, 2);
+  assert.equal(proxies.length, 2);
+  assert.deepEqual(mapboxTokens.map((secret) => secret.machineId), ["server-01", "server-01"]);
+  assert.deepEqual(proxies.map((secret) => secret.machineId), ["server-01", "server-01"]);
+  assert.deepEqual(mapboxTokens.map((secret) => secret.value).sort(), ["pk.mapbox-a", "pk.mapbox-b"]);
+  assert.deepEqual(proxies.map((secret) => secret.value).sort(), ["http://proxy-a.example:3129", "http://proxy-b.example:3129"]);
 });
 
 test("agent registration conflict returns HTTP 409", async (t) => {

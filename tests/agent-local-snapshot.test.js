@@ -43,6 +43,7 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   assert.equal(snapshot.envFiles[0].path, ".env");
   assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "AGENT_TOKEN").value, "secret-token");
   assert.equal(snapshot.secrets.proxy.availableCount, 2);
+  assert.deepEqual(snapshot.secrets.proxy.values, ["http://proxy-a:8080", "http://proxy-b:8080"]);
   assert.equal(snapshot.secrets.mapboxTokenCount, 2);
   assert.equal(snapshot.storage.find((item) => item.type === "tiles").fileCount, 1);
   assert.equal(snapshot.storage.find((item) => item.type === "tiles").dirCount, 3);
