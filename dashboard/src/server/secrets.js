@@ -163,10 +163,12 @@ function secretUsage(record) {
   return record.machineId ? "assigned" : "available";
 }
 
-function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
+function normalizeSecret(record, { includeValue = false, includeResourceValue = false, appSecret } = {}) {
   const value = decrypt(record.encryptedValue, appSecret);
   const credential = CREDENTIAL_SECRET_TYPES.has(record.secretType) ? credentialBrowserMetadata(value) : null;
   const displayName = record.secretType === "proxy_txt" ? proxyDisplayName(value) : record.label;
+  const redactedValue = credential ? credentialRedactedValue(credential) : redact(value);
+  const exposesResourceValue = includeResourceValue && ["mapbox_token", "proxy_txt"].includes(record.secretType);
   return {
     secretId: record.secretId,
     machineId: record.machineId,
@@ -179,10 +181,9 @@ function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
     ...(credential?.machineId ? { targetMachineId: credential.machineId } : {}),
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
-    ...(includeValue ? { value } : {
-      redactedValue: credential ? credentialRedactedValue(credential) : redact(value),
-      ...(credential ? { credential } : {}),
-    }),
+    redactedValue,
+    ...(credential ? { credential } : {}),
+    ...(includeValue || exposesResourceValue ? { value } : {}),
   };
 }
 
@@ -354,7 +355,7 @@ export function createSecretVault({ appSecret, idGenerator = randomUUID, now = (
       const normalizedMachineId = machineId === undefined ? undefined : normalizeMachineId(machineId);
       return [...records.values()]
         .filter((record) => normalizedMachineId === undefined || record.machineId === normalizedMachineId)
-        .map((record) => normalizeSecret(record, { appSecret }));
+        .map((record) => normalizeSecret(record, { includeResourceValue: true, appSecret }));
     },
 
     listSecretsForAgent({ machineId } = {}) {
@@ -581,7 +582,7 @@ export function createPostgresSecretVault({
     },
 
     async listSecretsForBrowser({ machineId } = {}) {
-      return (await listRows({ machineId })).map((record) => normalizeSecret(record, { appSecret }));
+      return (await listRows({ machineId })).map((record) => normalizeSecret(record, { includeResourceValue: true, appSecret }));
     },
 
     async listSecretsForAgent({ machineId } = {}) {

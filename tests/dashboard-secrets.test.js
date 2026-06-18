@@ -8,7 +8,7 @@ import path from "node:path";
 import { SECRET_POOL_TARGETS, createPostgresSecretVault, createSecretVault } from "../dashboard/src/server/secrets.js";
 import { materializeSecrets } from "../src/agent/secret-materializer.js";
 
-test("secret vault encrypts plaintext and redacts browser results", () => {
+test("secret vault encrypts plaintext and exposes resource values to dashboard admins", () => {
   const vault = createSecretVault({ appSecret: "test-secret" });
 
   const stored = vault.createSecret({
@@ -22,7 +22,7 @@ test("secret vault encrypts plaintext and redacts browser results", () => {
   assert.notEqual(stored.encryptedValue, "pk.secret-value");
   assert.match(stored.encryptedValue, /^v1:/);
   assert.equal(browserSecrets[0].redactedValue, "pk.s...alue");
-  assert.equal(browserSecrets[0].value, undefined);
+  assert.equal(browserSecrets[0].value, "pk.secret-value");
 });
 
 test("agent sync receives decrypted secret values", () => {
@@ -39,7 +39,7 @@ test("agent sync receives decrypted secret values", () => {
   assert.equal(agentSecrets[0].value, "http://u:p@1.2.3.4:8080");
 });
 
-test("browser proxy secrets expose endpoint display name without showing the full value", () => {
+test("browser proxy secrets expose endpoint display name and full admin value", () => {
   const vault = createSecretVault({ appSecret: "test-secret" });
   vault.createSecret({
     machineId: "worker-a",
@@ -51,7 +51,7 @@ test("browser proxy secrets expose endpoint display name without showing the ful
   const browserSecrets = vault.listSecretsForBrowser({ machineId: "worker-a" });
 
   assert.equal(browserSecrets[0].displayName, "65.111.31.179:3129");
-  assert.equal(browserSecrets[0].value, undefined);
+  assert.equal(browserSecrets[0].value, "http://user:pass@65.111.31.179:3129");
 });
 
 test("credential secrets expose browser metadata without the password", () => {
@@ -332,7 +332,7 @@ test("secret vault supports update status and delete", () => {
   assert.deepEqual(vault.listSecretsForBrowser({ machineId: "worker-a" }), []);
 });
 
-test("postgres secret vault persists encrypted rows and returns redacted browser values", async () => {
+test("postgres secret vault persists encrypted rows and exposes admin resource values", async () => {
   const rows = new Map();
   const db = {
     async query(sql, params = []) {
@@ -405,7 +405,7 @@ test("postgres secret vault persists encrypted rows and returns redacted browser
   assert.equal(stored.secretId, "secret-a");
   assert.notEqual([...rows.values()][0].encrypted_value, "pk.secret-value");
   assert.equal(browserSecrets[0].redactedValue, "pk.s...alue");
-  assert.equal(browserSecrets[0].value, undefined);
+  assert.equal(browserSecrets[0].value, "pk.secret-value");
   assert.equal(agentSecrets[0].value, "pk.secret-value");
 });
 

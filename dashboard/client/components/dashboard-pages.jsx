@@ -884,16 +884,23 @@ function ServerPageSecrets({ state, actions }) {
   const mapboxSecrets = state.secrets.filter((secret) => secret.secretType === "mapbox_token");
   const proxySecrets = state.secrets.filter((secret) => secret.secretType === "proxy_txt");
   const localMapboxTokens = mapboxTokensFromSnapshot(snapshotSecrets, envFiles);
-  const renderDashboardSecret = (secret) => (
-    <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
-      <div className="min-w-0">
-        <strong className="block truncate text-[12.5px]">{secret.label}</strong>
-        <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType} | {secret.redactedValue || ""}</small>
+  const renderDashboardSecret = (secret) => {
+    const value = secret.value || secret.redactedValue || "";
+    const title = secret.secretType === "proxy_txt" ? value : (secret.label || value);
+    const detail = secret.secretType === "proxy_txt"
+      ? `${SECRET_LABELS[secret.secretType] || secret.secretType} | ${secret.label || secret.displayName || ""}`
+      : `${SECRET_LABELS[secret.secretType] || secret.secretType} | ${value}`;
+    return (
+      <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div className="min-w-0">
+          <strong className="block break-all text-[12.5px] leading-snug">{title}</strong>
+          <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{detail}</small>
+        </div>
+        <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
+        <TableActions type="secret" id={secret.secretId} actions={actions} />
       </div>
-      <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
-      <TableActions type="secret" id={secret.secretId} actions={actions} />
-    </div>
-  );
+    );
+  };
   return (
     <section className="grid gap-3">
       <SectionTitle title="API Key 및 Proxy" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
