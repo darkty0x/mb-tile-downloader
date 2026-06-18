@@ -78,6 +78,27 @@ test("local snapshot reports exact tile storage beyond shallow scan limits", asy
   assert.equal(tiles.truncated, false);
 });
 
+test("local snapshot bounds huge tile scans so heartbeats stay responsive", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-huge-"));
+  const tileDir = path.join(dir, "tiles", "vector", "19", "316852");
+  await mkdir(tileDir, { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\n");
+
+  await Promise.all(
+    Array.from({ length: 3000 }, (_, index) =>
+      writeFile(path.join(tileDir, `${index}.pbf`), "tile")
+    )
+  );
+
+  const snapshot = await collectLocalSnapshot({ projectDir: dir, stateDir: path.join(dir, ".tile-state") });
+  const tiles = snapshot.storage.find((item) => item.type === "tiles");
+
+  assert.equal(tiles.truncated, true);
+  assert.ok(tiles.fileCount < 3000);
+  assert.ok(tiles.fileCount > 0);
+});
+
 test("local snapshot omits mapbox tokens from env list and reports them as API keys", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-env-"));
   await mkdir(path.join(dir, "tiles"), { recursive: true });

@@ -280,6 +280,7 @@ test("agent accepts long pipeline commands without blocking until process comple
   const control = {
     clearPauseAfterRange: async () => calls.push(["clear-pause"]),
   };
+  const syncNow = async ({ reason }) => calls.push(["sync", reason]);
 
   await runCommand(
     {
@@ -288,11 +289,12 @@ test("agent accepts long pipeline commands without blocking until process comple
       payload: { configPath: "configs/a.json" },
       claimedAt: "claim-1",
     },
-    { client, runner, machineId: "worker-a", control }
+    { client, runner, machineId: "worker-a", control, syncNow }
   );
 
-  assert.deepEqual(calls.slice(0, 2).map((call) => call[0]), ["clear-pause", "ack"]);
-  assert.equal(calls[1][1], "cmd-1");
+  assert.deepEqual(calls.slice(0, 3).map((call) => call[0]), ["sync", "clear-pause", "ack"]);
+  assert.equal(calls[0][1], "start_pipeline");
+  assert.equal(calls[2][1], "cmd-1");
 
   resolveRun({ code: 1 });
   await flushMicrotasks();

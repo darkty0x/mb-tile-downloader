@@ -296,6 +296,10 @@ export async function runCommand(command, { client, runner, machineId, control =
       return;
     }
 
+    if (isBackgroundCommand(command.commandType) || command.commandType === "run_preflight") {
+      await syncNow?.({ reason: command.commandType });
+    }
+
     if (isBackgroundCommand(command.commandType)) {
       await control?.clearPauseAfterRange?.();
       await control?.clearStopPipeline?.();

@@ -7,6 +7,8 @@ import { collectDiskInfo } from "./disk.js";
 import { resolveOutputStorage } from "../runtime/output-storage.js";
 
 const MAX_DIR_ENTRIES = 80;
+const MAX_DIR_SCAN_ITEMS = 2500;
+const MAX_DIR_SCAN_DEPTH = 4;
 const MAX_CONSOLE_LINES = 80;
 const TILE_ESTIMATE_MIN_DRIVE_USED_BYTES = 1024 * 1024 * 1024;
 const TILE_ESTIMATE_MAX_EXACT_BYTES = 128 * 1024 * 1024;
@@ -193,17 +195,24 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
   let sizeBytes = 0;
   let fileCount = 0;
   let dirCount = 0;
-  const pendingDirs = [fullPath];
+  let scannedItems = 0;
+  let truncated = false;
+  const pendingDirs = [{ dir: fullPath, depth: 0 }];
 
-  while (pendingDirs.length) {
-    const currentDir = pendingDirs.shift();
+  while (pendingDirs.length && !truncated) {
+    const { dir: currentDir, depth } = pendingDirs.shift();
     for await (const entry of await opendir(currentDir)) {
+      scannedItems += 1;
+      if (scannedItems > MAX_DIR_SCAN_ITEMS) {
+        truncated = true;
+        break;
+      }
       const childPath = path.join(currentDir, entry.name);
       const childStat = await existsStat(childPath);
       if (!childStat) continue;
       if (childStat.isDirectory()) {
         dirCount += 1;
-        pendingDirs.push(childPath);
+        if (depth < MAX_DIR_SCAN_DEPTH) pendingDirs.push({ dir: childPath, depth: depth + 1 });
       }
       if (childStat.isFile()) {
         fileCount += 1;
@@ -229,7 +238,7 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
     sizeBytes,
     fileCount,
     dirCount,
-    truncated: false,
+    truncated,
     entries,
   };
 }
