@@ -58,8 +58,52 @@ test("dashboard agent auto-start launches a detached agent once", async () => {
   assert.deepEqual(spawned[0].args, ["--env-file-if-exists=.env", "src/agent/agent.js"]);
   assert.equal((await readFile(path.join(dir, ".tile-state", "dashboard-agent.pid"), "utf8")).trim(), String(child.pid));
   const meta = JSON.parse(await readFile(path.join(dir, ".tile-state", "dashboard-agent.meta.json"), "utf8"));
-  assert.equal(meta.launcherVersion, 3);
+  assert.equal(meta.launcherVersion, 4);
+  assert.equal(meta.envFile.exists, false);
   assert.ok(meta.files.some((file) => file.file === "src/agent/local-snapshot.js"));
+});
+
+test("dashboard agent auto-start restarts a live agent when .env changes", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-launcher-env-"));
+  const oldPid = 33333;
+  const newChild = { pid: 44444, unref() {} };
+  const killed = [];
+  const spawned = [];
+  const env = {
+    DASHBOARD_URL: "https://dashboard.example.com",
+    AGENT_TOKEN: "agent-token",
+    MACHINE_ID: "server-01",
+  };
+
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nAGENT_TOKEN=old\nDASHBOARD_URL=https://old.example.com\n");
+  const first = await ensureAgentRunning({
+    env,
+    cwd: dir,
+    spawnImpl() {
+      return { pid: oldPid, unref() {} };
+    },
+    aliveImpl: () => false,
+  });
+  assert.equal(first.started, true);
+
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\nAGENT_TOKEN=agent-token\nDASHBOARD_URL=https://dashboard.example.com\n");
+  const second = await ensureAgentRunning({
+    env,
+    cwd: dir,
+    spawnImpl(command, args) {
+      spawned.push({ command, args });
+      return newChild;
+    },
+    aliveImpl: (pid) => pid === oldPid,
+    killImpl: (pid) => killed.push(pid),
+  });
+
+  assert.equal(second.started, true);
+  assert.deepEqual(killed, [oldPid]);
+  assert.equal(spawned.length, 1);
+  assert.equal((await readFile(path.join(dir, ".tile-state", "dashboard-agent.pid"), "utf8")).trim(), String(newChild.pid));
+  const meta = JSON.parse(await readFile(path.join(dir, ".tile-state", "dashboard-agent.meta.json"), "utf8"));
+  assert.equal(meta.envFile.exists, true);
 });
 
 test("dashboard agent auto-start restarts an old live agent without launch metadata", async () => {

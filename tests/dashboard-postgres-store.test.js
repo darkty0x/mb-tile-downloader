@@ -254,7 +254,7 @@ function createFakePgDb() {
         }
         return rows(row ? [{ ...row }] : []);
       }
-      if (/UPDATE machines SET current_job_id=NULL/.test(sql)) {
+      if (/UPDATE machines\s+SET current_job_id=NULL/s.test(sql)) {
         const [updated_at, machine_id, config_id] = params;
         const row = tables.machines.get(machine_id);
         if (row) {

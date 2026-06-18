@@ -1,8 +1,9 @@
+import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
 import { mkdir, open, readFile, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 
-const LAUNCHER_VERSION = 3;
+const LAUNCHER_VERSION = 4;
 const AGENT_SIGNATURE_FILES = [
   "src/agent/agent.js",
   "src/agent/control-client.js",
@@ -58,10 +59,22 @@ async function agentSignature(cwd) {
     }
     return { file, path: filePath, mtimeMs };
   }));
+  let envFile = { path: path.resolve(cwd, ".env"), exists: false, sha256: null };
+  try {
+    const envContent = await readFile(envFile.path);
+    envFile = {
+      ...envFile,
+      exists: true,
+      sha256: createHash("sha256").update(envContent).digest("hex"),
+    };
+  } catch (err) {
+    if (err.code !== "ENOENT") throw err;
+  }
   return {
     launcherVersion: LAUNCHER_VERSION,
     scriptPath: path.resolve(cwd, "src/agent/agent.js"),
     files,
+    envFile,
     node: process.execPath,
   };
 }
@@ -74,6 +87,7 @@ function signatureMatches(meta, signature) {
       meta.launcherVersion === signature.launcherVersion &&
       meta.scriptPath === signature.scriptPath &&
       metaFiles === signatureFiles &&
+      JSON.stringify(meta.envFile || {}) === JSON.stringify(signature.envFile || {}) &&
       meta.node === signature.node
   );
 }
