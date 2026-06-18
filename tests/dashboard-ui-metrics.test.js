@@ -98,6 +98,34 @@ test("overview model excludes downloader console output from events", () => {
   assert.equal(model.recentEvents[0].type, "range.failed");
 });
 
+test("overview model counts assigned active resources as usable", () => {
+  const model = buildOverviewModel({
+    machines: [
+      { machineId: "server-01", status: "online" },
+      { machineId: "server-02", status: "online" },
+    ],
+    secretPool: [
+      { secretType: "mapbox_token", status: "active", machineId: "server-01" },
+      { secretType: "mapbox_token", status: "active", machineId: "server-02" },
+      { secretType: "mapbox_token", status: "active" },
+      { secretType: "mapbox_token", status: "invalid" },
+      { secretType: "proxy_txt", status: "active", machineId: "server-01" },
+      { secretType: "proxy_txt", status: "active", machineId: "server-02" },
+      { secretType: "proxy_txt", status: "active" },
+      { secretType: "proxy_txt", status: "disabled" },
+    ],
+    settings: {
+      alertThresholds: {
+        mapboxTokensPerServer: 1,
+        proxiesPerServer: 1,
+      },
+    },
+  });
+
+  assert.equal(model.resourceAlerts.length, 0);
+  assert.equal(model.kpis.resourceAlerts.value, 0);
+});
+
 test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "offline", disk: [] }],

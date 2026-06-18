@@ -31,7 +31,7 @@ export const SERVER_TABS = [
 ];
 
 export const SECRET_LABELS = {
-  mapbox_token: "Mapbox Token",
+  mapbox_token: "Mapbox API Key",
   proxy_txt: "Proxy",
   storj_access: "Storj Access",
   credential: "계정정보",

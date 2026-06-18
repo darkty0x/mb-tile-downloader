@@ -112,9 +112,9 @@ function diskPeak(machine) {
 
 function secretCounts(secrets, secretType) {
   const items = secrets.filter((secret) => secret.secretType === secretType);
-  const available = items.filter((secret) => secret.status === "active" && !secret.machineId).length;
+  const available = items.filter((secret) => secret.status === "active").length;
   const assigned = items.filter((secret) => secret.status === "active" && secret.machineId).length;
-  const disabled = items.length - available - assigned;
+  const disabled = items.length - available;
   return { total: items.length, available, assigned, disabled };
 }
 

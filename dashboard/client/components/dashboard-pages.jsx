@@ -1116,9 +1116,9 @@ function machineLabel(state, machineId) {
 
 function secretCounts(secrets, secretType) {
   const items = secrets.filter((secret) => secret.secretType === secretType);
-  const available = items.filter((secret) => secret.status === "active" && !secret.machineId).length;
+  const available = items.filter((secret) => secret.status === "active").length;
   const assigned = items.filter((secret) => secret.status === "active" && secret.machineId).length;
-  const disabled = items.length - available - assigned;
+  const disabled = items.length - available;
   return { total: items.length, available, assigned, disabled };
 }
 
@@ -1769,7 +1769,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
     <Surface className="max-w-full overflow-hidden">
       <SectionTitle
         title={title}
-        meta={`리용가능 ${activeCount - assignedCount}개 | 배정됨 ${assignedCount}개 | 비활성 ${disabledCount}개`}
+        meta={`리용가능 ${activeCount}개 | 배정됨 ${assignedCount}개 | 비활성 ${disabledCount}개`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AppButton variant="tonal" icon="sync" loading={validating} onClick={() => validatePool().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!validatableIds.length}>전체 검증</AppButton>
