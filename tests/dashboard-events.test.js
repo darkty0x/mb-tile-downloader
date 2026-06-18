@@ -49,6 +49,82 @@ test("records dashboard events with validated severity", () => {
   );
 });
 
+test("dashboard event store marks events read and deletes by read state", () => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+    idGenerator: () => `evt-${++id}`,
+  });
+
+  const first = store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "command.accepted",
+    message: "accepted",
+  });
+  store.recordEvent({
+    machineId: "worker-a",
+    severity: "warn",
+    type: "command.failed",
+    message: "failed",
+  });
+  store.recordEvent({
+    machineId: "worker-b",
+    severity: "info",
+    type: "dashboard-run.synced",
+    message: "synced",
+  });
+
+  const read = store.markEventsRead({ machineId: "worker-a", eventIds: [first.id] });
+  const deletedUnread = store.deleteEvents({ machineId: "worker-a", readState: "unread" });
+
+  assert.equal(read.length, 1);
+  assert.equal(read[0].readAt, "2026-06-16T00:00:00.000Z");
+  assert.deepEqual(deletedUnread.map((event) => event.type), ["command.failed"]);
+  assert.deepEqual(store.listEvents().map((event) => event.type), ["command.accepted", "dashboard-run.synced"]);
+});
+
+test("dashboard event API supports mark all read and delete read events", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+    idGenerator: () => `evt-${++id}`,
+  });
+  store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "command.accepted",
+    message: "accepted",
+  });
+  store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "dashboard-run.synced",
+    message: "synced",
+  });
+  const server = createDashboardApp({ store, agentToken: "agent-token" });
+  await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+  t.after(() => server.close());
+
+  const marked = await request(server, {
+    method: "POST",
+    path: "/api/events/read",
+    body: { machineId: "worker-a" },
+  });
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: "/api/events",
+    body: { machineId: "worker-a", readState: "read" },
+  });
+  const listed = await request(server, { path: "/api/events?machineId=worker-a" });
+
+  assert.equal(marked.status, 200);
+  assert.equal(marked.body.count, 2);
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.count, 2);
+  assert.deepEqual(listed.body.events, []);
+});
+
 test("agent can post events and dashboard can list them", async (t) => {
   const server = createDashboardApp({
     store: createDashboardStore({

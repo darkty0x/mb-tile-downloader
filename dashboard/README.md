@@ -60,19 +60,31 @@ The browser dashboard is a Next.js static export styled with Tailwind CSS and Ma
 
 Each downloader machine needs a unique `MACHINE_ID`:
 
+```text
+DASHBOARD_URL=https://your-railway-app.up.railway.app
+AGENT_TOKEN=<same AGENT_TOKEN as dashboard>
+MACHINE_ID=server-01
+```
+
+On Windows Server, install the agent as a startup task once from the project root:
+
+```powershell
+npm run agent:install
+npm run agent:start-service
+npm run agent:status-service
+```
+
+The installed task starts after Windows boots and runs the local agent in a restart loop. The log is written to `.tile-state/dashboard-agent-service.log`.
+
+For a foreground debug run only:
+
 ```bash
-MACHINE_ID=server-01 \
-DASHBOARD_URL=https://your-railway-app.up.railway.app \
-AGENT_TOKEN=<same AGENT_TOKEN as dashboard> \
 npm run agent
 ```
 
 For a one-shot registration/heartbeat smoke test:
 
 ```bash
-MACHINE_ID=server-01 \
-DASHBOARD_URL=http://127.0.0.1:3001 \
-AGENT_TOKEN=dev \
 node src/agent/agent.js --once
 ```
 

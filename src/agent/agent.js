@@ -283,10 +283,17 @@ export async function syncManagedState({ client, machineId, stateDir, projectDir
     result.envPath = envResult.envPath;
     result.env = envResult.env;
   }
-  const secretResult = await materializeSecrets({ projectDir, stateDir, secrets });
+  const secretResult = await materializeSecrets({
+    projectDir,
+    stateDir,
+    secrets,
+    preserveLocalProxyWhenUnassigned: true,
+  });
   result.secretsEnvPath = secretResult.envPath;
   result.proxyPath = secretResult.proxyPath;
   result.secretEnv = secretResult.env;
+  result.mapboxTokenCount = secretResult.mapboxTokenCount || 0;
+  result.proxyCount = secretResult.proxyCount || 0;
   return result;
 }
 

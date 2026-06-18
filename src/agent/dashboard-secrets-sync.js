@@ -21,12 +21,18 @@ export async function syncDashboardSecretsIfConfigured({
 
   const client = createClient({ baseUrl, agentToken });
   const { secrets = [] } = await client.listSecrets(machineId);
-  const result = await materializeSecrets({ projectDir, stateDir, secrets });
+  const result = await materializeSecrets({
+    projectDir,
+    stateDir,
+    secrets,
+    preserveLocalProxyWhenUnassigned: true,
+  });
   for (const [name, value] of Object.entries(result.env || {})) env[name] = value;
 
   log(
-    `Dashboard secrets synced: mapbox=${secrets.filter((secret) => secret.secretType === "mapbox_token").length} ` +
-      `proxies=${secrets.filter((secret) => secret.secretType === "proxy_txt").length}`
+    `Dashboard secrets synced: mapbox=${result.mapboxTokenCount || 0} ` +
+      `proxies=${result.proxyCount || 0} ` +
+      `proxy=${result.proxyPath ? "dashboard" : "local-preserved"}`
   );
   return { synced: true, machineId, secrets, ...result };
 }

@@ -130,6 +130,7 @@ function normalizeEvent(record) {
     type: record.type,
     message: record.message,
     data: { ...record.data },
+    readAt: record.readAt || null,
     createdAt: record.createdAt,
   };
 }
@@ -447,6 +448,7 @@ export function createDashboardStore({
         type: requireNonEmpty(input.type, "type"),
         message: requireNonEmpty(input.message, "message"),
         data: input.data && typeof input.data === "object" ? { ...input.data } : {},
+        readAt: null,
         createdAt: iso(now()),
       };
       events.push(record);
@@ -459,6 +461,36 @@ export function createDashboardStore({
         .filter((event) => normalizedMachineId === undefined || event.machineId === normalizedMachineId)
         .slice(-limit)
         .map(normalizeEvent);
+    },
+
+    markEventsRead({ machineId, eventIds } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
+      const ids = Array.isArray(eventIds) ? new Set(eventIds.map(String)) : null;
+      const at = iso(now());
+      const updated = [];
+      for (const event of events) {
+        if (normalizedMachineId !== undefined && event.machineId !== normalizedMachineId) continue;
+        if (ids && !ids.has(String(event.id))) continue;
+        if (!event.readAt) event.readAt = at;
+        updated.push(normalizeEvent(event));
+      }
+      return updated;
+    },
+
+    deleteEvents({ machineId, eventIds, readState } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
+      const ids = Array.isArray(eventIds) ? new Set(eventIds.map(String)) : null;
+      const deleted = [];
+      for (let index = events.length - 1; index >= 0; index -= 1) {
+        const event = events[index];
+        if (normalizedMachineId !== undefined && event.machineId !== normalizedMachineId) continue;
+        if (ids && !ids.has(String(event.id))) continue;
+        if (readState === "read" && !event.readAt) continue;
+        if (readState === "unread" && event.readAt) continue;
+        deleted.push(normalizeEvent(event));
+        events.splice(index, 1);
+      }
+      return deleted.reverse();
     },
 
     queueCommand(input) {

@@ -457,3 +457,19 @@ test("secret materializer clears stale proxy.txt when server assigns no proxies"
   assert.equal(result.proxyPath, path.join(dir, "proxy.txt"));
   assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "");
 });
+
+test("secret materializer preserves local proxy.txt when dashboard assigns no proxies", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-secrets-preserve-"));
+  await writeFile(path.join(dir, "proxy.txt"), "http://local.example:8080\n", "utf8");
+
+  const result = await materializeSecrets({
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    secrets: [],
+    preserveLocalProxyWhenUnassigned: true,
+  });
+
+  assert.equal(result.proxyPath, null);
+  assert.equal(result.proxyCount, 0);
+  assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "http://local.example:8080\n");
+});

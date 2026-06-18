@@ -74,7 +74,7 @@ function createFakePgDb() {
         return rows([...tables.machines.values()].sort((a, b) => a.machine_id.localeCompare(b.machine_id)));
       }
       if (/INSERT INTO machine_events/.test(sql)) {
-        const [machine_id, job_id, severity, type, message, data_json, created_at] = params;
+        const [machine_id, job_id, severity, type, message, data_json, read_at, created_at] = params;
         const row = {
           id: ++serial,
           machine_id,
@@ -83,10 +83,45 @@ function createFakePgDb() {
           type,
           message,
           data_json,
+          read_at,
           created_at,
         };
         tables.machine_events.push(row);
         return rows([{ ...row }]);
+      }
+      if (/UPDATE machine_events SET read_at=COALESCE/.test(sql)) {
+        const hasMachine = /WHERE machine_id=\$2/.test(sql);
+        const hasIds = /ANY/.test(sql);
+        const read_at = params[0];
+        const machineId = hasMachine ? params[1] : null;
+        const ids = hasIds ? new Set((hasMachine ? params[2] : params[1]).map(String)) : null;
+        const updated = [];
+        for (const row of tables.machine_events) {
+          if (machineId && row.machine_id !== machineId) continue;
+          if (ids && !ids.has(String(row.id))) continue;
+          row.read_at ||= read_at;
+          updated.push({ ...row });
+        }
+        return rows(updated);
+      }
+      if (/DELETE FROM machine_events/.test(sql) && /RETURNING \*/.test(sql)) {
+        const hasMachine = /machine_id=\$1/.test(sql);
+        const hasIds = /ANY/.test(sql);
+        const machineId = hasMachine ? params[0] : null;
+        const ids = hasIds ? new Set((hasMachine ? params[1] : params[0]).map(String)) : null;
+        const readOnly = /read_at IS NOT NULL/.test(sql);
+        const unreadOnly = /read_at IS NULL/.test(sql);
+        const deleted = [];
+        for (let index = tables.machine_events.length - 1; index >= 0; index -= 1) {
+          const row = tables.machine_events[index];
+          if (machineId && row.machine_id !== machineId) continue;
+          if (ids && !ids.has(String(row.id))) continue;
+          if (readOnly && !row.read_at) continue;
+          if (unreadOnly && row.read_at) continue;
+          deleted.push({ ...row });
+          tables.machine_events.splice(index, 1);
+        }
+        return rows(deleted.reverse());
       }
       if (/SELECT \* FROM machine_events/.test(sql)) {
         const machineId = params[0];
@@ -323,6 +358,41 @@ test("postgres store persists events and command lifecycle", async () => {
   assert.equal((await store.listEvents({ machineId: "worker-a" }))[0].id, event.id);
   assert.equal(claimed[0].status, "claimed");
   assert.equal(completed.status, "completed");
+});
+
+test("postgres store marks events read and deletes events by scope", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  const first = await store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "command.accepted",
+    message: "accepted",
+  });
+  await store.recordEvent({
+    machineId: "worker-a",
+    severity: "warn",
+    type: "command.failed",
+    message: "failed",
+  });
+  await store.recordEvent({
+    machineId: "worker-b",
+    severity: "info",
+    type: "dashboard-run.synced",
+    message: "synced",
+  });
+
+  const marked = await store.markEventsRead({ machineId: "worker-a", eventIds: [first.id] });
+  const deleted = await store.deleteEvents({ machineId: "worker-a", readState: "unread" });
+
+  assert.equal(marked.length, 1);
+  assert.equal(marked[0].readAt, "2026-06-16T00:00:00.000Z");
+  assert.deepEqual(deleted.map((event) => event.type), ["command.failed"]);
+  assert.deepEqual((await store.listEvents()).map((event) => event.type), ["command.accepted", "dashboard-run.synced"]);
 });
 
 test("postgres store requeues claimed commands after command lease expiry", async () => {

@@ -113,6 +113,7 @@ function eventFromRow(row) {
     type: row.type,
     message: row.message,
     data: jsonValue(row.data_json, {}),
+    readAt: iso(row.read_at),
     createdAt: iso(row.created_at),
   };
 }
@@ -478,9 +479,9 @@ export function createPostgresDashboardStore({
       const row = await firstRow(
         db,
         `INSERT INTO machine_events (
-          machine_id, job_id, severity, type, message, data_json, created_at
+          machine_id, job_id, severity, type, message, data_json, read_at, created_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *`,
         [
           machineId,
@@ -489,6 +490,7 @@ export function createPostgresDashboardStore({
           requireNonEmpty(input.type, "type"),
           requireNonEmpty(input.message, "message"),
           toJsonbParam(input.data && typeof input.data === "object" ? input.data : {}, {}),
+          null,
           now().toISOString(),
         ]
       );
@@ -500,6 +502,56 @@ export function createPostgresDashboardStore({
       const result = machineId === undefined
         ? await db.query("SELECT * FROM machine_events ORDER BY created_at ASC LIMIT $1", [limit])
         : await db.query("SELECT * FROM machine_events WHERE machine_id=$1 ORDER BY created_at ASC LIMIT $2", [normalizedMachineId, limit]);
+      return result.rows.map(eventFromRow);
+    },
+
+    async markEventsRead({ machineId, eventIds } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
+      const ids = Array.isArray(eventIds) ? eventIds.map(String).filter(Boolean) : null;
+      const at = now().toISOString();
+      let result;
+      if (ids?.length) {
+        result = normalizedMachineId === undefined
+          ? await db.query(
+              "UPDATE machine_events SET read_at=COALESCE(read_at,$1) WHERE id = ANY($2::bigint[]) RETURNING *",
+              [at, ids]
+            )
+          : await db.query(
+              "UPDATE machine_events SET read_at=COALESCE(read_at,$1) WHERE machine_id=$2 AND id = ANY($3::bigint[]) RETURNING *",
+              [at, normalizedMachineId, ids]
+            );
+      } else {
+        result = normalizedMachineId === undefined
+          ? await db.query("UPDATE machine_events SET read_at=COALESCE(read_at,$1) RETURNING *", [at])
+          : await db.query("UPDATE machine_events SET read_at=COALESCE(read_at,$1) WHERE machine_id=$2 RETURNING *", [at, normalizedMachineId]);
+      }
+      return result.rows.map(eventFromRow);
+    },
+
+    async deleteEvents({ machineId, eventIds, readState } = {}) {
+      const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
+      const ids = Array.isArray(eventIds) ? eventIds.map(String).filter(Boolean) : null;
+      const readClause = readState === "read"
+        ? "read_at IS NOT NULL"
+        : readState === "unread"
+          ? "read_at IS NULL"
+          : "TRUE";
+      let result;
+      if (ids?.length) {
+        result = normalizedMachineId === undefined
+          ? await db.query(
+              `DELETE FROM machine_events WHERE id = ANY($1::bigint[]) AND ${readClause} RETURNING *`,
+              [ids]
+            )
+          : await db.query(
+              `DELETE FROM machine_events WHERE machine_id=$1 AND id = ANY($2::bigint[]) AND ${readClause} RETURNING *`,
+              [normalizedMachineId, ids]
+            );
+      } else {
+        result = normalizedMachineId === undefined
+          ? await db.query(`DELETE FROM machine_events WHERE ${readClause} RETURNING *`, [])
+          : await db.query(`DELETE FROM machine_events WHERE machine_id=$1 AND ${readClause} RETURNING *`, [normalizedMachineId]);
+      }
       return result.rows.map(eventFromRow);
     },
 

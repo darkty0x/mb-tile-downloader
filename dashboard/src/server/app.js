@@ -697,6 +697,29 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "POST" && url.pathname === "/api/events/read") {
+          if (!store.markEventsRead) throw new Error("event read state is not supported");
+          const body = await readJson(req);
+          const events = await store.markEventsRead({
+            machineId: body.machineId || undefined,
+            eventIds: Array.isArray(body.eventIds) ? body.eventIds : undefined,
+          });
+          json(res, 200, { events, count: events.length });
+          return;
+        }
+
+        if (req.method === "DELETE" && url.pathname === "/api/events") {
+          if (!store.deleteEvents) throw new Error("event deletion is not supported");
+          const body = await readJson(req);
+          const events = await store.deleteEvents({
+            machineId: body.machineId || undefined,
+            eventIds: Array.isArray(body.eventIds) ? body.eventIds : undefined,
+            readState: ["read", "unread"].includes(body.readState) ? body.readState : undefined,
+          });
+          json(res, 200, { events, count: events.length });
+          return;
+        }
+
         if (req.method === "GET" && url.pathname === "/api/jobs") {
           const machineId = url.searchParams.get("machineId") || undefined;
           json(res, 200, { jobs: await store.listJobs({ machineId }) });

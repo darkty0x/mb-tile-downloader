@@ -90,7 +90,35 @@ test("direct downloader dashboard secret sync materializes server-assigned proxi
   assert.equal(result.synced, true);
   assert.equal(env.MAPBOX_ACCESS_TOKENS, "pk.secret-token");
   assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "proxy-a.example:8080\nproxy-b.example:8080\n");
-  assert.deepEqual(logs, ["Dashboard secrets synced: mapbox=1 proxies=1"]);
+  assert.deepEqual(logs, ["Dashboard secrets synced: mapbox=1 proxies=2 proxy=dashboard"]);
+});
+
+test("direct downloader dashboard secret sync preserves local proxies when none assigned", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-secret-sync-local-proxy-"));
+  await writeFile(path.join(dir, "proxy.txt"), "local-proxy.example:8080\n", "utf8");
+  const logs = [];
+
+  const result = await syncDashboardSecretsIfConfigured({
+    env: {
+      DASHBOARD_URL: "https://dashboard.example.com",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "worker-a",
+    },
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    log: (message) => logs.push(message),
+    createClient: () => ({
+      async listSecrets(machineId) {
+        assert.equal(machineId, "worker-a");
+        return { secrets: [] };
+      },
+    }),
+  });
+
+  assert.equal(result.synced, true);
+  assert.equal(result.proxyPath, null);
+  assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "local-proxy.example:8080\n");
+  assert.deepEqual(logs, ["Dashboard secrets synced: mapbox=0 proxies=0 proxy=local-preserved"]);
 });
 
 test("direct downloader dashboard secret sync skips when dashboard env is incomplete", async () => {

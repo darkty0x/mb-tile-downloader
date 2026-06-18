@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
-import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
+import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 import { diskPeakForMachine } from "../dashboard/client/components/dashboard-core.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
@@ -174,9 +174,9 @@ test("server onboarding explains agent registration instead of manual dashboard 
   });
 
   assert.equal(onboarding.machineId, "server-10");
-  assert.match(onboarding.command, /MACHINE_ID=server-10/);
-  assert.match(onboarding.command, /DASHBOARD_URL=https:\/\/ptg-dashboard.example.com/);
-  assert.match(onboarding.command, /npm run agent/);
+  assert.equal(onboarding.dashboardUrl, "https://ptg-dashboard.example.com");
+  assert.match(onboarding.command, /npm run agent:install/);
+  assert.doesNotMatch(onboarding.command, /MACHINE_ID=/);
 });
 
 test("server onboarding defaults increment from saved connection profiles and machines", () => {
@@ -238,4 +238,13 @@ test("server onboarding builds Windows agent env instead of inline shell command
   assert.equal(env.includes("npm run agent"), false);
   assert.equal(env.includes("$env:"), false);
   assert.equal(env.includes("MACHINE_ID="), true);
+});
+
+test("server onboarding exposes Windows startup agent commands", () => {
+  const command = buildWindowsAgentInstallCommand();
+
+  assert.match(command, /npm run agent:install/);
+  assert.match(command, /npm run agent:start-service/);
+  assert.match(command, /npm run agent:status-service/);
+  assert.equal(command.includes("MACHINE_ID="), false);
 });

@@ -40,12 +40,39 @@ test("dashboard-run strips local secrets and applies dashboard env", () => {
       synced: true,
       env: { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "4096" },
       secretEnv: { MAPBOX_ACCESS_TOKENS: "dashboard-token" },
+      proxyPath: path.join("proxy.txt"),
     }
   );
 
   assert.equal(env.MAPBOX_ACCESS_TOKENS, "dashboard-token");
   assert.equal(env.MAPBOX_ACCESS_TOKEN_1, undefined);
   assert.equal(env.TILE_DOWNLOADER_PROXY_LIST, undefined);
+  assert.equal(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS, "4096");
+  assert.equal(env.DASHBOARD_MANAGED_RUN, "1");
+});
+
+test("dashboard-run preserves local secrets when dashboard has no replacement secrets", () => {
+  const env = buildManagedEnv(
+    {
+      DASHBOARD_URL: "https://dashboard.example.com",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "worker-a",
+      MAPBOX_ACCESS_TOKENS: "local-token",
+      MAPBOX_ACCESS_TOKEN_1: "local-token-1",
+      TILE_DOWNLOADER_PROXY_LIST: "local-proxy",
+      TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "64",
+    },
+    {
+      synced: true,
+      env: { TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS: "4096" },
+      secretEnv: {},
+      proxyPath: null,
+    }
+  );
+
+  assert.equal(env.MAPBOX_ACCESS_TOKENS, "local-token");
+  assert.equal(env.MAPBOX_ACCESS_TOKEN_1, "local-token-1");
+  assert.equal(env.TILE_DOWNLOADER_PROXY_LIST, "local-proxy");
   assert.equal(env.TILE_DOWNLOADER_MAX_CONCURRENT_REQUESTS, "4096");
   assert.equal(env.DASHBOARD_MANAGED_RUN, "1");
 });

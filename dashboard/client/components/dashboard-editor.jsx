@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-import { buildWindowsAgentEnv, nextServerDefaults } from "../lib/overview-model";
+import { buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../lib/overview-model";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, ModalShell, SelectInput, SwitchField, TextArea, TextInput } from "./ui";
@@ -25,6 +25,7 @@ function ServerOnboardingForm({ state, actions }) {
   const [formNotice, setFormNotice] = useState(null);
   const [submitting, setSubmitting] = useState(false);
   const windowsEnv = buildWindowsAgentEnv({ machineId, dashboardUrl, agentToken: agentSetup.agentToken });
+  const windowsInstallCommand = buildWindowsAgentInstallCommand();
   const copy = async (text, label = "값") => {
     try {
       await navigator.clipboard?.writeText(String(text || ""));
@@ -79,13 +80,13 @@ function ServerOnboardingForm({ state, actions }) {
         </span>
         <h4 className="mt-3 text-[15px] font-[850]">봉사기조종은 Windows Agent를 리용합니다</h4>
         <p className="mt-2 text-[12.5px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
-          원격접속자료를 보관하고 Agent `.env`를 설정한다음 관리체계에서 같은 Machine ID를 검증하십시오.
+          원격접속자료를 보관하고 Agent `.env`를 설정한 다음 Windows 시작작업으로 Agent를 등록하십시오.
         </p>
         <div className="mt-3 grid grid-cols-3 gap-2 text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">
           {[
             ["credentials", "1. 접속자료 보관"],
             ["console", "2. .Env 설정"],
-            ["control", "3. 검증"],
+            ["control", "3. Agent 등록"],
           ].map(([icon, label]) => (
             <span key={label} className="inline-flex min-h-9 items-center gap-1.5 rounded-lg border border-[var(--ptg-outline)] bg-white px-2">
               <Icon name={icon} className="h-3.5 w-3.5 text-[var(--ptg-primary)]" />
@@ -208,8 +209,19 @@ function ServerOnboardingForm({ state, actions }) {
         <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{windowsEnv}</pre>
       </section>
 
+      <section className="grid gap-2">
+        <div className="flex items-center justify-between gap-3">
+          <h4 className="text-[12px] font-[850] uppercase text-[var(--ptg-on-surface-variant)]">Windows 시작 Agent</h4>
+          <AppButton icon="copy" onClick={() => copy(windowsInstallCommand, "Windows Agent install command")}>복사</AppButton>
+        </div>
+        <p className="text-[12px] font-[620] leading-5 text-[var(--ptg-on-surface-variant)]">
+          한번만 실행하면 Windows 재기동후에도 Agent가 배경에서 관리체계 명령을 받습니다.
+        </p>
+        <pre className="ptg-scrollbar overflow-auto rounded-[12px] border border-[var(--ptg-outline)] bg-[#071326] p-3.5 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">{windowsInstallCommand}</pre>
+      </section>
+
       <div className="rounded-[10px] border border-[rgba(201,121,0,0.22)] bg-[#fff8ed] px-3 py-2.5 text-[12px] font-[650] leading-5 text-[var(--ptg-on-surface-variant)]">
-        같은 Machine ID를 이미 련결된 다른 Aent가 가지고 있으면 등록은 충돌상태로 되며 거부됩니다.
+        같은 Machine ID를 이미 련결된 다른 Agent가 가지고 있으면 등록은 충돌상태로 되며 거부됩니다.
       </div>
     </section>
   );

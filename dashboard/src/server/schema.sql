@@ -22,6 +22,7 @@ CREATE TABLE IF NOT EXISTS machine_events (
   type text NOT NULL,
   message text NOT NULL,
   data_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+  read_at timestamptz,
   created_at timestamptz NOT NULL DEFAULT now()
 );
 
@@ -139,3 +140,6 @@ CREATE INDEX IF NOT EXISTS dashboard_sessions_expires_at_idx
 
 ALTER TABLE machines
   ADD COLUMN IF NOT EXISTS agent_snapshot_json jsonb NOT NULL DEFAULT '{}'::jsonb;
+
+ALTER TABLE machine_events
+  ADD COLUMN IF NOT EXISTS read_at timestamptz;

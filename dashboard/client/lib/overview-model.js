@@ -11,24 +11,13 @@ const CONTROL_UTILITY_COMMANDS = [
   ["sync_env", ".Env 동기화", "sync"],
 ];
 
-function shellQuote(value) {
-  const text = String(value || "");
-  if (/^[A-Za-z0-9_./:=@-]+$/.test(text)) return text;
-  return `'${text.replaceAll("'", "'\\''")}'`;
-}
-
 export function buildServerOnboarding({ dashboardUrl = "", machineId = "" } = {}) {
   const normalizedMachineId = String(machineId || "SERVER-01").trim() || "SERVER-01";
   const normalizedDashboardUrl = String(dashboardUrl || "https://your-railway-app.up.railway.app").trim() || "https://your-railway-app.up.railway.app";
   return {
     machineId: normalizedMachineId,
     dashboardUrl: normalizedDashboardUrl,
-    command: [
-      `MACHINE_ID=${shellQuote(normalizedMachineId)}`,
-      `DASHBOARD_URL=${shellQuote(normalizedDashboardUrl)}`,
-      "AGENT_TOKEN=your-agent-token",
-      "npm run agent",
-    ].join(" \\\n"),
+    command: buildWindowsAgentInstallCommand(),
   };
 }
 
@@ -40,6 +29,14 @@ export function buildWindowsAgentEnv({ dashboardUrl = "", agentToken = "", machi
     `DASHBOARD_URL=${normalizedDashboardUrl}`,
     `AGENT_TOKEN=${normalizedAgentToken}`,
     `MACHINE_ID=${normalizedMachineId}`,
+  ].join("\n");
+}
+
+export function buildWindowsAgentInstallCommand() {
+  return [
+    "npm run agent:install",
+    "npm run agent:start-service",
+    "npm run agent:status-service",
   ].join("\n");
 }
 

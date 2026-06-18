@@ -31,9 +31,11 @@ const OPTION_VALUE_FLAGS = new Set([
   "--tiles-dir",
   "--max-archive-size",
 ]);
-const LOCAL_SECRET_ENV_KEYS = new Set([
+const LOCAL_MAPBOX_ENV_KEYS = new Set([
   "MAPBOX_ACCESS_TOKENS",
   "MAPBOX_ACCESS_TOKEN",
+]);
+const LOCAL_PROXY_ENV_KEYS = new Set([
   "TILE_DOWNLOADER_PROXY_LIST",
   "PROXY_LIST",
   "TILE_DOWNLOADER_HTTP_PROXY_LIST",
@@ -170,9 +172,16 @@ export function withDashboardConfig(command, configPath) {
 
 export function buildManagedEnv(baseEnv, synced) {
   const nextEnv = { ...baseEnv };
+  const hasDashboardMapbox = Boolean(synced?.secretEnv?.MAPBOX_ACCESS_TOKENS);
+  const hasDashboardProxy = Boolean(synced?.proxyPath);
   if (synced?.synced) {
     for (const key of Object.keys(nextEnv)) {
-      if (LOCAL_SECRET_ENV_KEYS.has(key) || /^MAPBOX_ACCESS_TOKEN_\d+$/.test(key)) delete nextEnv[key];
+      if (hasDashboardMapbox && (LOCAL_MAPBOX_ENV_KEYS.has(key) || /^MAPBOX_ACCESS_TOKEN_\d+$/.test(key))) {
+        delete nextEnv[key];
+      }
+      if (hasDashboardProxy && LOCAL_PROXY_ENV_KEYS.has(key)) {
+        delete nextEnv[key];
+      }
     }
   }
   return {

@@ -19,6 +19,7 @@ export async function materializeSecrets({
   projectDir = process.cwd(),
   stateDir = ".tile-state",
   secrets = [],
+  preserveLocalProxyWhenUnassigned = false,
 } = {}) {
   const dashboardDir = path.join(stateDir, "dashboard");
   await mkdir(dashboardDir, { recursive: true });
@@ -37,16 +38,24 @@ export async function materializeSecrets({
   await writeFile(tmpEnvPath, `${envLines.join("\n")}${envLines.length ? "\n" : ""}`);
   await rename(tmpEnvPath, envPath);
 
-  const proxyText = secrets
-    .filter((secret) => secret.secretType === "proxy_txt")
+  const proxySecrets = secrets.filter((secret) => secret.secretType === "proxy_txt");
+  const proxyText = proxySecrets
     .map((secret) => secret.value)
     .filter(Boolean)
     .join("\n");
   const proxyPath = path.join(projectDir, "proxy.txt");
-  const tmpProxyPath = `${proxyPath}.tmp`;
   const normalized = normalizeProxyText(proxyText);
-  await writeFile(tmpProxyPath, `${normalized}${normalized ? "\n" : ""}`);
-  await rename(tmpProxyPath, proxyPath);
+  if (normalized || !preserveLocalProxyWhenUnassigned) {
+    const tmpProxyPath = `${proxyPath}.tmp`;
+    await writeFile(tmpProxyPath, `${normalized}${normalized ? "\n" : ""}`);
+    await rename(tmpProxyPath, proxyPath);
+  }
 
-  return { env, envPath, proxyPath };
+  return {
+    env,
+    envPath,
+    mapboxTokenCount: mapboxTokens.length,
+    proxyCount: normalized ? normalized.split("\n").filter(Boolean).length : 0,
+    proxyPath: normalized || !preserveLocalProxyWhenUnassigned ? proxyPath : null,
+  };
 }

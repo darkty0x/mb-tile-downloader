@@ -52,9 +52,10 @@ export async function syncDashboardStateIfConfigured({
     "Dashboard state synced: " +
       `machine=${config.machineId} ` +
       `config=${result.configPath ? "active" : "none"} ` +
-      `env=${result.envPath ? "active" : "none"} ` +
-      `mapbox=${result.secretEnv?.MAPBOX_ACCESS_TOKENS ? result.secretEnv.MAPBOX_ACCESS_TOKENS.split(",").filter(Boolean).length : 0} ` +
-      `proxy=${result.proxyPath ? "materialized" : "none"}`
+      `dashboardEnv=${result.envPath ? "active" : "none"} ` +
+      `dashboardMapbox=${result.mapboxTokenCount || 0} ` +
+      `dashboardProxy=${result.proxyCount || 0} ` +
+      `proxy=${result.proxyPath ? "dashboard" : "local-preserved"}`
   );
   return { synced: true, machineId: config.machineId, ...result };
 }
