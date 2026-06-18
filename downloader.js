@@ -11,10 +11,12 @@ import { runDownloadJob } from "./src/engine/downloader-engine.js";
 import { createProvider } from "./src/providers/index.js";
 import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
+import { enableWindowsUtf8Console } from "./src/runtime/windows-console.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+enableWindowsUtf8Console();
 const DEFAULT_MAX_OLD_SPACE_MB = 8192;
 const OUTPUT_ENV_KEYS = [
   "TILE_DOWNLOADER_DYNAMIC_OUTPUT",

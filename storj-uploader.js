@@ -9,9 +9,11 @@ import { fileURLToPath } from "node:url";
 
 import { normalizeRanges } from "./src/config/config-loader.js";
 import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
+import { enableWindowsUtf8Console } from "./src/runtime/windows-console.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+enableWindowsUtf8Console();
 const LOCAL_UPLINK_BIN = path.join(
   __dirname,
   "tools",

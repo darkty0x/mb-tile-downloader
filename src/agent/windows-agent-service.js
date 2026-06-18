@@ -36,6 +36,7 @@ export function buildWindowsAgentWrapper({
   return [
     "@echo off",
     "setlocal",
+    "chcp 65001 >nul",
     `cd /d ${windowsQuote(paths.projectDir)}`,
     `if not exist ${windowsQuote(paths.stateDir)} mkdir ${windowsQuote(paths.stateDir)}`,
     ":loop",

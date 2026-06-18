@@ -11,8 +11,10 @@ import { collectDiskInfo } from "../src/agent/disk.js";
 import { loadAgentIdentity } from "../src/agent/identity.js";
 import { collectLocalSnapshot } from "../src/agent/local-snapshot.js";
 import { DASHBOARD_MANAGED_RUN_ENV } from "../src/agent/managed-run-guard.js";
+import { enableWindowsUtf8Console } from "../src/runtime/windows-console.js";
 
 const __filename = fileURLToPath(import.meta.url);
+enableWindowsUtf8Console();
 
 const MANAGED_CONFIG_SCRIPTS = new Set(["downloader.js", "zip-maker.js", "storj-uploader.js"]);
 const OPTION_VALUE_FLAGS = new Set([

@@ -10,10 +10,12 @@ import { crc32 } from "node:zlib";
 import { loadConfig } from "./src/config/config-loader.js";
 import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { resolveOutputStorage, selectOutputRoot } from "./src/runtime/output-storage.js";
+import { enableWindowsUtf8Console } from "./src/runtime/windows-console.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+enableWindowsUtf8Console();
 
 const DEFAULT_CONFIG_PATH = path.join(__dirname, "configs", "archive.config.json");
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");

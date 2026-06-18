@@ -18,6 +18,7 @@ test("windows agent service wrapper runs the dashboard agent in a restart loop",
   });
 
   assert.match(wrapper, /cd \/d "C:\\mb-tile-downloader"/);
+  assert.match(wrapper, /chcp 65001 >nul/);
   assert.match(wrapper, /"C:\\Program Files\\nodejs\\node.exe" --env-file-if-exists=.env src\\agent\\agent.js/);
   assert.match(wrapper, /timeout \/t 7 \/nobreak >nul/);
   assert.match(wrapper, /goto loop/);

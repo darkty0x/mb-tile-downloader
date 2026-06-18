@@ -16,10 +16,12 @@ import { createProcessRunner, resolveManagedCommand } from "./process-runner.js"
 import { createProgressEventForwarder } from "./progress-events.js";
 import { writeRootEnvFile } from "./root-env.js";
 import { materializeSecrets } from "./secret-materializer.js";
+import { enableWindowsUtf8Console } from "../runtime/windows-console.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 export const AGENT_PROTOCOL_VERSION = 1;
 const execFileAsync = promisify(execFile);
+enableWindowsUtf8Console();
 
 export function isCliEntrypoint(metaUrl = import.meta.url, argvPath = process.argv[1]) {
   if (!argvPath) return false;
