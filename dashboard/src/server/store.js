@@ -259,6 +259,7 @@ export function createDashboardStore({
       const next = {
         ...existing,
         status: input.status || "online",
+        platform: input.platform || existing.platform || null,
         disk: Array.isArray(input.disk) ? input.disk : existing.disk,
         agentSnapshot: input.agentSnapshot && typeof input.agentSnapshot === "object"
           ? structuredClone(input.agentSnapshot)

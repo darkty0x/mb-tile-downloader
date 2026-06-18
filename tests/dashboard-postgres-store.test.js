@@ -228,11 +228,13 @@ test("postgres store persists machine registration, heartbeat, and conflicts", a
   const heartbeat = await store.heartbeatMachine({
     machineId: "worker-a",
     agentInstanceId: "agent-1",
+    platform: "Microsoft Windows Server 2019 Standard",
     disk: [{ name: "C:", freeBytes: 100 }],
     agentSnapshot: { managed: { configPath: ".tile-state/dashboard/configs/a.json" } },
   });
 
   assert.equal(registered.status, "registered");
+  assert.equal(heartbeat.platform, "Microsoft Windows Server 2019 Standard");
   assert.equal(heartbeat.disk[0].name, "C:");
   assert.equal(heartbeat.agentSnapshot.managed.configPath, ".tile-state/dashboard/configs/a.json");
   assert.equal((await store.listMachines())[0].machineId, "worker-a");

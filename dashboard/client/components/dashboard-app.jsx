@@ -13,7 +13,7 @@ export default function DashboardApp() {
   }
 
   return (
-    <main className={`ptg-shell grid min-h-screen grid-cols-[244px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
+    <main className={`ptg-shell grid min-h-screen grid-cols-[280px_minmax(0,1fr)] max-md:grid-cols-1 ${state.loading ? "cursor-progress" : ""}`}>
       <Rail state={state} actions={actions} />
       <section className="min-w-0 overflow-hidden">
         <Header state={state} actions={actions} />

@@ -168,10 +168,10 @@ test("progress output reports source counters and ETA", async () => {
     db.close();
   }
 
-  const rowLine = lines.find((line) => line.includes(" row 1/1 "));
-  assert.match(rowLine, /d=1 s=0/);
+  const rowLine = lines.find((line) => line.includes(" 행 1/1 "));
+  assert.match(rowLine, /내리적재=1 보관됨=0/);
   assert.doesNotMatch(rowLine, /\bc=/);
-  assert.match(rowLine, /eta=\d+s/);
+  assert.match(rowLine, /완료예상=\d+s/);
 });
 
 test("progress ETA ignores skip-only rows when estimating remaining download work", async () => {
@@ -219,9 +219,9 @@ test("progress ETA ignores skip-only rows when estimating remaining download wor
     db.close();
   }
 
-  const rowLine = lines.find((line) => line.includes(" row 2/3 "));
-  assert.match(rowLine, /s=1/);
-  assert.match(rowLine, /eta=10s/);
+  const rowLine = lines.find((line) => line.includes(" 행 2/3 "));
+  assert.match(rowLine, /보관됨=1/);
+  assert.match(rowLine, /완료예상=10s/);
 });
 
 test("engine skips rows marked complete for the same config hash", async () => {
@@ -1539,7 +1539,7 @@ test("Esri blocks a proxy after the first 403 by default", async () => {
 
   assert.equal(marked.length, 1);
   assert.equal(marked[0].proxy, proxyUrl);
-  assert.ok(lines.some((line) => line.includes("proxy blocked status=403") && line.includes("remaining=4/5")), lines.join("\n"));
+  assert.ok(lines.some((line) => line.includes("proxy 차단 status=403") && line.includes("remaining=4/5")), lines.join("\n"));
   db.close();
 });
 

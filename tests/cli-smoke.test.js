@@ -85,7 +85,7 @@ test("real CLI download fetches a tile over HTTP and writes it to disk", async (
 
     const tilePath = path.join(outputDir, "esri-satellite", "1", "0", "0.jpg");
     assert.deepEqual(await readFile(tilePath), TILE_BYTES);
-    assert.match(stdout, /Tiles downloaded: 1/);
+    assert.match(stdout, /내리적재타일: 1/);
     assert.equal(requests, 1);
   });
 });
@@ -119,7 +119,7 @@ test("real CLI validate redownloads an existing Esri unavailable placeholder", a
     );
 
     assert.deepEqual(await readFile(tilePath), TILE_BYTES);
-    assert.match(stdout, /Tiles downloaded: 1/);
+    assert.match(stdout, /내리적재타일: 1/);
     assert.equal(requests, 1);
   });
 });

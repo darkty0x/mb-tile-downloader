@@ -7,6 +7,7 @@ import { access } from "node:fs/promises";
 import { loadConfig } from "../config/config-loader.js";
 import { createControlClient } from "./control-client.js";
 import { createJobReporter } from "./job-reporter.js";
+import { parseDownloaderProgressLine } from "./progress-events.js";
 
 const STAGES = ["download", "validate", "zip", "upload"];
 let activeStageChild = null;
@@ -38,14 +39,49 @@ async function pauseFileExists(filePath) {
   }
 }
 
-function runNode(args, { env = process.env, cwd = process.cwd() } = {}) {
+function mergeProgress(baseProgress = {}, parsedProgress = {}) {
+  return {
+    ...baseProgress,
+    ...parsedProgress,
+    percent: Number.isFinite(parsedProgress.percent) ? parsedProgress.percent : baseProgress.percent,
+  };
+}
+
+function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null, stage = null, baseProgress = {} } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
       cwd,
       env,
-      stdio: "inherit",
+      stdio: ["ignore", "pipe", "pipe"],
     });
     activeStageChild = child;
+    let stdoutBuffer = "";
+    let stderrBuffer = "";
+
+    const handleOutput = (chunk, stream) => {
+      const target = stream === "stderr" ? process.stderr : process.stdout;
+      target.write(chunk);
+      const text = String(chunk);
+      const buffer = stream === "stderr" ? stderrBuffer : stdoutBuffer;
+      const parts = `${buffer}${text}`.split(/\r?\n/);
+      const completeLines = parts.slice(0, -1);
+      if (stream === "stderr") stderrBuffer = parts.at(-1) || "";
+      else stdoutBuffer = parts.at(-1) || "";
+      for (const line of completeLines) {
+        const parsed = stage === "download" ? parseDownloaderProgressLine(line) : null;
+        if (parsed && reporter) {
+          Promise.resolve(
+            reporter.stage({
+              stage,
+              progress: mergeProgress(baseProgress, parsed),
+            })
+          ).catch(() => {});
+        }
+      }
+    };
+
+    child.stdout.on("data", (chunk) => handleOutput(chunk, "stdout"));
+    child.stderr.on("data", (chunk) => handleOutput(chunk, "stderr"));
     child.on("error", (err) => {
       if (activeStageChild === child) activeStageChild = null;
       resolve({ ok: false, error: err.message });
@@ -160,7 +196,7 @@ export async function runRangePipeline({
         message: `${stage} started`,
         data: { configPath, rangeIndex, label: range.label || null },
       });
-      const result = await runStage(stage, { configPath, rangeIndex, range });
+      const result = await runStage(stage, { configPath, rangeIndex, range, reporter, progress });
       if (!result || result.ok !== true) {
         const error = result?.error || `${stage} failed`;
         const errorObject = new Error(error);
@@ -240,7 +276,11 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
     config,
     configPath,
     createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
-    runStage: (stage, context) => runNode(stageArgs(stage, context)),
+    runStage: (stage, context) => runNode(stageArgs(stage, context), {
+      reporter: context.reporter,
+      stage,
+      baseProgress: context.progress,
+    }),
     shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
     shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
   }).catch((err) => {

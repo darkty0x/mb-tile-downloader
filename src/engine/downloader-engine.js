@@ -232,7 +232,7 @@ function createProgressReporter(enabled) {
       lastRateAt = currentRangeStartedAt;
       sustainedTileRates = [];
       line(
-        `▶ Range ${rangeIndex}/${rangeCount}: ${range.label || "unnamed"} rows=${rows} tiles=${tiles}`,
+        `▶ 범위 ${rangeIndex}/${rangeCount}: ${range.label || "이름없음"} 행=${rows} 타일=${tiles}`,
         true
       );
     },
@@ -256,16 +256,16 @@ function createProgressReporter(enabled) {
       lastCostlyTilesDone = costlyTilesDone;
       lastRateAt = now;
       line(
-        `  ↳ range ${rangeIndex}/${rangeCount} row ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
-          `tiles ${tilesDone}/${tilesTotal} d=${totals.tilesDownloaded} s=${totals.tileFilesSkipped} ` +
-          `m=${totals.tilesMissing} f=${totals.tilesFailed} skippedRows=${totals.rowsSkipped} ` +
-          `rate=${rowRate.toFixed(1)} rows/s ${tileRate.toFixed(1)} 타일/초 eta=${formatDuration(etaSec)}`,
+        `  ↳ 범위 ${rangeIndex}/${rangeCount} 행 ${rowsDone}/${rowsTotal} z=${current.z} x=${current.x} ` +
+          `타일 ${tilesDone}/${tilesTotal} 내리적재=${totals.tilesDownloaded} 보관됨=${totals.tileFilesSkipped} ` +
+          `빠짐=${totals.tilesMissing} 실패=${totals.tilesFailed} 건너뛴행=${totals.rowsSkipped} ` +
+          `속도=${rowRate.toFixed(1)} 행/초 ${tileRate.toFixed(1)} 타일/초 완료예상=${formatDuration(etaSec)}`,
         rowsDone === rowsTotal
       );
     },
     rowRetry({ rangeIndex, rangeCount, z, x, failed, pass, maxPasses }) {
       line(
-        `  ↻ range ${rangeIndex}/${rangeCount} z=${z} x=${x} retrying ${failed} failed tiles pass=${pass}/${maxPasses}`,
+        `  ↻ 범위 ${rangeIndex}/${rangeCount} z=${z} x=${x} 실패타일 ${failed}개 재시도 pass=${pass}/${maxPasses}`,
         true
       );
     },
@@ -308,7 +308,7 @@ function createProgressReporter(enabled) {
         }
         const pool = remaining !== null && total !== null ? ` remaining=${remaining}/${total}` : "";
         line(
-          `  ⏸ ${provider} proxy blocked status=${status} hits=${count}/${threshold}${pool} cooldown=${Math.round(
+          `  ⏸ ${provider} proxy 차단 status=${status} hits=${count}/${threshold}${pool} 대기=${Math.round(
             cooldownMs / 1000
           )}s`,
           true

@@ -355,7 +355,7 @@ export function buildOverviewModel({
   const resourceAlerts = [
     {
       type: "mapbox_token",
-      label: "Mapbox API Key",
+      label: "Mapbox API Key 목록",
       available: mapbox.available,
       threshold: mapboxThreshold,
       status: machines.length && mapbox.available <= mapboxThreshold ? "low" : "ok",

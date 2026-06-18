@@ -290,6 +290,7 @@ export function createPostgresDashboardStore({
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
         ON CONFLICT (machine_id) DO UPDATE SET
           status=excluded.status,
+          platform=excluded.platform,
           last_seen_at=excluded.last_seen_at,
           lease_expires_at=excluded.lease_expires_at,
           disk_json=excluded.disk_json,
@@ -302,7 +303,7 @@ export function createPostgresDashboardStore({
           agentInstanceId,
           existing.display_name,
           input.status || "online",
-          existing.platform,
+          input.platform || existing.platform,
           existing.version,
           at.toISOString(),
           addMs(at, leaseMs).toISOString(),

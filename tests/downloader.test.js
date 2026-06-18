@@ -60,7 +60,7 @@ test("downloader accepts --max-concurrent-requests and applies it to runtime pro
     }
   );
 
-  assert.ok(stdout.includes("Concurrency: requests=192"), stdout);
+  assert.ok(stdout.includes("동시성: 요청=192"), stdout);
 });
 
 test("downloader --range-index selects one original config range", async () => {
@@ -84,8 +84,8 @@ test("downloader --range-index selects one original config range", async () => {
     { cwd: process.cwd(), env: process.env }
   );
 
-  assert.ok(stdout.includes("Rows planned: 2"), stdout);
-  assert.ok(stdout.includes("Tiles planned: 2"), stdout);
+  assert.ok(stdout.includes("예정행: 2"), stdout);
+  assert.ok(stdout.includes("예정타일: 2"), stdout);
 });
 
 test("downloader --range-index rejects indexes outside the config", async () => {
@@ -121,7 +121,7 @@ test("downloader dry-run skips proxy discovery", async () => {
     }
   );
 
-  assert.ok(stdout.includes("Mode: dry-run"), stdout);
+  assert.ok(stdout.includes("방식: 시험실행"), stdout);
 });
 
 test("downloader --no-proxy skips proxy discovery without requiring a healthy proxy", async () => {
@@ -146,9 +146,9 @@ test("downloader --no-proxy skips proxy discovery without requiring a healthy pr
     }
   );
 
-  assert.ok(stdout.includes("Proxy: disabled (--no-proxy)"), stdout);
-  assert.equal(stdout.includes("Proxy: fallback enabled from env"), false);
-  assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
+  assert.ok(stdout.includes("Proxy: 비활성(--no-proxy)"), stdout);
+  assert.equal(stdout.includes("Proxy: env에서 fallback 사용"), false);
+  assert.ok(stdout.includes("방식: 검증/빠진 타일 내리적재"), stdout);
 });
 
 test("downloader accepts deprecated --proxy-trace as a compatibility no-op", async () => {
@@ -165,7 +165,7 @@ test("downloader accepts deprecated --proxy-trace as a compatibility no-op", asy
     }
   );
 
-  assert.ok(stdout.includes("Mode: dry-run"), stdout);
+  assert.ok(stdout.includes("방식: 시험실행"), stdout);
 });
 
 test("downloader disables missing tile synthesis and rejects the removed synthesis flag", async () => {
@@ -178,8 +178,8 @@ test("downloader disables missing tile synthesis and rejects the removed synthes
     ["downloader.js", configPath, "--dry-run"],
     { cwd: process.cwd(), env: process.env }
   );
-  assert.ok(disabled.stdout.includes("Synthesis: disabled"), disabled.stdout);
-  assert.ok(disabled.stdout.includes("Completion status: green"), disabled.stdout);
+  assert.ok(disabled.stdout.includes("합성: 비활성"), disabled.stdout);
+  assert.ok(disabled.stdout.includes("완료상태: 초록"), disabled.stdout);
   await assert.rejects(
     () =>
       execFileAsync(
@@ -213,8 +213,8 @@ test("downloader enables paid proxy list from environment", async () => {
     }
   );
 
-  assert.ok(stdout.includes("Proxy: fallback enabled from env (direct first)"), stdout);
-  assert.ok(stdout.includes("Mode: validate/download missing"), stdout);
+  assert.ok(stdout.includes("Proxy: env에서 fallback 사용(직접련결 먼저)"), stdout);
+  assert.ok(stdout.includes("방식: 검증/빠진 타일 내리적재"), stdout);
 });
 
 test("delete-unavailable removes Esri unavailable placeholder files and keeps valid imagery", async () => {
@@ -247,8 +247,8 @@ test("delete-unavailable removes Esri unavailable placeholder files and keeps va
 
   await assert.rejects(() => access(unavailablePath));
   await access(validPath);
-  assert.match(stdout, /^Unavailable tiles deleted: 1$/m);
-  assert.match(stdout, /^Tiles scanned: 2$/m);
+  assert.match(stdout, /^쓸수 없는 타일 삭제: 1$/m);
+  assert.match(stdout, /^검사한 타일: 2$/m);
 });
 
 test("delete-unavailable scans existing files, not every configured coordinate", async () => {
@@ -278,6 +278,6 @@ test("delete-unavailable scans existing files, not every configured coordinate",
   );
 
   await assert.rejects(() => access(unavailablePath));
-  assert.match(stdout, /^Tiles scanned: 1$/m);
-  assert.match(stdout, /^Unavailable tiles deleted: 1$/m);
+  assert.match(stdout, /^검사한 타일: 1$/m);
+  assert.match(stdout, /^쓸수 없는 타일 삭제: 1$/m);
 });

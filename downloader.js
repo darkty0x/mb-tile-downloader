@@ -442,49 +442,49 @@ async function runOneConfig(configPath, opts) {
       ? null
       : await configureNetworking(config.platformProfile, proxyRuntimeEnv);
     console.log("");
-    console.log(`Config: ${config.configPath}`);
-    console.log(`Job: ${config.jobName}`);
-    console.log(`Provider: ${config.provider}`);
-    console.log(`Platform: ${config.platformProfile.os}`);
-    console.log(`Output: ${config.output.dir}`);
+    console.log(`Config 화일: ${config.configPath}`);
+    console.log(`작업: ${config.jobName}`);
+    console.log(`제공자: ${config.provider}`);
+    console.log(`체계: ${config.platformProfile.os}`);
+    console.log(`출력등록부: ${config.output.dir}`);
     if (outputRootsFor(config).length > 1) {
-      console.log(`Output roots: ${outputRootsFor(config).join(", ")}`);
-      console.log(`Output mode: ${config.output.storageMode || "multi-root"}`);
+      console.log(`출력뿌리등록부: ${outputRootsFor(config).join(", ")}`);
+      console.log(`출력방식: ${config.output.storageMode || "multi-root"}`);
     }
-    console.log(`State DB: ${stateDbPath}`);
+    console.log(`상태DB: ${stateDbPath}`);
     if (!opts.dryRun && proxyRotation) {
       const mode = proxyModeLabel(process.env);
       console.log(
         mode === "always"
-          ? "Proxy: always enabled from env"
-          : "Proxy: fallback enabled from env (direct first)"
+          ? "Proxy: env에서 항상 사용"
+          : "Proxy: env에서 fallback 사용(직접련결 먼저)"
       );
     } else if (opts.noProxy) {
-      console.log("Proxy: disabled (--no-proxy)");
+      console.log("Proxy: 비활성(--no-proxy)");
     } else if (!opts.dryRun) {
-      console.log("Proxy: disabled (no env proxy list)");
+      console.log("Proxy: 비활성(env proxy 목록 없음)");
     }
     console.log(
-      `Concurrency: requests=${config.platformProfile.maxConcurrentRequests}, rows=${config.platformProfile.maxRowsInFlight}, perRow=${config.platformProfile.perRowConcurrency}`
+      `동시성: 요청=${config.platformProfile.maxConcurrentRequests}, 행=${config.platformProfile.maxRowsInFlight}, 행당=${config.platformProfile.perRowConcurrency}`
     );
     if (config.platformProfile.wasConcurrencyCapped) {
       console.log(
-        `Concurrency capped from ${config.platformProfile.requestedConcurrency} to ${config.platformProfile.maxConcurrentRequests} for ${config.platformProfile.os}`
+        `동시성 제한: ${config.platformProfile.requestedConcurrency} -> ${config.platformProfile.maxConcurrentRequests} (${config.platformProfile.os})`
       );
     }
     if (config.platformProfile.wereRowsCapped) {
       console.log(
-        `Rows capped from ${config.platformProfile.requestedRows} to ${config.platformProfile.maxRowsInFlight} for ${config.platformProfile.os}`
+        `행 제한: ${config.platformProfile.requestedRows} -> ${config.platformProfile.maxRowsInFlight} (${config.platformProfile.os})`
       );
     }
     if (opts.validate) {
-      console.log("Mode: validate/download missing");
+      console.log("방식: 검증/빠진 타일 내리적재");
     } else if (opts.dryRun) {
-      console.log("Mode: dry-run");
+      console.log("방식: 시험실행");
     } else {
-      console.log("Mode: download/resume");
+      console.log("방식: 내리적재/이어하기");
     }
-    console.log("Synthesis: disabled");
+    console.log("합성: 비활성");
 
     const result = await runDownloadJob({
       config,
@@ -499,21 +499,21 @@ async function runOneConfig(configPath, opts) {
       proxyRotation,
     });
 
-    console.log("Summary:");
-    console.log(`  Rows planned: ${result.rowsPlanned}`);
-    console.log(`  Rows skipped: ${result.rowsSkipped}`);
-    console.log(`  Rows completed: ${result.rowsCompleted}`);
-    console.log(`  Tiles planned: ${result.tilesPlanned}`);
-    console.log(`  Tiles downloaded: ${result.tilesDownloaded}`);
-    console.log(`  Tile files skipped: ${result.tileFilesSkipped}`);
-    console.log(`  Tiles missing: ${result.tilesMissing}`);
-    console.log(`  Tiles failed: ${result.tilesFailed}`);
+    console.log("요약:");
+    console.log(`  예정행: ${result.rowsPlanned}`);
+    console.log(`  건너뛴행: ${result.rowsSkipped}`);
+    console.log(`  완료행: ${result.rowsCompleted}`);
+    console.log(`  예정타일: ${result.tilesPlanned}`);
+    console.log(`  내리적재타일: ${result.tilesDownloaded}`);
+    console.log(`  건너뛴 타일화일: ${result.tileFilesSkipped}`);
+    console.log(`  빠진 타일: ${result.tilesMissing}`);
+    console.log(`  실패타일: ${result.tilesFailed}`);
     console.log(
-      `  Completion status: ${
-        result.tilesFailed > 0 ? "red" : result.tilesMissing > 0 ? "yellow" : "green"
+      `  완료상태: ${
+        result.tilesFailed > 0 ? "빨강" : result.tilesMissing > 0 ? "노랑" : "초록"
       }`
     );
-    console.log(`  Ranges verified: ${result.rangesVerified}`);
+    console.log(`  검증된 범위: ${result.rangesVerified}`);
 
     if (result.tilesFailed > 0) process.exitCode = 1;
   } finally {
@@ -601,11 +601,11 @@ async function deleteUnavailableForConfig(configPath, opts = {}) {
   const extensionSuffix = providerExtensionSuffix(provider);
 
   console.log("");
-  console.log(`Config: ${config.configPath}`);
-  console.log(`Provider: ${config.provider}`);
-  console.log(`Output: ${config.output.dir}`);
+  console.log(`Config 화일: ${config.configPath}`);
+  console.log(`제공자: ${config.provider}`);
+  console.log(`출력등록부: ${config.output.dir}`);
   if (outputRootsFor(config).length > 1) {
-    console.log(`Output roots: ${outputRootsFor(config).join(", ")}`);
+    console.log(`출력뿌리등록부: ${outputRootsFor(config).join(", ")}`);
   }
 
   for (const outputRoot of outputRootsFor(config)) {
@@ -618,19 +618,19 @@ async function deleteUnavailableForConfig(configPath, opts = {}) {
         unavailableDeleted++;
       }
       if (tilesScanned > 0 && tilesScanned % 10_000 === 0) {
-        console.log(`  cleanup progress: scanned=${tilesScanned} deleted=${unavailableDeleted}`);
+        console.log(`  정리진행: 검사=${tilesScanned} 삭제=${unavailableDeleted}`);
       }
     }
   }
 
-  console.log(`Tiles scanned: ${tilesScanned}`);
-  console.log(`Unavailable tiles deleted: ${unavailableDeleted}`);
+  console.log(`검사한 타일: ${tilesScanned}`);
+  console.log(`쓸수 없는 타일 삭제: ${unavailableDeleted}`);
 }
 
 async function runDeleteUnavailable(opts) {
   opts.resolvedConfigPaths = resolveMachineConfigPaths(opts, process.env);
   for (let i = 0; i < opts.resolvedConfigPaths.length; i++) {
-    console.log(`\n=== Config ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
+    console.log(`\n=== Config 화일 ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
     await deleteUnavailableForConfig(opts.resolvedConfigPaths[i], opts);
   }
 }
@@ -646,7 +646,7 @@ async function clearTokenState(opts) {
     const db = new TileStateDb(file);
     try {
       db.clearMapboxTokenState();
-      console.log(`Cleared token state only: ${file}`);
+      console.log(`토큰상태만 지움: ${file}`);
     } finally {
       db.close();
     }
@@ -677,7 +677,7 @@ async function main() {
 
   opts.resolvedConfigPaths = resolveMachineConfigPaths(opts, process.env);
   for (let i = 0; i < opts.resolvedConfigPaths.length; i++) {
-    console.log(`\n=== Config ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
+    console.log(`\n=== Config 화일 ${i + 1}/${opts.resolvedConfigPaths.length} ===`);
     await runOneConfig(opts.resolvedConfigPaths[i], opts);
   }
 }

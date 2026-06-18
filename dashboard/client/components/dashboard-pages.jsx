@@ -12,7 +12,7 @@ const KPI_CARDS = [
   ["activeJobs", "pipelines", "lilac"],
   ["throughput", "speed", "mint"],
   ["storagePressure", "disk", "lemon"],
-  ["failedJobs", "warning", "coral"],
+  ["failedJobs", "failed", "coral"],
   ["resourceAlerts", "alerts", "peach"],
 ];
 
@@ -289,22 +289,42 @@ function QuickActionsCard({ actions }) {
   );
 }
 
-function EventStreamCard({ events, title = "Event 흐름", limit = 6 }) {
+function eventNotificationId(event, index = 0) {
+  return `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`;
+}
+
+function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotificationIds = new Set() }) {
   const visible = events.slice(0, limit);
+  const isRead = (event, index) => readNotificationIds.has(eventNotificationId(event, index));
+  const readCount = visible.filter((event, index) => isRead(event, index)).length;
+  const unreadCount = Math.max(0, visible.length - readCount);
   return (
     <Surface className="p-4">
-      <SectionTitle title={title} meta={`Event ${events.length}개 읽음`} />
+      <SectionTitle title={title} meta={`Event ${events.length}개 | 않읽음 ${unreadCount}개 | 읽음 ${readCount}개`} />
       <div className="grid gap-2">
-        {visible.length ? visible.map((event, index) => (
-          <div key={`${event.createdAt}-${event.type}-${index}`} className="grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2.5">
-            <span className={`mt-1 h-2.5 w-2.5 rounded-full ${event.severity === "error" ? "bg-[var(--ptg-error)]" : event.severity === "warn" ? "bg-[var(--ptg-warning)]" : "bg-[var(--ptg-primary)]"}`} />
+        {visible.length ? visible.map((event, index) => {
+          const read = isRead(event, index);
+          return (
+          <div key={`${event.createdAt}-${event.type}-${index}`} className={`grid grid-cols-[24px_minmax(0,1fr)_auto] items-start gap-2 rounded-lg border px-3 py-2.5 transition ${read ? "border-[var(--ptg-outline)] bg-white opacity-70" : "border-[rgba(103,80,164,0.32)] bg-[var(--ptg-primary-soft)]"}`}>
+            <span
+              aria-label={read ? "읽음" : "않읽음"}
+              className={`mt-1 h-2.5 w-2.5 rounded-full ${read
+                ? "bg-[var(--ptg-outline-strong)]"
+                : event.severity === "error"
+                  ? "bg-[var(--ptg-error)]"
+                  : event.severity === "warn"
+                    ? "bg-[var(--ptg-warning)]"
+                    : "bg-[var(--ptg-primary)]"
+              }`}
+            />
             <span className="min-w-0">
               <strong className="block truncate text-[12px] font-[820]">{event.type}</strong>
               <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{event.message}</small>
             </span>
             <time className="text-[10.5px] font-[700] text-[var(--ptg-on-surface-variant)]">{shortDate(event.createdAt)}</time>
           </div>
-        )) : <EmptyLine>아직 Event가 없습니다</EmptyLine>}
+          );
+        }) : <EmptyLine>아직 Event가 없습니다</EmptyLine>}
       </div>
     </Surface>
   );
@@ -356,7 +376,7 @@ export function OverviewDashboard({ state, actions }) {
         <div className="grid min-w-0 content-start gap-4">
           <ManagementProfilesSummary state={state} actions={actions} />
           <QuickActionsCard actions={actions} />
-          <EventStreamCard events={overview.recentEvents} title="실시간 Event Console" limit={7} />
+          <EventStreamCard events={overview.recentEvents} title="실시간 Event Console" limit={7} readNotificationIds={state.readNotificationIds} />
         </div>
       </section>
     </section>
@@ -881,7 +901,7 @@ export function PipelinesDashboard({ state }) {
   return (
     <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
       <PipelineOverview overview={overview} />
-      <EventStreamCard events={overview.recentEvents} title="공정흐름 Event" limit={8} />
+      <EventStreamCard events={overview.recentEvents} title="공정흐름 Event" limit={8} readNotificationIds={state.readNotificationIds} />
       <ActiveRangesCard overview={overview} />
       <DiskCapacityCard state={state} />
     </section>
@@ -929,7 +949,7 @@ export function EventsDashboard({ state }) {
   const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
   return (
     <section className="screen-enter mt-4 grid gap-4">
-      <EventStreamCard events={events} title="관리체계 Console" limit={20} />
+      <EventStreamCard events={events} title="관리체계 Console" limit={20} readNotificationIds={state.readNotificationIds} />
       <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
         {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "아직 Event가 없습니다"}
       </pre>
@@ -983,7 +1003,7 @@ export function SecretsDashboard({ state, actions }) {
   const alerts = [
     {
       type: "mapbox_token",
-      label: "Mapbox Key",
+      label: "Mapbox API Key",
       available: mapbox.available,
       threshold: mapboxPerServer * serverCount,
     },
@@ -1528,7 +1548,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                 <th className="w-12 border-b border-[var(--ptg-outline)] px-3 py-3">
                   <input aria-label="페지 선택" checked={pageSelected} onChange={togglePage} type="checkbox" />
                 </th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">이름</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">정보</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">상태</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">배정된 봉사기</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">갱신</th>
@@ -1600,7 +1620,7 @@ function SecretPoolsTable({ state, actions }) {
         emptyLabel="일치한 Mapbox API Key가 없습니다"
         secretType="mapbox_token"
         state={state}
-        title="Mapbox API Key"
+        title="Mapbox API Key 목록"
       />
       <ResourcePoolTypeTable
         actions={actions}
@@ -1681,7 +1701,7 @@ function ServersTable({ state, actions }) {
                         }}
                         className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >
-                        <Icon name="control" className="h-3.5 w-3.5 sm:hidden" />
+                        <Icon name="tool" className="h-3.5 w-3.5 sm:hidden" />
                         <span className="hidden sm:inline">관리</span>
                       </button>
                       <IconButton

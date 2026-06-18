@@ -40,13 +40,13 @@ export function Rail({ state, actions }) {
               title={label}
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
-              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,1fr)_auto] items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${state.selectedTab === tab
+              className={`state-layer relative grid min-h-11 grid-cols-[24px_minmax(0,max-content)_auto] items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${state.selectedTab === tab
                   ? "border-[rgba(234,221,255,0.28)] bg-[var(--ptg-primary-soft)] text-[#1d1b20] shadow-[0_12px_26px_rgba(0,10,24,0.22)]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
                 }`}
             >
               <Icon name={icon} className={`h-5 w-5 ${state.selectedTab === tab ? "text-[var(--ptg-primary)]" : ""}`} />
-              <span className="truncate">{label}</span>
+              <span className="whitespace-nowrap">{label}</span>
               {count === null ? null : <strong className={`grid h-6 min-w-6 place-items-center rounded-full px-1.5 text-[11px] ${state.selectedTab === tab ? "bg-white text-[var(--ptg-primary)]" : "bg-[rgba(255,255,255,0.11)] text-[#eaf1ff]"}`}>{count}</strong>}
             </button>
           );

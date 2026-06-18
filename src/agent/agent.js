@@ -59,8 +59,19 @@ async function collectPlatformLabel(platform = process.platform) {
       const caption = stdout.trim();
       if (caption) return caption;
     } catch {
-      return `Windows ${os.release()}`;
+      // Try the older WMIC path too; Windows Server 2019 commonly has it available.
     }
+    try {
+      const { stdout } = await execFileAsync("wmic.exe", ["os", "get", "Caption"]);
+      const caption = stdout
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .find((line) => line && line.toLowerCase() !== "caption");
+      if (caption) return caption;
+    } catch {
+      // Fall back below.
+    }
+    return `Windows ${os.release()}`;
   }
   if (platform === "darwin") return `macOS ${os.release()}`;
   if (platform === "linux") {

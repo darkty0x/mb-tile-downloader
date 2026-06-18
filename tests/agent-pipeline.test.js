@@ -327,6 +327,39 @@ test("range pipeline reports durable job stages", async () => {
   ]);
 });
 
+test("range pipeline passes reporter and base progress to stage runners", async () => {
+  const reporter = {
+    start: async () => {},
+    stage: async () => {},
+    complete: async () => {},
+    fail: async () => {},
+  };
+  const seen = [];
+
+  await runRangePipeline({
+    config: { ranges: [{ label: "r1" }] },
+    configPath: "configs/a.json",
+    createJobReporter: () => reporter,
+    runStage: async (stage, context) => {
+      seen.push({
+        stage,
+        sameReporter: context.reporter === reporter,
+        progressStageIndex: context.progress.stageIndex,
+        progressStageCount: context.progress.stageCount,
+      });
+      return { ok: true };
+    },
+    emitEvent: () => {},
+  });
+
+  assert.deepEqual(seen, [
+    { stage: "download", sameReporter: true, progressStageIndex: 0, progressStageCount: 4 },
+    { stage: "validate", sameReporter: true, progressStageIndex: 1, progressStageCount: 4 },
+    { stage: "zip", sameReporter: true, progressStageIndex: 2, progressStageCount: 4 },
+    { stage: "upload", sameReporter: true, progressStageIndex: 3, progressStageCount: 4 },
+  ]);
+});
+
 test("range pipeline reports failed stage before throwing", async () => {
   const reports = [];
 
