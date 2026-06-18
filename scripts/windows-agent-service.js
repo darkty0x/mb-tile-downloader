@@ -39,6 +39,19 @@ try {
   } else if (action === "status") {
     result = await queryWindowsAgentService();
     console.log(result.stdout || `Windows agent startup task exists: ${result.taskName}`);
+    console.log(`\nWrapper: ${result.wrapperPath}`);
+    console.log(`Service log: ${result.logPath}`);
+    console.log(`Agent log: ${result.agentLogPath}`);
+    if (result.serviceLogTail) {
+      console.log(`\n--- Service log tail ---\n${result.serviceLogTail}`);
+    }
+    if (result.agentLogTail) {
+      console.log(`\n--- Agent log tail ---\n${result.agentLogTail}`);
+    }
+    if (result.diagnosis?.length) {
+      console.log(`\n--- Diagnosis ---`);
+      for (const item of result.diagnosis) console.log(`- ${item}`);
+    }
   } else if (action === "uninstall") {
     result = await uninstallWindowsAgentService();
     console.log(`Windows agent startup task removed: ${result.taskName}`);

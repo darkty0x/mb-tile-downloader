@@ -27,6 +27,7 @@
     "agent": "node --env-file-if-exists=.env src/agent/agent.js",
     "agent:install": "node --env-file-if-exists=.env scripts/windows-agent-service.js install",
     "agent:start-service": "node --env-file-if-exists=.env scripts/windows-agent-service.js start",
+    "agent:status": "node --env-file-if-exists=.env scripts/windows-agent-service.js status",
     "agent:status-service": "node --env-file-if-exists=.env scripts/windows-agent-service.js status",
     "agent:uninstall": "node --env-file-if-exists=.env scripts/windows-agent-service.js uninstall",
     "dashboard": "node --env-file-if-exists=.env dashboard/src/server/app.js",

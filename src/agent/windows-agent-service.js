@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { promisify } from "node:util";
 
@@ -23,6 +23,7 @@ export function servicePaths({ projectDir = process.cwd() } = {}) {
     stateDir: pathImpl.join(resolvedProject, ".tile-state"),
     wrapperPath: pathImpl.join(resolvedProject, ".tile-state", "run-dashboard-agent.cmd"),
     logPath: pathImpl.join(resolvedProject, ".tile-state", "dashboard-agent-service.log"),
+    agentLogPath: pathImpl.join(resolvedProject, ".tile-state", "dashboard-agent.log"),
   };
 }
 
@@ -112,6 +113,77 @@ async function execSchtasksIgnoreFailure(execFileImpl, args) {
   }
 }
 
+async function stopDetachedAgentFromPidFile({ projectDir, execFileImpl }) {
+  const pidPath = path.join(projectDir, ".tile-state", "dashboard-agent.pid");
+  let pid = "";
+  try {
+    pid = (await readFile(pidPath, "utf8")).trim();
+  } catch (err) {
+    if (err.code !== "ENOENT") {
+      return {
+        ok: false,
+        stdout: "",
+        stderr: err.message,
+      };
+    }
+    return { ok: true, stdout: "", stderr: "", skipped: true };
+  }
+  if (!/^\d+$/.test(pid)) return { ok: false, stdout: "", stderr: `invalid pid file: ${pidPath}` };
+  try {
+    const result = await execFileImpl("taskkill.exe", ["/PID", pid, "/T", "/F"], { windowsHide: true });
+    await rm(pidPath, { force: true });
+    return {
+      ok: true,
+      pid,
+      stdout: String(result?.stdout || "").trim(),
+      stderr: String(result?.stderr || "").trim(),
+    };
+  } catch (err) {
+    await rm(pidPath, { force: true });
+    return {
+      ok: false,
+      pid,
+      stdout: String(err?.stdout || "").trim(),
+      stderr: String(err?.stderr || err?.message || "").trim(),
+    };
+  }
+}
+
+async function readTail(filePath, maxLines = 80) {
+  try {
+    const text = await readFile(filePath, "utf8");
+    return text.split(/\r?\n/).filter(Boolean).slice(-maxLines).join("\n");
+  } catch (err) {
+    if (err.code === "ENOENT") return "";
+    return `Unable to read ${filePath}: ${err.message}`;
+  }
+}
+
+function diagnoseWindowsAgentStatus({ serviceLogTail = "", agentLogTail = "" } = {}) {
+  const text = `${serviceLogTail}\n${agentLogTail}`;
+  const findings = [];
+
+  if (/dashboard machine id conflict|already registered by another live agent/i.test(text)) {
+    findings.push(
+      "Machine ID conflict: the dashboard still sees another live agent lease for this MACHINE_ID, or another agent process is running with the same MACHINE_ID."
+    );
+  }
+  if (/DASHBOARD_URL.*required|AGENT_TOKEN.*required|MACHINE_ID.*required|dashboard env/i.test(text)) {
+    findings.push("Local .env is incomplete or not being read by the scheduled task.");
+  }
+  if (/401|403|unauthorized|forbidden/i.test(text)) {
+    findings.push("Dashboard authentication failed; AGENT_TOKEN or dashboard-side token configuration does not match.");
+  }
+  if (/fetch failed|ENOTFOUND|ECONNREFUSED|ETIMEDOUT|network/i.test(text)) {
+    findings.push("The agent cannot reach DASHBOARD_URL from this Windows server.");
+  }
+  if (/Cannot find module|ERR_MODULE_NOT_FOUND/i.test(text)) {
+    findings.push("The scheduled task is running against an incomplete install; run dependency install and reinstall the service.");
+  }
+
+  return findings;
+}
+
 export async function installWindowsAgentService({
   projectDir = process.cwd(),
   nodePath = process.execPath,
@@ -121,6 +193,7 @@ export async function installWindowsAgentService({
 } = {}) {
   const paths = servicePaths({ projectDir });
   const stopResult = await execSchtasksIgnoreFailure(execFileImpl, ["/End", "/TN", taskName]);
+  const detachedStopResult = await stopDetachedAgentFromPidFile({ projectDir: paths.projectDir, execFileImpl });
   const deleteResult = await execSchtasksIgnoreFailure(execFileImpl, ["/Delete", "/TN", taskName, "/F"]);
   await mkdir(paths.stateDir, { recursive: true });
   await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath }), "utf8");
@@ -134,9 +207,12 @@ export async function installWindowsAgentService({
     stdout: String(result?.stdout || "").trim(),
     stderr: String(result?.stderr || "").trim(),
     stoppedPrevious: stopResult.ok,
+    stoppedDetachedAgent: detachedStopResult.ok,
     removedPrevious: deleteResult.ok,
     stopStdout: stopResult.stdout,
     stopStderr: stopResult.stderr,
+    detachedStopStdout: detachedStopResult.stdout,
+    detachedStopStderr: detachedStopResult.stderr,
     deleteStdout: deleteResult.stdout,
     deleteStderr: deleteResult.stderr,
     settingsStdout: String(settingsResult?.stdout || "").trim(),
@@ -164,9 +240,21 @@ export async function startWindowsAgentService({
 }
 
 export async function queryWindowsAgentService({
+  projectDir = process.cwd(),
   taskName = DEFAULT_WINDOWS_AGENT_TASK_NAME,
   execFileImpl = execFileAsync,
 } = {}) {
+  const paths = servicePaths({ projectDir });
   const result = await execFileImpl("schtasks.exe", ["/Query", "/TN", taskName, "/V", "/FO", "LIST"], { windowsHide: true });
-  return { taskName, stdout: String(result?.stdout || "").trim(), stderr: String(result?.stderr || "").trim() };
+  const serviceLogTail = await readTail(paths.logPath);
+  const agentLogTail = await readTail(paths.agentLogPath);
+  return {
+    taskName,
+    ...paths,
+    stdout: String(result?.stdout || "").trim(),
+    stderr: String(result?.stderr || "").trim(),
+    serviceLogTail,
+    agentLogTail,
+    diagnosis: diagnoseWindowsAgentStatus({ serviceLogTail, agentLogTail }),
+  };
 }

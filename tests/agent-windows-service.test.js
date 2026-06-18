@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -9,6 +9,7 @@ import {
   buildSchtasksCreateArgs,
   buildWindowsAgentWrapper,
   installWindowsAgentService,
+  queryWindowsAgentService,
 } from "../src/agent/windows-agent-service.js";
 
 test("windows agent service wrapper runs the dashboard agent in a restart loop", () => {
@@ -86,4 +87,50 @@ test("windows agent service install stops previous task recreates it and starts 
   assert.deepEqual(calls[4].args.slice(0, 4), ["/Run", "/TN", "PTG Dashboard Agent"]);
   assert.equal(result.started, true);
   assert.match(await readFile(result.wrapperPath, "utf8"), /src\\agent\\agent.js/);
+});
+
+test("windows agent service install also stops an old detached agent pid", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-windows-service-pid-"));
+  await mkdir(path.join(dir, ".tile-state"), { recursive: true });
+  await writeFile(path.join(dir, ".tile-state", "dashboard-agent.pid"), "12345\n", "utf8");
+  const calls = [];
+
+  const result = await installWindowsAgentService({
+    projectDir: dir,
+    nodePath: "C:\\node\\node.exe",
+    execFileImpl: async (command, args) => {
+      calls.push({ command, args });
+      return { stdout: "SUCCESS", stderr: "" };
+    },
+  });
+
+  const killCall = calls.find((call) => call.command === "taskkill.exe");
+  assert.deepEqual(killCall?.args, ["/PID", "12345", "/T", "/F"]);
+  assert.equal(result.stoppedDetachedAgent, true);
+});
+
+test("windows agent service status includes recent service and agent logs", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-windows-service-status-"));
+  await mkdir(path.join(dir, ".tile-state"), { recursive: true });
+  await writeFile(
+    path.join(dir, ".tile-state", "dashboard-agent-service.log"),
+    Array.from({ length: 90 }, (_, index) => `service line ${index + 1}`).join("\n"),
+    "utf8"
+  );
+  await writeFile(
+    path.join(dir, ".tile-state", "dashboard-agent.log"),
+    "agent line 1\ndashboard machine id conflict: machine id \"server-05\" is already registered by another live agent\n",
+    "utf8"
+  );
+
+  const result = await queryWindowsAgentService({
+    projectDir: dir,
+    execFileImpl: async () => ({ stdout: "Status: Running", stderr: "" }),
+  });
+
+  assert.equal(result.stdout, "Status: Running");
+  assert.equal(result.serviceLogTail.includes("service line 1\n"), false);
+  assert.match(result.serviceLogTail, /service line 90/);
+  assert.match(result.agentLogTail, /dashboard machine id conflict/);
+  assert.match(result.diagnosis.join("\n"), /Machine ID conflict/);
 });
