@@ -18,7 +18,7 @@ export function Rail({ state, actions }) {
   const navCount = (tab) => {
     if (tab === "servers") return state.machines.length;
     if (tab === "secrets") return state.secretPool.filter((secret) => !["credential", "server_rdp_credential"].includes(secret.secretType)).length;
-    if (tab === "credentials") return state.secretPool.filter((secret) => secret.secretType === "credential").length;
+    if (tab === "credentials") return state.secretPool.filter((secret) => ["credential", "server_rdp_credential"].includes(secret.secretType)).length;
     if (tab === "alerts") return overview.resourceAlerts.length + Number(overview.kpis.failedJobs.value || 0);
     if (tab === "events") return state.globalEvents.length || state.events.length;
     if (tab === "configs") return state.configTemplates.length || state.globalConfigs.length || state.configs.length;

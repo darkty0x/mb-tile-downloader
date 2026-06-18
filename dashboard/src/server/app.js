@@ -228,6 +228,42 @@ function uniqueStrings(values) {
   return [...new Set(values.map((value) => String(value || "").trim()).filter(Boolean))];
 }
 
+function rootEnvTextFromMachine(machine) {
+  const envFile = (machine?.agentSnapshot?.envFiles || []).find((file) => file.path === ".env");
+  if (!envFile || envFile.exists === false) return null;
+  if (typeof envFile.content === "string") return envFile.content;
+  if (Array.isArray(envFile.variables)) {
+    return envFile.variables
+      .filter((item) => item?.name)
+      .map((item) => `${item.name}=${item.value ?? ""}`)
+      .join("\n");
+  }
+  return "";
+}
+
+function quoteEnvValue(value) {
+  const text = String(value ?? "");
+  if (/^[A-Za-z0-9_./:@+=,-]+$/.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function upsertEnvText(envText, updates) {
+  const remaining = new Map(Object.entries(updates).filter(([, value]) => value !== undefined && value !== null));
+  const lines = String(envText || "").split(/\r?\n/);
+  const nextLines = lines.map((line) => {
+    const match = /^\s*([A-Z_][A-Z0-9_]*)\s*=/.exec(line);
+    if (!match || !remaining.has(match[1])) return line;
+    const key = match[1];
+    const value = remaining.get(key);
+    remaining.delete(key);
+    return `${key}=${quoteEnvValue(value)}`;
+  });
+  for (const [key, value] of remaining.entries()) {
+    nextLines.push(`${key}=${quoteEnvValue(value)}`);
+  }
+  return nextLines.join("\n").replace(/\n{3,}$/g, "\n\n");
+}
+
 const ENV_SYNC_JOB_STAGES = new Set(["download", "validate"]);
 const ENV_SYNC_JOB_STATUSES = new Set(["queued", "running"]);
 
@@ -572,6 +608,36 @@ export function createDashboardApp({
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           const body = await readJson(req);
           json(res, 200, { settings: await store.updateSettings(body) });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/env/telegram") {
+          const body = await readJson(req);
+          const botToken = String(body.botToken || "").trim();
+          const chatId = String(body.chatId || "").trim();
+          if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN is required");
+          const machines = await store.listMachines();
+          const queued = [];
+          const skipped = [];
+          for (const machine of machines) {
+            const envText = rootEnvTextFromMachine(machine);
+            if (envText === null) {
+              skipped.push({ machineId: machine.machineId, reason: ".env snapshot missing" });
+              continue;
+            }
+            const nextEnvText = upsertEnvText(envText, {
+              TELEGRAM_BOT_TOKEN: botToken,
+              ...(chatId ? { TELEGRAM_CHAT_ID: chatId } : {}),
+            });
+            const command = await store.queueCommand({
+              machineId: machine.machineId,
+              commandType: "write_env",
+              payload: { envText: nextEnvText },
+              requestedBy: "dashboard.telegram-env",
+            });
+            queued.push({ machineId: machine.machineId, commandId: command.id });
+          }
+          json(res, 200, { queued, skipped });
           return;
         }
 

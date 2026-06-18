@@ -13,6 +13,13 @@ function flushMicrotasks() {
 test("dashboard command queue rejects unknown commands", () => {
   const store = createDashboardStore();
 
+  const queued = store.queueCommand({
+    machineId: "worker-a",
+    commandType: "git_pull_restart",
+    payload: {},
+  });
+  assert.equal(queued.commandType, "git_pull_restart");
+
   assert.throws(
     () =>
       store.queueCommand({
@@ -33,11 +40,17 @@ test("process runner resolves only whitelisted commands", () => {
     commandType: "run_preflight",
     payload: { configPath: "configs/a.json" },
   });
+  const updateRestart = resolveManagedCommand({
+    commandType: "git_pull_restart",
+    payload: { command: "rm -rf ." },
+  });
 
   assert.equal(start.command, process.execPath);
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/a.json"]);
   assert.equal(preflight.command, process.execPath);
   assert.deepEqual(preflight.args, ["src/agent/preflight.js", "configs/a.json"]);
+  assert.equal(updateRestart.command, "agent-internal");
+  assert.deepEqual(updateRestart.args, ["git_pull_restart"]);
   assert.throws(
     () => resolveManagedCommand({ commandType: "shell", payload: { command: "echo bad" } }),
     /unsupported command/

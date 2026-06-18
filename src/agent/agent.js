@@ -108,6 +108,15 @@ function isBackgroundCommand(commandType) {
   return commandType === "start_pipeline" || commandType === "resume_pipeline";
 }
 
+async function gitPullProject(projectDir) {
+  const { stdout = "", stderr = "" } = await execFileAsync("git", ["pull", "--ff-only"], {
+    cwd: projectDir,
+    maxBuffer: 1024 * 1024,
+    timeout: 120_000,
+  });
+  return { stdout: stdout.trim(), stderr: stderr.trim() };
+}
+
 function createAgentControlFiles({ stateDir }) {
   const controlDir = path.join(stateDir, "dashboard", "control");
   const pauseAfterRangeFile = path.join(controlDir, "pause-after-range");
@@ -151,6 +160,30 @@ export async function runCommand(command, { client, runner, machineId, control =
     }
 
     const commandSpec = resolveManagedCommand(command);
+    if (command.commandType === "git_pull_restart") {
+      let pullResult = null;
+      const restartResult = await runner.restartActiveAfter(async () => {
+        pullResult = await gitPullProject(projectDir);
+      });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: restartResult.restarted
+          ? "Git pull completed and active command restarted."
+          : "Git pull completed; no active command was running.",
+        data: {
+          commandId: command.id,
+          commandType: command.commandType,
+          restarted: restartResult.restarted,
+          stdout: pullResult?.stdout || "",
+          stderr: pullResult?.stderr || "",
+        },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
     if (command.commandType === "stop_pipeline") {
       await control?.requestStopPipeline?.();
       const stopped = runner.stop();

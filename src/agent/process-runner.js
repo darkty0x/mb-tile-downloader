@@ -25,6 +25,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "pause_after_range":
     case "stop_pipeline":
     case "write_env":
+    case "git_pull_restart":
       return {
         command: "agent-internal",
         args: [commandType],
@@ -36,10 +37,15 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
 
 export function createProcessRunner({ cwd = process.cwd(), env = process.env, onLine = () => {} } = {}) {
   let active = null;
+  let activeSpec = null;
+  let activePromise = null;
 
   return {
     get active() {
       return active;
+    },
+    get activeCommandSpec() {
+      return activeSpec;
     },
 
     async run(commandSpec) {
@@ -47,13 +53,14 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
       const { command, args } = commandSpec;
       if (command === "agent-internal") return { code: 0, signal: null };
 
-      return new Promise((resolve, reject) => {
+      const runPromise = new Promise((resolve, reject) => {
         const child = spawn(command, args, {
           cwd,
           env: { ...process.env, ...env },
           stdio: ["ignore", "pipe", "pipe"],
         });
         active = child;
+        activeSpec = { command, args: [...args] };
         const emitLine = (line, stream) => {
           try {
             Promise.resolve(onLine(line, stream)).catch(() => {});
@@ -69,19 +76,51 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
         });
         child.on("error", (err) => {
           active = null;
+          activeSpec = null;
+          activePromise = null;
           reject(err);
         });
         child.on("close", (code, signal) => {
           active = null;
+          activeSpec = null;
+          activePromise = null;
           resolve({ code, signal });
         });
       });
+      activePromise = runPromise;
+      return runPromise;
     },
 
     stop() {
       if (!active) return false;
       active.kill();
       return true;
+    },
+
+    async restartActive() {
+      if (!active || !activeSpec) return { restarted: false };
+      const spec = { command: activeSpec.command, args: [...activeSpec.args] };
+      active.kill();
+      if (activePromise) {
+        await activePromise.catch(() => {});
+      }
+      this.run(spec).catch(() => {});
+      return { restarted: true };
+    },
+
+    async restartActiveAfter(task = async () => {}) {
+      if (!active || !activeSpec) {
+        await task();
+        return { restarted: false };
+      }
+      const spec = { command: activeSpec.command, args: [...activeSpec.args] };
+      active.kill();
+      if (activePromise) {
+        await activePromise.catch(() => {});
+      }
+      await task();
+      this.run(spec).catch(() => {});
+      return { restarted: true };
     },
   };
 }

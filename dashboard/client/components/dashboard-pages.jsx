@@ -263,7 +263,7 @@ function ManagementProfilesSummary({ state, actions }) {
 function QuickActionsCard({ actions }) {
   const items = [
     ["console", "명령실행", () => actions.setSelectedTab("events")],
-    ["pause", "모두 일시중지", () => actions.setNotice({ message: "명령을 보내기전에 봉사기관리페지를 여십시오", kind: "error" })],
+    ["pause", "모두 일시중지", () => actions.pauseAllMachines().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
     ["refresh", "Config 화일 동기화", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
     ["pipelines", "공정흐름보기", () => actions.setSelectedTab("pipelines")],
     ["events", "기록보기", () => actions.setSelectedTab("events")],
@@ -559,6 +559,13 @@ export function ServerManagementPage({ state, actions }) {
             {label}
           </AppButton>
         ))}
+        <AppButton
+          icon="sync"
+          disabled={!targetMachineId}
+          onClick={() => actions.sendCommand("git_pull_restart").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+        >
+          Git Pull 및 재시작
+        </AppButton>
       </section>
 
       <nav className="grid grid-cols-5 gap-1 rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="봉사기관리 구역">
@@ -1099,16 +1106,55 @@ export function SecretsDashboard({ state, actions }) {
 
 export function CredentialsDashboard({ state, actions }) {
   const [credentialSearch, setCredentialSearch] = useState("");
+  const remoteProtocols = new Set(["rdp", "ssh", "winrm", "winrms"]);
+  const isServerCredentialRecord = (secret) => secret.secretType === "server_rdp_credential"
+    || Boolean(secret.credential?.machineId)
+    || remoteProtocols.has(String(secret.credential?.protocol || "").toLowerCase());
   const items = state.secretPool
-    .filter((secret) => secret.secretType === "credential")
+    .filter((secret) => ["credential", "server_rdp_credential"].includes(secret.secretType))
     .slice()
-    .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
+    .sort((a, b) => {
+      const typeOrder = Number(isServerCredentialRecord(a)) - Number(isServerCredentialRecord(b));
+      return typeOrder || a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || "");
+    });
   const query = credentialSearch.trim().toLowerCase();
   const visibleItems = query
     ? items.filter((secret) => `${secret.label} ${secret.credential?.protocolUrl || ""} ${secret.credential?.username || ""}`.toLowerCase().includes(query))
     : items;
+  const protocolItems = visibleItems.filter((secret) => !isServerCredentialRecord(secret));
+  const serverItems = visibleItems.filter(isServerCredentialRecord);
   const active = items.filter((secret) => secret.status === "active").length;
   const disabled = items.filter((secret) => secret.status !== "active").length;
+  const renderRows = (rows, { empty, icon, iconClass }) => rows.length ? rows.map((secret) => (
+    <tr key={secret.secretId} className="bg-white transition hover:bg-[var(--ptg-surface-container)]">
+      <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
+            <Icon name={icon} className="h-4 w-4" />
+          </span>
+          <strong className="min-w-0 truncate text-[12.5px] font-[800] text-[var(--ptg-on-surface)]">{secret.label}</strong>
+        </div>
+      </td>
+      <td className="max-w-[360px] border-b border-[var(--ptg-outline)] px-3 py-3">
+        <span className="block truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.credential?.protocolUrl || "없음"}</span>
+      </td>
+      <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+        {secret.credential?.username || "없음"}
+      </td>
+      <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
+        {secret.credential?.machineId ? displayMachineId(secret.credential.machineId) : "없음"}
+      </td>
+      <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
+        <TableActions type="secret" id={secret.secretId} actions={actions} />
+      </td>
+    </tr>
+  )) : (
+    <tr>
+      <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={5}>
+        {empty}
+      </td>
+    </tr>
+  );
 
   return (
     <section className="screen-enter mt-3 grid gap-2.5">
@@ -1138,44 +1184,49 @@ export function CredentialsDashboard({ state, actions }) {
             </div>
           }
         />
-        <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
+        <div className="mb-3 flex flex-wrap gap-2 text-[11px] font-[760]">
+          <span className="rounded-full bg-[var(--ptg-primary-soft)] px-3 py-1 text-[var(--ptg-primary)]">Protocol {protocolItems.length}개</span>
+          <span className="rounded-full bg-[var(--ptg-tertiary-soft)] px-3 py-1 text-[var(--ptg-tertiary)]">봉사기 접속정보 {serverItems.length}개</span>
+        </div>
+        <SectionTitle title="Protocol 계정정보" meta={`${protocolItems.length}개`} />
+        <div className="ptg-scrollbar mb-4 max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
           <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
             <thead>
               <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol 명</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">사용자이름</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Agent ID</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">암호</th>
               </tr>
             </thead>
             <tbody>
-              {visibleItems.length ? visibleItems.map((secret) => (
-                <tr key={secret.secretId} className="bg-white transition hover:bg-[var(--ptg-surface-container)]">
-                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
-                    <div className="flex min-w-0 items-center gap-2.5">
-                      <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
-                        <Icon name="credentials" className="h-4 w-4" />
-                      </span>
-                      <strong className="min-w-0 truncate text-[12.5px] font-[800] text-[var(--ptg-on-surface)]">{secret.label}</strong>
-                    </div>
-                  </td>
-                  <td className="max-w-[360px] border-b border-[var(--ptg-outline)] px-3 py-3">
-                    <span className="block truncate text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.credential?.protocolUrl || "없음"}</span>
-                  </td>
-                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                    {secret.credential?.username || "없음"}
-                  </td>
-                  <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
-                    <TableActions type="secret" id={secret.secretId} actions={actions} />
-                  </td>
-                </tr>
-              )) : (
-                <tr>
-                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={4}>
-                    {items.length ? "검색에 일치한 계정정보가 없습니다" : "아직 보관된 계정정보가 없습니다"}
-                  </td>
-                </tr>
-              )}
+              {renderRows(protocolItems, {
+                empty: items.length ? "검색에 일치한 Protocol 계정정보가 없습니다" : "아직 보관된 Protocol 계정정보가 없습니다",
+                icon: "credentials",
+                iconClass: "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]",
+              })}
+            </tbody>
+          </table>
+        </div>
+        <SectionTitle title="봉사기 접속정보" meta={`${serverItems.length}개`} />
+        <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
+          <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
+            <thead>
+              <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">봉사기 명</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">접속 URL</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">사용자이름</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Agent ID</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">암호</th>
+              </tr>
+            </thead>
+            <tbody>
+              {renderRows(serverItems, {
+                empty: items.length ? "검색에 일치한 봉사기 접속정보가 없습니다" : "아직 보관된 봉사기 접속정보가 없습니다",
+                icon: "servers",
+                iconClass: "bg-[var(--ptg-tertiary-soft)] text-[var(--ptg-tertiary)]",
+              })}
             </tbody>
           </table>
         </div>
@@ -1257,6 +1308,7 @@ export function AccountDashboard({ state, actions }) {
 export function SettingsDashboard({ state, actions }) {
   const serverCount = state.machines.length;
   const [submitting, setSubmitting] = useState(false);
+  const [telegramSaving, setTelegramSaving] = useState(false);
   const mapboxPerServer = thresholdValue(state.settings, "mapboxTokensPerServer");
   const proxiesPerServer = thresholdValue(state.settings, "proxiesPerServer");
   const dashboardPollMs = Number(state.settings.sync?.dashboardPollMs || 5000);
@@ -1382,6 +1434,25 @@ export function SettingsDashboard({ state, actions }) {
               <div className="grid gap-3">
                 <SwitchField name="telegramEnabled" label="Telegram 켜기" defaultChecked={Boolean(notifications.telegramEnabled)} />
                 <SwitchField name="webConsoleEnabled" label="Web Console 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
+                <TextInput label="Telegram Bot Token" name="telegramBotToken" placeholder="123456:ABC..." autoComplete="off" />
+                <TextInput label="Telegram Chat ID" name="telegramChatId" placeholder="비워두면 Token만 갱신" autoComplete="off" />
+                <AppButton
+                  icon="sync"
+                  type="button"
+                  loading={telegramSaving}
+                  onClick={async (event) => {
+                    setTelegramSaving(true);
+                    try {
+                      await actions.updateTelegramEnv(new FormData(event.currentTarget.form));
+                    } catch (err) {
+                      actions.setNotice({ message: err.message, kind: "error" });
+                    } finally {
+                      setTelegramSaving(false);
+                    }
+                  }}
+                >
+                  모든 봉사기 .Env에 Telegram 보관
+                </AppButton>
                 <TextInput label="중복제거 시간간격(ms)" name="dedupeWindowMs" type="number" min="0" step="1000" defaultValue={notifications.dedupeWindowMs ?? 60000} required />
                 <SelectInput label="알림 Threshold" name="minSeverity" defaultValue={notifications.minSeverity || "error"}>
                   <option value="debug">Debug</option>

@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
-import { DEFAULT_DASHBOARD_SETTINGS, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
+import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
 export function useDashboardState() {
   const [authStatus, setAuthStatus] = useState("checking");
@@ -386,15 +386,6 @@ export function useDashboardState() {
       async sendCommand(commandType) {
         const targetMachineId = normalizeMachineId(selectedMachineId);
         if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
-        const payload = {};
-        if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
-          if (!activeConfig) throw new Error("활성 Config 화일이 필요합니다");
-          payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
-        }
-        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
-          method: "POST",
-          body: JSON.stringify({ commandType, payload, requestedBy: "dashboard" }),
-        });
         const commandLabel = {
           run_preflight: "사전검사",
           start_pipeline: "시작",
@@ -404,9 +395,45 @@ export function useDashboardState() {
           sync_config: "Config 화일 동기화",
           sync_env: ".Env 동기화",
           write_env: ".Env 보관",
+          git_pull_restart: "Git Pull 및 재시작",
         }[commandType] || commandType;
+        if (["pause_after_range", "stop_pipeline", "git_pull_restart"].includes(commandType)) {
+          const confirmed = await confirmDanger({
+            title: `${commandLabel} 확인`,
+            message: `${displayMachineId(targetMachineId)}에 ${commandLabel} 명령을 보내겠습니까?`,
+            confirmLabel: commandLabel,
+            storageKey: commandType,
+          });
+          if (!confirmed) return;
+        }
+        const payload = {};
+        if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
+          if (!activeConfig) throw new Error("활성 Config 화일이 필요합니다");
+          payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
+        }
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({ commandType, payload, requestedBy: "dashboard" }),
+        });
         setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
         await refreshMachineData(targetMachineId);
+      },
+      async pauseAllMachines() {
+        const targets = machines.filter((machine) => machine.status !== "offline").map((machine) => machine.machineId);
+        if (!targets.length) throw new Error("일시중지할 련결된 봉사기가 없습니다");
+        const confirmed = await confirmDanger({
+          title: "모두 일시중지 확인",
+          message: `련결된 봉사기 ${targets.length}대에 일시중지 명령을 보내겠습니까?`,
+          confirmLabel: "모두 일시중지",
+          storageKey: "pause-all",
+        });
+        if (!confirmed) return;
+        await Promise.all(targets.map((machineId) => api(`/api/machines/${encodeURIComponent(machineId)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({ commandType: "pause_after_range", payload: {}, requestedBy: "dashboard.bulk" }),
+        })));
+        setNotice({ message: `일시중지 명령 ${targets.length}대가 대기에 들어갔습니다`, kind: "success" });
+        await refreshAll();
       },
       async writeRootEnv(envText) {
         const targetMachineId = normalizeMachineId(selectedMachineId);
@@ -421,6 +448,20 @@ export function useDashboardState() {
         });
         setNotice({ message: ".Env 보관 명령이 대기에 들어갔습니다", kind: "success" });
         await refreshMachineData(targetMachineId);
+      },
+      async updateTelegramEnv(formData) {
+        const result = await api("/api/env/telegram", {
+          method: "POST",
+          body: JSON.stringify({
+            botToken: formData.get("telegramBotToken"),
+            chatId: formData.get("telegramChatId"),
+          }),
+        });
+        const queued = result.queued?.length || 0;
+        const skipped = result.skipped?.length || 0;
+        setNotice({ message: `Telegram .Env 갱신명령 ${queued}대 대기${skipped ? `, 건너뜀 ${skipped}대` : ""}`, kind: skipped ? "warning" : "success" });
+        await refreshAll();
+        return result;
       },
       async deleteMachine(machineId) {
         await api(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" });
@@ -664,7 +705,7 @@ export function useDashboardState() {
           method: "POST",
           body: JSON.stringify({
             validateExisting: true,
-            secretTypes: ["mapbox_token"],
+            secretTypes: ["mapbox_token", "proxy_txt"],
           }),
         });
         setSecretPool(result.secrets || []);

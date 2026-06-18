@@ -1277,6 +1277,67 @@ test("dashboard rebalance revalidates keys and queues env sync only for download
   assert.equal(listed.body.secrets.find((secret) => secret.label === "zip-worker-token").status, "invalid");
 });
 
+test("dashboard telegram env route queues root env writes for all machines with env snapshots", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({
+    machineId: "worker-a",
+    agentInstanceId: "agent-a",
+    agentSnapshot: {
+      envFiles: [{
+        path: ".env",
+        exists: true,
+        content: "PORT=3001\nTELEGRAM_BOT_TOKEN=old-token\nKEEP_ME=yes",
+      }],
+    },
+  });
+  store.registerMachine({
+    machineId: "worker-b",
+    agentInstanceId: "agent-b",
+    agentSnapshot: {
+      envFiles: [{
+        path: ".env",
+        exists: true,
+        variables: [
+          { name: "DASHBOARD_URL", value: "https://dashboard.example" },
+        ],
+      }],
+    },
+  });
+  store.registerMachine({
+    machineId: "worker-c",
+    agentInstanceId: "agent-c",
+    agentSnapshot: { envFiles: [] },
+  });
+  const server = await withServer(t, { store });
+
+  const updated = await request(server, {
+    method: "POST",
+    path: "/api/env/telegram",
+    body: {
+      botToken: "123456:ABC-def",
+      chatId: "-100123",
+    },
+  });
+  const workerACommands = store.claimCommands({ machineId: "worker-a" });
+  const workerBCommands = store.claimCommands({ machineId: "worker-b" });
+  const workerCCommands = store.claimCommands({ machineId: "worker-c" });
+
+  assert.equal(updated.status, 200);
+  assert.deepEqual(updated.body.queued.map((item) => item.machineId), ["worker-a", "worker-b"]);
+  assert.deepEqual(updated.body.skipped, [{ machineId: "worker-c", reason: ".env snapshot missing" }]);
+  assert.equal(workerACommands[0].commandType, "write_env");
+  assert.match(workerACommands[0].payload.envText, /PORT=3001/);
+  assert.match(workerACommands[0].payload.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
+  assert.match(workerACommands[0].payload.envText, /TELEGRAM_CHAT_ID=-100123/);
+  assert.match(workerACommands[0].payload.envText, /KEEP_ME=yes/);
+  assert.equal(workerBCommands[0].commandType, "write_env");
+  assert.match(workerBCommands[0].payload.envText, /DASHBOARD_URL=https:\/\/dashboard\.example/);
+  assert.match(workerBCommands[0].payload.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
+  assert.deepEqual(workerCCommands, []);
+});
+
 test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {
   let id = 0;
   const vault = createSecretVault({
