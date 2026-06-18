@@ -58,9 +58,10 @@ async function readJsonFile(filePath) {
   }
 }
 
-async function listJsonConfigs(configDir) {
+async function listJsonConfigs(configDir, { projectDir = path.dirname(configDir) } = {}) {
   const dirStat = await existsStat(configDir);
   if (!dirStat?.isDirectory()) return [];
+  const resolvedProject = path.resolve(projectDir);
   const files = [];
   for await (const entry of await opendir(configDir)) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
@@ -82,7 +83,8 @@ async function listJsonConfigs(configDir) {
     files.push({
       name: displayConfigName(entry.name, config),
       fileName: entry.name,
-      path: slashPath(filePath),
+      path: rel(resolvedProject, filePath),
+      absolutePath: slashPath(filePath),
       type: classifyConfigName(entry.name),
       provider: config?.provider || null,
       layer: config?.layer || config?.name || null,
@@ -446,7 +448,7 @@ export async function collectLocalSnapshot({
       activeProvider: activeConfig?.provider || null,
       activeRanges: Array.isArray(activeConfig?.ranges) ? activeConfig.ranges.length : 0,
     },
-    configs: await listJsonConfigs(path.join(resolvedProject, "configs")),
+    configs: await listJsonConfigs(path.join(resolvedProject, "configs"), { projectDir: resolvedProject }),
     envFiles,
     secrets: {
       proxy: {

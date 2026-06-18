@@ -637,6 +637,7 @@ function LocalConfigForm({ record, actions }) {
   const [submitting, setSubmitting] = useState(false);
   const initialConfigText = record?.content || (record?.config ? `${JSON.stringify(record.config, null, 2)}\n` : "");
   const [configText, setConfigText] = useState(initialConfigText);
+  const displayPath = record?.absolutePath || record?.path || "";
 
   useEffect(() => {
     setConfigText(initialConfigText);
@@ -664,8 +665,13 @@ function LocalConfigForm({ record, actions }) {
       <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
         <small className="block text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">Local Config 화일</small>
         <strong className="mt-1 block break-all text-[13px]">{displayLocalConfigName(record.name || record.fileName)}</strong>
-        <p className="mt-1 break-all text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{record.path}</p>
+        <p className="mt-1 break-all text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{displayPath}</p>
         {record.parseError ? <p className="mt-2 text-[11px] font-[700] text-[var(--ptg-error)]">JSON 해석오유: {record.parseError}</p> : null}
+        {!initialConfigText ? (
+          <p className="mt-2 text-[11px] font-[700] text-[var(--ptg-error)]">
+            Config 화일내용이 아직 Agent snapshot에 동기화되지 않았습니다. Agent를 갱신한 다음 다시 여십시오.
+          </p>
+        ) : null}
       </div>
       <TextArea
         label="Config 화일 JSON"
