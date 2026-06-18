@@ -352,18 +352,22 @@ async function rebalanceSecretAssignments({ store, secretVault, machineIds } = {
   });
 }
 
-async function validateExistingPoolSecrets({ secretVault, secretValidator, machineIds = [], secretTypes = ["mapbox_token"] } = {}) {
+async function validateExistingPoolSecrets({ secretVault, secretValidator, machineIds = [], secretTypes = ["mapbox_token"], secretIds = [] } = {}) {
   if (!secretVault?.listSecretsForBrowser || !secretVault?.getSecretForDashboard || !secretVault?.updateSecret) {
-    return { checked: 0, changed: 0 };
+    return { checked: 0, changed: 0, invalid: 0, invalidSecretIds: [], results: [] };
   }
   const targetMachines = new Set(uniqueStrings(machineIds).map((machineId) => normalizeMachineId(machineId)));
   const targetTypes = new Set(uniqueStrings(secretTypes));
+  const targetSecretIds = new Set(uniqueStrings(secretIds));
   const browserSecrets = await secretVault.listSecretsForBrowser();
   let checked = 0;
   let changed = 0;
+  let invalid = 0;
+  const invalidSecretIds = [];
+  const results = [];
   for (const item of browserSecrets) {
     if (!targetTypes.has(item.secretType)) continue;
-    if (item.status !== "active") continue;
+    if (targetSecretIds.size && !targetSecretIds.has(item.secretId)) continue;
     if (targetMachines.size && !targetMachines.has(normalizeMachineId(item.machineId))) continue;
     const existing = await secretVault.getSecretForDashboard(item.secretId);
     const validation = await validatePoolSecret({
@@ -373,12 +377,25 @@ async function validateExistingPoolSecrets({ secretVault, secretValidator, machi
     });
     if (!validation) continue;
     checked += 1;
+    if (!validation.ok) {
+      invalid += 1;
+      invalidSecretIds.push(item.secretId);
+    }
     if (validation.status !== item.status) {
       await secretVault.updateSecret(item.secretId, { status: validation.status });
       changed += 1;
     }
+    results.push({
+      secretId: item.secretId,
+      secretType: item.secretType,
+      machineId: item.machineId || null,
+      ok: validation.ok,
+      status: validation.status,
+      message: validation.message,
+      checkedAt: validation.checkedAt,
+    });
   }
-  return { checked, changed };
+  return { checked, changed, invalid, invalidSecretIds, results };
 }
 
 async function validatePoolSecret({ secretValidator, secretType, value } = {}) {
@@ -931,6 +948,35 @@ export function createDashboardApp({
             deleted.push(secret.secretId);
           }
           json(res, 200, { secretIds: deleted });
+          return;
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/secrets/validate") {
+          if (!secretVault) throw new Error("secret vault is not configured");
+          const body = await readJson(req);
+          const secretTypes = body.secretTypes || (body.secretType ? [body.secretType] : ["mapbox_token", "proxy_txt"]);
+          const validation = await validateExistingPoolSecrets({
+            secretVault,
+            secretValidator,
+            machineIds: body.machineIds,
+            secretTypes,
+            secretIds: body.secretIds,
+          });
+          const result = validation.changed
+            ? await rebalanceSecretAssignments({ store, secretVault, machineIds: body.machineIds })
+            : null;
+          const syncEnv = validation.changed
+            ? await queueEnvSyncForActiveDownloaders({
+              store,
+              machineIds: body.machineIds,
+              requestedBy: "secrets.validate",
+            })
+            : { queued: 0, skipped: [] };
+          json(res, 200, {
+            ...(result || { changed: 0, secrets: await secretVault.listSecretsForBrowser() }),
+            validation,
+            syncEnv,
+          });
           return;
         }
 

@@ -1440,6 +1440,54 @@ test("dashboard exposes a validator route for existing Mapbox and proxy secrets"
   assert.equal(listed.body.secrets[0].usage, "disabled");
 });
 
+test("dashboard bulk-validates resource pool secrets and returns invalid ids", async (t) => {
+  let id = 0;
+  const vault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  vault.createSecret({
+    secretType: "mapbox_token",
+    label: "mapbox",
+    value: "valid-mapbox-token",
+  });
+  vault.createSecret({
+    secretType: "mapbox_token",
+    label: "mapbox",
+    value: "expired-mapbox-token",
+  });
+  vault.createSecret({
+    secretType: "proxy_txt",
+    label: "proxy",
+    value: "http://valid-proxy.example:8080",
+  });
+  const server = await withServer(t, {
+    secretVault: vault,
+    secretValidator: {
+      async validateSecret({ value }) {
+        const ok = !String(value).includes("expired");
+        return { ok, status: ok ? "active" : "invalid", message: ok ? "valid" : "expired" };
+      },
+    },
+  });
+
+  const validated = await request(server, {
+    method: "POST",
+    path: "/api/secrets/validate",
+    body: { secretTypes: ["mapbox_token"] },
+  });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(validated.status, 200);
+  assert.equal(validated.body.validation.checked, 2);
+  assert.equal(validated.body.validation.invalid, 1);
+  assert.deepEqual(validated.body.validation.invalidSecretIds, ["secret-2"]);
+  assert.equal(listed.body.secrets.find((secret) => secret.secretId === "secret-1").status, "active");
+  assert.equal(listed.body.secrets.find((secret) => secret.secretId === "secret-2").status, "invalid");
+  assert.equal(listed.body.secrets.find((secret) => secret.secretId === "secret-3").status, "active");
+});
+
 test("dashboard secret route stores credentials with redacted browser metadata", async (t) => {
   const server = await withServer(t, {
     secretVault: createSecretVault({

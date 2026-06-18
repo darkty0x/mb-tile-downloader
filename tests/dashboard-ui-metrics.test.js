@@ -85,6 +85,19 @@ test("overview model displays dashboard-created zoom ranges", () => {
   assert.equal(model.activeRanges[1].tiles, 4);
 });
 
+test("overview model excludes downloader console output from events", () => {
+  const model = buildOverviewModel({
+    events: [
+      { type: "process.output", severity: "info", message: "range row output", createdAt: "2026-06-18T01:00:00.000Z" },
+      { type: "range.failed", severity: "error", message: "real failure", createdAt: "2026-06-18T01:01:00.000Z" },
+    ],
+  });
+
+  assert.equal(model.kpis.failedJobs.value, 1);
+  assert.equal(model.recentEvents.length, 1);
+  assert.equal(model.recentEvents[0].type, "range.failed");
+});
+
 test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "offline", disk: [] }],

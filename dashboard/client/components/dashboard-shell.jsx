@@ -287,6 +287,7 @@ function buildNotifications(state, overview) {
     actionTab: "alerts",
   }));
   const eventItems = [...(state.globalEvents.length ? state.globalEvents : state.events)]
+    .filter((event) => event.type !== "process.output")
     .slice()
     .reverse()
     .slice(0, 10)

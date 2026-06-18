@@ -293,16 +293,21 @@ function eventNotificationId(event, index = 0) {
   return `event-${event.id || event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`;
 }
 
+function isConsoleOutputEvent(event = {}) {
+  return event.type === "process.output";
+}
+
 function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotificationIds = new Set(), actions, machineId }) {
-  const visible = events.slice(0, limit);
+  const eventItems = events.filter((event) => !isConsoleOutputEvent(event));
+  const visible = eventItems.slice(0, limit);
   const isRead = (event, index) => Boolean(event.readAt) || readNotificationIds.has(eventNotificationId(event, index));
-  const readCount = events.filter((event, index) => isRead(event, index)).length;
-  const unreadCount = Math.max(0, events.length - readCount);
+  const readCount = eventItems.filter((event, index) => isRead(event, index)).length;
+  const unreadCount = Math.max(0, eventItems.length - readCount);
   return (
     <Surface className="p-4">
       <SectionTitle
         title={title}
-        meta={`Event ${events.length}개 | 않읽음 ${unreadCount}개 | 읽음 ${readCount}개`}
+        meta={`Event ${eventItems.length}개 | 않읽음 ${unreadCount}개 | 읽음 ${readCount}개`}
         action={actions ? (
           <div className="flex flex-wrap justify-end gap-2">
             <AppButton
@@ -332,7 +337,7 @@ function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotifi
               variant="danger"
               icon="trash"
               onClick={() => actions.deleteEvents({ machineId })}
-              disabled={!events.length}
+              disabled={!eventItems.length}
             >
               모두 삭제
             </AppButton>
@@ -634,6 +639,18 @@ export function ServerManagementPage({ state, actions }) {
   );
 }
 
+function activeJobMeta(activeJob, configs = []) {
+  if (!activeJob) return "현재의 작업상태";
+  const config = configs.find((item) => item.configId === activeJob.configId);
+  const configName = config?.name || activeJob.configId || "Config 화일";
+  const rangeText = activeJob.progress?.rangeIndex !== undefined && activeJob.progress?.rangeCount
+    ? `범위 ${Number(activeJob.progress.rangeIndex) + 1}/${activeJob.progress.rangeCount}`
+    : activeJob.rangeId
+      ? `범위 ${activeJob.rangeId}`
+      : null;
+  return [configName, rangeText].filter(Boolean).join(" | ");
+}
+
 function ServerPageControl({ state, machine, overview }) {
   const snapshot = machine?.agentSnapshot || {};
   const proxySummary = snapshot.secrets?.proxy;
@@ -652,7 +669,7 @@ function ServerPageControl({ state, machine, overview }) {
       <PipelineOverview
         overview={overview}
         title="선택된 봉사기 공정흐름"
-        meta={overview.activeJob ? `작업 ${overview.activeJob.jobId}` : "현재의 작업상태"}
+        meta={activeJobMeta(overview.activeJob, state.configs)}
       />
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {facts.map(([icon, label, value]) => (
@@ -979,22 +996,26 @@ function ServerPageSecrets({ state, actions }) {
 
 function ServerPageConsole({ state, actions }) {
   const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
-  const eventLines = state.events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
-  const sections = [
-    eventLines.length ? ["관리체계 Event", eventLines] : null,
-    localLines.length ? ["Agent 기록", localLines] : null,
-  ].filter(Boolean);
-  const text = sections.length
-    ? sections.map(([title, lines]) => [`--- ${title} ---`, ...lines].join("\n")).join("\n\n")
-    : "아직 Event가 없습니다";
+  const eventLines = state.events
+    .filter((event) => !isConsoleOutputEvent(event))
+    .map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
   return (
-    <section className="grid gap-2">
+    <section className="grid gap-3">
       <SectionTitle
         title="Console"
         meta={`Event ${eventLines.length}개 | 기록줄 ${localLines.length}개`}
         action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>갱신</AppButton>}
       />
-      <pre className="ptg-scrollbar min-h-[420px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{text}</pre>
+      <div className="grid grid-cols-2 gap-3 max-xl:grid-cols-1">
+        <div className="grid gap-2">
+          <h3 className="text-[13px] font-[860]">관리체계 Event</h3>
+          <pre className="ptg-scrollbar min-h-[280px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{eventLines.length ? eventLines.join("\n") : "아직 Event가 없습니다"}</pre>
+        </div>
+        <div className="grid gap-2">
+          <h3 className="text-[13px] font-[860]">내리적재 Console</h3>
+          <pre className="ptg-scrollbar min-h-[280px] overflow-auto rounded-lg bg-[#0b1422] p-3.5 font-mono text-[11px] leading-relaxed text-[#d9f2ec]">{localLines.length ? localLines.join("\n") : "아직 기록이 없습니다"}</pre>
+        </div>
+      </div>
     </section>
   );
 }
@@ -1049,7 +1070,10 @@ export function ConfigsDashboard({ state, actions }) {
 }
 
 export function EventsDashboard({ state, actions }) {
-  const events = [...(state.globalEvents.length ? state.globalEvents : state.events)].slice().reverse();
+  const events = [...(state.globalEvents.length ? state.globalEvents : state.events)]
+    .filter((event) => !isConsoleOutputEvent(event))
+    .slice()
+    .reverse();
   const scopedMachineId = state.globalEvents.length ? undefined : state.selectedMachineId;
   return (
     <section className="screen-enter mt-4 grid gap-4">
@@ -1561,9 +1585,7 @@ function secretValueForDisplay(secret) {
 }
 
 function secretTableName(secret) {
-  return secret.secretType === "proxy_txt"
-    ? secretValueForDisplay(secret)
-    : (secret.displayName || secretValueForDisplay(secret));
+  return secretValueForDisplay(secret);
 }
 
 function secretSearchText(secret, state) {
@@ -1579,6 +1601,12 @@ function secretSearchText(secret, state) {
     secret.machineId,
     machineLabel(state, secret.machineId),
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function resourceValidationStatus(secret) {
+  return secret.status === "active"
+    ? { status: "success", label: "정상" }
+    : { status: "invalid", label: "만료됨" };
 }
 
 function PaginationButton({ icon, iconPosition = "left", children, className = "", ...props }) {
@@ -1602,6 +1630,8 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkText, setBulkText] = useState("");
   const [bulkSaving, setBulkSaving] = useState(false);
+  const [validating, setValidating] = useState(false);
+  const [lastInvalidIds, setLastInvalidIds] = useState([]);
 
   const sourceItems = items || state.secretPool;
   const poolItems = useMemo(() => sourceItems
@@ -1619,6 +1649,12 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   const pageItems = filteredItems.slice(pageStart, pageStart + pageSize);
   const pageIds = pageItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId);
   const filteredIds = filteredItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId);
+  const validatableIds = poolItems
+    .filter((secret) => !secret.localOnly && ["mapbox_token", "proxy_txt"].includes(secret.secretType))
+    .map((secret) => secret.secretId);
+  const invalidAfterValidation = lastInvalidIds.filter((secretId) => (
+    poolItems.some((secret) => secret.secretId === secretId && !secret.localOnly && secret.status !== "active")
+  ));
   const pageSelected = pageIds.length > 0 && pageIds.every((secretId) => selectedIds.has(secretId));
   const selectedVisibleCount = filteredIds.filter((secretId) => selectedIds.has(secretId)).length;
 
@@ -1673,6 +1709,32 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
     if (!uniqueIds.length) return;
     await actions.deleteSecrets(uniqueIds);
     setSelectedIds(new Set());
+    setLastInvalidIds((current) => current.filter((secretId) => !uniqueIds.includes(secretId)));
+  }
+
+  async function validatePool() {
+    if (!validatableIds.length) return;
+    setValidating(true);
+    try {
+      const result = await actions.validateSecrets({
+        secretType,
+        secretIds: validatableIds,
+        machineIds,
+      });
+      setLastInvalidIds(result.validation?.invalidSecretIds || []);
+    } finally {
+      setValidating(false);
+    }
+  }
+
+  async function validateOne(secret) {
+    const result = await actions.validateSecret(secret.secretId);
+    setLastInvalidIds((current) => {
+      const next = new Set(current);
+      if (result.validation?.ok) next.delete(secret.secretId);
+      else next.add(secret.secretId);
+      return [...next];
+    });
   }
 
   function startBulkEdit() {
@@ -1710,6 +1772,10 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
         meta={`리용가능 ${activeCount - assignedCount}개 | 배정됨 ${assignedCount}개 | 비활성 ${disabledCount}개`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <AppButton variant="tonal" icon="sync" loading={validating} onClick={() => validatePool().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!validatableIds.length}>전체 검증</AppButton>
+            {invalidAfterValidation.length ? (
+              <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(invalidAfterValidation, "invalid records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>만료 삭제</AppButton>
+            ) : null}
             <AppButton icon="trash" onClick={() => deleteIds([...selectedIds], "selected records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!selectedIds.size}>선택 삭제</AppButton>
             <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(filteredIds, "filtered records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!filteredIds.length}>모두 삭제</AppButton>
             <AppButton variant="tonal" icon="edit" onClick={startBulkEdit}>일괄 편집</AppButton>
@@ -1776,6 +1842,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
               {pageItems.length ? pageItems.map((secret) => {
                 const icon = secretType === "mapbox_token" ? "key" : "secrets";
                 const name = secretTableName(secret);
+                const validationStatus = resourceValidationStatus(secret);
                 return (
                   <tr key={secret.secretId} className="transition hover:bg-[var(--ptg-surface-container)]">
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
@@ -1787,18 +1854,18 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                           <Icon name={icon} className="h-4 w-4" />
                         </span>
                         <span className="min-w-0">
-                          <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{name}</strong>
+                          <strong className="block break-all font-mono text-[12px] font-[850] leading-snug text-[var(--ptg-on-surface)]">{name}</strong>
                           <small className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType}</small>
                         </span>
                       </div>
                     </td>
-                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={secret.status}>{secret.localOnly ? "Local .env" : displayStatus(secret.status)}</StatusPill></td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={validationStatus.status}>{validationStatus.label}</StatusPill></td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.machineId ? machineLabel(state, secret.machineId) : "미배정"}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{shortDate(secret.updatedAt || secret.createdAt)}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex justify-end gap-1.5">
                         {!secret.localOnly && ["mapbox_token", "proxy_txt"].includes(secret.secretType) ? (
-                          <IconButton label="검증" icon="sync" onClick={() => actions.validateSecret(secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+                          <IconButton label="검증" icon="sync" onClick={() => validateOne(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
                         ) : null}
                         {!secret.localOnly && secret.status === "active" ? <IconButton label="비활성" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
                         {!secret.localOnly ? <IconButton label="편집" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} /> : null}

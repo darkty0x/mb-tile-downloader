@@ -236,7 +236,7 @@ export function useDashboardState() {
 
   useEffect(() => {
     if (typeof window === "undefined" || !("Notification" in window)) return;
-    const sourceEvents = globalEvents.length ? globalEvents : events;
+    const sourceEvents = (globalEvents.length ? globalEvents : events).filter((event) => event.type !== "process.output");
     const eventKeys = sourceEvents
       .map((event, index) => event.eventId || `${event.createdAt || ""}-${event.type || ""}-${index}`)
       .filter(Boolean);
@@ -803,6 +803,26 @@ export function useDashboardState() {
         setNotice({
           message: result.validation?.message || "API Key검증이 완료되였습니다",
           kind: result.validation?.ok ? "success" : "warning",
+        });
+        return result;
+      },
+      async validateSecrets({ secretType, secretTypes, secretIds = [], machineIds = [] } = {}) {
+        const result = await api("/api/secrets/validate", {
+          method: "POST",
+          body: JSON.stringify({
+            secretType,
+            secretTypes,
+            secretIds,
+            machineIds,
+          }),
+        });
+        setSecretPool(result.secrets || []);
+        await refreshMachineData();
+        const checked = result.validation?.checked || 0;
+        const invalid = result.validation?.invalid || 0;
+        setNotice({
+          message: `자원 ${checked}개를 검증하였습니다${invalid ? `, 만료됨 ${invalid}개` : ""}`,
+          kind: invalid ? "warning" : "success",
         });
         return result;
       },

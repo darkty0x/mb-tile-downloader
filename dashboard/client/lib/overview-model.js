@@ -173,6 +173,10 @@ function newestFirst(a, b) {
   return String(b.createdAt || b.startedAt || b.updatedAt || "").localeCompare(String(a.createdAt || a.startedAt || a.updatedAt || ""));
 }
 
+function isConsoleOutputEvent(event = {}) {
+  return event.type === "process.output";
+}
+
 export function buildMachineCommandRows({ jobs = [], events = [], machineId } = {}) {
   if (!normalizeMachineId(machineId)) return [];
   const scopedJobs = jobs.filter((job) => jobMachineMatches(job, machineId)).sort(newestFirst);
@@ -347,9 +351,10 @@ export function buildOverviewModel({
   machineId,
 } = {}) {
   const online = machines.filter((machine) => machine.status === "online").length;
-  const failedJobs = events.filter((event) => event.severity === "error" || event.type === "range.failed").length;
+  const dashboardEvents = events.filter((event) => !isConsoleOutputEvent(event));
+  const failedJobs = dashboardEvents.filter((event) => event.severity === "error" || event.type === "range.failed").length;
   const activeJobs = activeJobCount(jobs, machineId)
-    || events.filter((event) => /\.started$/.test(event.type || "")).length;
+    || dashboardEvents.filter((event) => /\.started$/.test(event.type || "")).length;
   const queuedJobs = queuedJobCount(jobs, machineId);
   const throughput = averageDownloadThroughput(jobs, machineId);
   const diskPressure = Math.max(0, ...machines.map(diskPeak));
@@ -378,7 +383,7 @@ export function buildOverviewModel({
     return acc;
   }, { healthy: 0, warning: 0, critical: 0, offline: 0 });
 
-  const pipelineModel = buildPipelineFromJobs(jobs, events, { machineId });
+  const pipelineModel = buildPipelineFromJobs(jobs, dashboardEvents, { machineId });
 
   return {
     kpis: {
@@ -402,6 +407,6 @@ export function buildOverviewModel({
     health,
     resourceAlerts,
     activeRanges: buildActiveRanges(configs),
-    recentEvents: [...events].slice(-7).reverse(),
+    recentEvents: [...dashboardEvents].slice(-7).reverse(),
   };
 }
