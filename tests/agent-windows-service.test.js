@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  buildStopProjectAgentProcessesArgs,
   buildUnlimitedExecutionTimeArgs,
   buildSchtasksCreateArgs,
   buildWindowsAgentWrapper,
@@ -59,6 +60,17 @@ test("windows agent service removes execution time limit after creating the task
   assert.match(command, /StopIfGoingOnBatteries = \$false/);
 });
 
+test("windows agent service builds a scoped stale agent process cleanup command", () => {
+  const args = buildStopProjectAgentProcessesArgs({ projectDir: "D:\\mb-tile-downloader" });
+  const command = args.at(-1);
+
+  assert.equal(args[0], "-NoProfile");
+  assert.match(command, /Win32_Process/);
+  assert.match(command, /d:\\mb-tile-downloader/);
+  assert.match(command, /src\\\\agent\\\\agent\\.js/);
+  assert.match(command, /Stop-Process/);
+});
+
 test("windows agent service install stops previous task recreates it and starts it", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-windows-service-"));
   const calls = [];
@@ -74,18 +86,21 @@ test("windows agent service install stops previous task recreates it and starts 
 
   assert.deepEqual(calls.map((call) => call.command), [
     "schtasks.exe",
+    "powershell.exe",
     "schtasks.exe",
     "schtasks.exe",
     "powershell.exe",
     "schtasks.exe",
   ]);
   assert.deepEqual(calls[0].args.slice(0, 4), ["/End", "/TN", "PTG Dashboard Agent"]);
-  assert.deepEqual(calls[1].args.slice(0, 4), ["/Delete", "/TN", "PTG Dashboard Agent", "/F"]);
-  assert.equal(calls[2].args.includes("/SC"), true);
-  assert.equal(calls[2].args.includes("ONSTART"), true);
-  assert.match(calls[3].args.at(-1), /ExecutionTimeLimit = 'PT0S'/);
-  assert.deepEqual(calls[4].args.slice(0, 4), ["/Run", "/TN", "PTG Dashboard Agent"]);
+  assert.match(calls[1].args.at(-1), /src\\\\agent\\\\agent\\.js/);
+  assert.deepEqual(calls[2].args.slice(0, 4), ["/Delete", "/TN", "PTG Dashboard Agent", "/F"]);
+  assert.equal(calls[3].args.includes("/SC"), true);
+  assert.equal(calls[3].args.includes("ONSTART"), true);
+  assert.match(calls[4].args.at(-1), /ExecutionTimeLimit = 'PT0S'/);
+  assert.deepEqual(calls[5].args.slice(0, 4), ["/Run", "/TN", "PTG Dashboard Agent"]);
   assert.equal(result.started, true);
+  assert.equal(result.stoppedStaleAgentProcesses, true);
   assert.match(await readFile(result.wrapperPath, "utf8"), /src\\agent\\agent.js/);
 });
 

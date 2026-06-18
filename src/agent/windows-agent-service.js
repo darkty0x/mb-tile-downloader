@@ -149,6 +149,49 @@ async function stopDetachedAgentFromPidFile({ projectDir, execFileImpl }) {
   }
 }
 
+export function buildStopProjectAgentProcessesArgs({ projectDir } = {}) {
+  const normalizedProject = String(projectDir || "").replaceAll("/", "\\").replaceAll("'", "''").toLowerCase();
+  return [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    [
+      `$project = ${powershellSingleQuote(normalizedProject)}`,
+      "$currentPid = $PID",
+      "$matches = Get-CimInstance Win32_Process | Where-Object {",
+      "  $_.ProcessId -ne $currentPid -and",
+      "  $_.CommandLine -and",
+      "  $_.CommandLine.ToLowerInvariant().Replace('/', '\\').Contains($project) -and",
+      "  $_.CommandLine -match 'src\\\\agent\\\\agent\\.js'",
+      "}",
+      "foreach ($process in $matches) {",
+      "  try { Stop-Process -Id $process.ProcessId -Force -ErrorAction Stop } catch {}",
+      "}",
+      "$matches.Count",
+    ].join("; "),
+  ];
+}
+
+async function stopProjectAgentProcesses({ projectDir, execFileImpl }) {
+  try {
+    const result = await execFileImpl("powershell.exe", buildStopProjectAgentProcessesArgs({ projectDir }), {
+      windowsHide: true,
+    });
+    return {
+      ok: true,
+      stdout: String(result?.stdout || "").trim(),
+      stderr: String(result?.stderr || "").trim(),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      stdout: String(err?.stdout || "").trim(),
+      stderr: String(err?.stderr || err?.message || "").trim(),
+    };
+  }
+}
+
 async function readTail(filePath, maxLines = 80) {
   try {
     const text = await readFile(filePath, "utf8");
@@ -194,6 +237,7 @@ export async function installWindowsAgentService({
   const paths = servicePaths({ projectDir });
   const stopResult = await execSchtasksIgnoreFailure(execFileImpl, ["/End", "/TN", taskName]);
   const detachedStopResult = await stopDetachedAgentFromPidFile({ projectDir: paths.projectDir, execFileImpl });
+  const staleProcessStopResult = await stopProjectAgentProcesses({ projectDir: paths.projectDir, execFileImpl });
   const deleteResult = await execSchtasksIgnoreFailure(execFileImpl, ["/Delete", "/TN", taskName, "/F"]);
   await mkdir(paths.stateDir, { recursive: true });
   await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath }), "utf8");
@@ -208,11 +252,14 @@ export async function installWindowsAgentService({
     stderr: String(result?.stderr || "").trim(),
     stoppedPrevious: stopResult.ok,
     stoppedDetachedAgent: detachedStopResult.ok,
+    stoppedStaleAgentProcesses: staleProcessStopResult.ok,
     removedPrevious: deleteResult.ok,
     stopStdout: stopResult.stdout,
     stopStderr: stopResult.stderr,
     detachedStopStdout: detachedStopResult.stdout,
     detachedStopStderr: detachedStopResult.stderr,
+    staleProcessStopStdout: staleProcessStopResult.stdout,
+    staleProcessStopStderr: staleProcessStopResult.stderr,
     deleteStdout: deleteResult.stdout,
     deleteStderr: deleteResult.stderr,
     settingsStdout: String(settingsResult?.stdout || "").trim(),

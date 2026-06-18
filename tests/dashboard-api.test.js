@@ -255,6 +255,78 @@ test("agent can register and send heartbeat with disk snapshot", async (t) => {
   assert.equal(heartbeat.body.machine.agentSnapshot.managed.configPath, ".tile-state/dashboard/configs/cfg-a.json");
 });
 
+test("agent heartbeat preserves local config JSON content in machine snapshots", async (t) => {
+  const server = await withServer(t);
+  const headers = { authorization: "Bearer agent-token" };
+  const localConfigContent = JSON.stringify(
+    {
+      jobName: "mapbox-pbf-19-kuh",
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      ranges: [{ zoom: 19, xStart: 320278, xEnd: 323703, yStart: 168505, yEnd: 186571 }],
+    },
+    null,
+    2
+  );
+
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers,
+    body: {
+      machineId: "server-05",
+      agentInstanceId: "agent-5",
+      agentSnapshot: {
+        configs: [
+          {
+            name: "mapbox-pbf-19-kuh",
+            fileName: "mapbox-pbf-19-kuh.config.json",
+            path: "configs/mapbox-pbf-19-kuh.config.json",
+            absolutePath: "D:/mb-tile-downloader/configs/mapbox-pbf-19-kuh.config.json",
+            provider: "mapbox",
+            ranges: 1,
+            content: localConfigContent,
+            config: JSON.parse(localConfigContent),
+          },
+        ],
+      },
+    },
+  });
+
+  const heartbeat = await request(server, {
+    method: "POST",
+    path: "/api/agents/heartbeat",
+    headers,
+    body: {
+      machineId: "SERVER-05",
+      agentInstanceId: "agent-5",
+      agentSnapshot: {
+        configs: [
+          {
+            name: "mapbox-pbf-19-kuh",
+            fileName: "mapbox-pbf-19-kuh.config.json",
+            path: "configs/mapbox-pbf-19-kuh.config.json",
+            absolutePath: "D:/mb-tile-downloader/configs/mapbox-pbf-19-kuh.config.json",
+            provider: "mapbox",
+            ranges: 1,
+            content: localConfigContent,
+            config: JSON.parse(localConfigContent),
+          },
+        ],
+      },
+    },
+  });
+  const machines = await request(server, { path: "/api/machines" });
+  const snapshot = await request(server, { path: "/api/snapshot" });
+  const machine = machines.body.machines.find((item) => item.machineId === "server-05");
+  const snapshotMachine = snapshot.body.snapshot.machines.find((item) => item.machineId === "server-05");
+
+  assert.equal(heartbeat.status, 200);
+  assert.equal(machine.agentSnapshot.configs[0].content, localConfigContent);
+  assert.equal(snapshotMachine.agentSnapshot.configs[0].content, localConfigContent);
+});
+
 test("agent snapshots import local mapbox tokens and proxies into the secret vault", async (t) => {
   let id = 0;
   const server = await withServer(t, {
