@@ -25,6 +25,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "pause_after_range":
     case "stop_pipeline":
     case "write_env":
+    case "write_config":
     case "git_pull_restart":
       return {
         command: "agent-internal",

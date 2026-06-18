@@ -119,6 +119,34 @@ async function gitPullProject(projectDir) {
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
+function resolveLocalConfigWritePath(projectDir, configPath) {
+  if (!configPath || typeof configPath !== "string") throw new Error("config path is required");
+  const resolvedProject = path.resolve(projectDir);
+  const configsDir = path.resolve(resolvedProject, "configs");
+  const resolvedPath = path.resolve(resolvedProject, configPath);
+  const relative = path.relative(configsDir, resolvedPath);
+  if (!relative || relative.startsWith("..") || path.isAbsolute(relative)) {
+    throw new Error("Config writes are limited to the project configs folder");
+  }
+  if (!resolvedPath.toLowerCase().endsWith(".json")) {
+    throw new Error("Config path must end with .json");
+  }
+  return resolvedPath;
+}
+
+async function writeLocalConfigFile({ projectDir, configPath, configText }) {
+  const resolvedPath = resolveLocalConfigWritePath(projectDir, configPath);
+  let parsed;
+  try {
+    parsed = JSON.parse(String(configText || ""));
+  } catch (err) {
+    throw new Error(`Invalid Config JSON: ${err.message}`);
+  }
+  await mkdir(path.dirname(resolvedPath), { recursive: true });
+  await writeFile(resolvedPath, `${JSON.stringify(parsed, null, 2)}\n`, "utf8");
+  return { configPath: path.relative(projectDir, resolvedPath), config: parsed };
+}
+
 function createAgentControlFiles({ stateDir }) {
   const controlDir = path.join(stateDir, "dashboard", "control");
   const pauseAfterRangeFile = path.join(controlDir, "pause-after-range");
@@ -222,6 +250,24 @@ export async function runCommand(command, { client, runner, machineId, control =
         type: "command.accepted",
         message: `.env updated (${result.variableCount} variables).`,
         data: { commandId: command.id, commandType: command.commandType, variableCount: result.variableCount },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
+    if (command.commandType === "write_config") {
+      const result = await writeLocalConfigFile({
+        projectDir,
+        configPath: command.payload?.configPath,
+        configText: command.payload?.configText || "",
+      });
+      await syncNow?.({ reason: command.commandType });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: `Config updated: ${result.configPath}`,
+        data: { commandId: command.id, commandType: command.commandType, configPath: result.configPath },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       return;

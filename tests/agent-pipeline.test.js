@@ -1,5 +1,8 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { mkdtemp, readFile } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { runCommand } from "../src/agent/agent.js";
@@ -44,6 +47,10 @@ test("process runner resolves only whitelisted commands", () => {
     commandType: "git_pull_restart",
     payload: { command: "rm -rf ." },
   });
+  const writeConfig = resolveManagedCommand({
+    commandType: "write_config",
+    payload: { configPath: "configs/a.json", configText: "{}" },
+  });
 
   assert.equal(start.command, process.execPath);
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/a.json"]);
@@ -51,6 +58,8 @@ test("process runner resolves only whitelisted commands", () => {
   assert.deepEqual(preflight.args, ["src/agent/preflight.js", "configs/a.json"]);
   assert.equal(updateRestart.command, "agent-internal");
   assert.deepEqual(updateRestart.args, ["git_pull_restart"]);
+  assert.equal(writeConfig.command, "agent-internal");
+  assert.deepEqual(writeConfig.args, ["write_config"]);
   assert.throws(
     () => resolveManagedCommand({ commandType: "shell", payload: { command: "echo bad" } }),
     /unsupported command/
@@ -83,6 +92,67 @@ test("agent sync commands force immediate materialization before acknowledgement
     ["sync", "sync_config"],
     ["event", "command.accepted", "Sync config completed."],
     ["ack", "cmd-sync"],
+  ]);
+});
+
+test("agent write_config command updates a local config file inside configs", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-write-config-"));
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.data.configPath]),
+  };
+
+  await runCommand(
+    {
+      id: "cmd-config",
+      commandType: "write_config",
+      payload: {
+        configPath: "configs/local.config.json",
+        configText: JSON.stringify({ provider: "mapbox", ranges: [{ zoom: 1 }] }),
+      },
+      claimedAt: "claim-config",
+    },
+    {
+      client,
+      runner: {},
+      machineId: "worker-a",
+      projectDir: dir,
+      syncNow: async ({ reason }) => calls.push(["sync", reason]),
+    }
+  );
+
+  assert.deepEqual(JSON.parse(await readFile(path.join(dir, "configs", "local.config.json"), "utf8")), {
+    provider: "mapbox",
+    ranges: [{ zoom: 1 }],
+  });
+  assert.deepEqual(calls, [
+    ["sync", "write_config"],
+    ["event", "command.accepted", path.join("configs", "local.config.json")],
+    ["ack", "cmd-config"],
+  ]);
+
+  const escapeCalls = [];
+  await runCommand(
+    {
+      id: "cmd-config-escape",
+      commandType: "write_config",
+      payload: { configPath: "../escape.json", configText: "{}" },
+      claimedAt: "claim-config-escape",
+    },
+    {
+      client: {
+        ackCommand: async (commandId, ack = {}) => escapeCalls.push(["ack", commandId, ack.error]),
+        postEvent: async (event) => escapeCalls.push(["event", event.type, event.message]),
+      },
+      runner: {},
+      machineId: "worker-a",
+      projectDir: dir,
+    }
+  );
+  assert.deepEqual(escapeCalls, [
+    ["event", "command.failed", "Config writes are limited to the project configs folder"],
+    ["ack", "cmd-config-escape", "Config writes are limited to the project configs folder"],
   ]);
 });
 

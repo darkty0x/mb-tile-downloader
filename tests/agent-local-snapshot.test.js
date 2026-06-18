@@ -38,7 +38,11 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   });
 
   assert.equal(snapshot.managed.activeConfigName, "Ukraine Range");
+  assert.equal(snapshot.configs[0].name, "1-ukraine-esri-satellite");
+  assert.equal(snapshot.configs[0].fileName, "1-ukraine-esri-satellite.config.json");
   assert.equal(snapshot.configs[0].type, "esri-satellite");
+  assert.equal(snapshot.configs[0].config.provider, "esri");
+  assert.match(snapshot.configs[0].content, /"provider": "esri"/);
   assert.equal(snapshot.envFiles.length, 1);
   assert.equal(snapshot.envFiles[0].path, ".env");
   assert.equal(snapshot.envFiles[0].variables.find((item) => item.name === "AGENT_TOKEN").value, "secret-token");

@@ -290,6 +290,13 @@ export function useDashboardState() {
   const activeConfig = useMemo(() => configs.find((config) => config.active) || configs[0] || null, [configs]);
   const activeEnv = useMemo(() => envProfiles.find((profile) => profile.active) || envProfiles[0] || null, [envProfiles]);
 
+  function runnableConfigPath() {
+    if (activeConfig) return `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
+    const localConfigs = selectedMachine?.agentSnapshot?.configs || [];
+    const firstLocalConfig = localConfigs.find((config) => config?.path) || null;
+    return firstLocalConfig?.path || null;
+  }
+
   return {
     state: {
       machineSearch,
@@ -489,8 +496,9 @@ export function useDashboardState() {
         }
         const payload = {};
         if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
-          if (!activeConfig) throw new Error("활성 Config 화일이 필요합니다");
-          payload.configPath = `.tile-state/dashboard/configs/${activeConfig.configId}.json`;
+          const configPath = runnableConfigPath();
+          if (!configPath) throw new Error("실행할 Config 화일이 필요합니다");
+          payload.configPath = configPath;
         }
         await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
           method: "POST",
@@ -528,6 +536,22 @@ export function useDashboardState() {
           }),
         });
         setNotice({ message: ".Env 보관 명령이 대기에 들어갔습니다", kind: "success" });
+        await refreshMachineData(targetMachineId);
+      },
+      async writeLocalConfig({ configPath, configText }) {
+        const targetMachineId = normalizeMachineId(selectedMachineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
+        if (!configPath) throw new Error("Config 화일경로가 없습니다");
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({
+            commandType: "write_config",
+            payload: { configPath, configText },
+            requestedBy: "dashboard",
+          }),
+        });
+        setNotice({ message: "Config 화일 보관 명령이 대기에 들어갔습니다", kind: "success" });
+        setEditor({ type: "summary" });
         await refreshMachineData(targetMachineId);
       },
       async updateTelegramEnv(formData) {

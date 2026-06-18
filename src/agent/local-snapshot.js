@@ -34,6 +34,12 @@ function classifyConfigName(name) {
   return "config";
 }
 
+function displayConfigName(fileName, config = {}) {
+  const configuredName = String(config?.jobName || config?.name || config?.id || "").trim();
+  if (configuredName) return configuredName;
+  return String(fileName || "").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
+}
+
 async function existsStat(filePath) {
   try {
     return await stat(filePath);
@@ -60,7 +66,8 @@ async function listJsonConfigs(configDir) {
     const fileStat = await existsStat(filePath);
     const config = await readJsonFile(filePath);
     files.push({
-      name: entry.name,
+      name: displayConfigName(entry.name, config),
+      fileName: entry.name,
       path: slashPath(filePath),
       type: classifyConfigName(entry.name),
       provider: config?.provider || null,
@@ -68,6 +75,8 @@ async function listJsonConfigs(configDir) {
       ranges: Array.isArray(config?.ranges) ? config.ranges.length : 0,
       sizeBytes: fileStat?.size || 0,
       updatedAt: fileStat?.mtime?.toISOString?.() || null,
+      config,
+      content: config ? `${JSON.stringify(config, null, 2)}\n` : "",
     });
   }
   return files.sort((a, b) => a.name.localeCompare(b.name));

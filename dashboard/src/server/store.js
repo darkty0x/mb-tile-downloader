@@ -17,6 +17,7 @@ const COMMAND_TYPES = new Set([
   "sync_config",
   "sync_env",
   "write_env",
+  "write_config",
   "git_pull_restart",
   "run_preflight",
 ]);

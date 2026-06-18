@@ -257,6 +257,9 @@ export function EditorDrawer({ state, actions }) {
     );
   }
   const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
+  const localConfig = editor.type === "local-config"
+    ? (state.selectedMachine?.agentSnapshot?.configs || []).find((item) => item.path === editor.path)
+    : null;
   const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
   const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
@@ -268,6 +271,7 @@ export function EditorDrawer({ state, actions }) {
       onClose={() => actions.setEditor({ type: "summary" })}
     >
       {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} editor={editor} /> : null}
+      {editor.type === "local-config" ? <LocalConfigForm record={localConfig} actions={actions} /> : null}
       {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
       {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} state={state} actions={actions} /> : null}
     </ModalShell>
@@ -282,11 +286,16 @@ function editorTitle(type, record, editor = {}) {
   if (type === "server-onboarding") return "봉사기 추가";
   if (type === "new-secret") return "API Key 추가";
   if (type === "config") return record?.configId ? "Config 화일 편집" : "Config 화일 복제";
+  if (type === "local-config") return "Local Config 화일 편집";
   if (type === "env") return record?.envProfileId ? ".Env 편집" : ".Env 복제";
   if (type === "secret" && record?.secretType === "credential") return "계정정보 편집";
   if (type === "secret" && record?.secretType === "server_rdp_credential") return "봉사기계정정보 편집";
   if (type === "secret") return "API Key 편집";
   return "편집기";
+}
+
+function displayLocalConfigName(value) {
+  return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
 }
 
 function ConnectionDetail({ connection, state, actions }) {
@@ -613,6 +622,39 @@ function ConfigForm({ record, state, actions, editor }) {
         <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 작성` : "Config 화일 보관"}</AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
+    </form>
+  );
+}
+
+function LocalConfigForm({ record, actions }) {
+  const [submitting, setSubmitting] = useState(false);
+  const configText = record?.content || (record?.config ? `${JSON.stringify(record.config, null, 2)}\n` : "");
+  if (!record) {
+    return <EmptyLine>Local Config 화일을 찾을수 없습니다</EmptyLine>;
+  }
+  return (
+    <form className="grid gap-3" onSubmit={async (event) => {
+      event.preventDefault();
+      if (submitting) return;
+      try {
+        setSubmitting(true);
+        await actions.writeLocalConfig({
+          configPath: record.path,
+          configText: event.currentTarget.elements.configText.value,
+        });
+      } catch (err) {
+        actions.setNotice({ message: err.message, kind: "error" });
+      } finally {
+        setSubmitting(false);
+      }
+    }}>
+      <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+        <small className="block text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">Local Config 화일</small>
+        <strong className="mt-1 block break-all text-[13px]">{displayLocalConfigName(record.name || record.fileName)}</strong>
+        <p className="mt-1 break-all text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{record.path}</p>
+      </div>
+      <TextArea label="Config 화일 JSON" name="configText" spellCheck="false" defaultValue={configText} />
+      <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Config 화일 보관</AppButton>
     </form>
   );
 }
