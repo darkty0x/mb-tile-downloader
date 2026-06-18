@@ -145,13 +145,26 @@ export function useDashboardState() {
       return;
     }
     const query = `machineId=${encodeURIComponent(machineId)}`;
-    const [{ configs: nextConfigs }, { envProfiles: nextEnvProfiles }, { secrets: nextSecrets }, { jobs: nextJobs }, { events: nextEvents }] = await Promise.all([
+    const [
+      { machines: nextMachines },
+      { configs: nextConfigs },
+      { envProfiles: nextEnvProfiles },
+      { secrets: nextSecrets },
+      { jobs: nextJobs },
+      { events: nextEvents },
+    ] = await Promise.all([
+      api("/api/machines"),
       api(`/api/configs?${query}`),
       api(`/api/env-profiles?${query}`),
       api(`/api/secrets?${query}`),
       api(`/api/jobs?${query}`),
       api(`/api/events?${query}`),
     ]);
+    setMachines(nextMachines || []);
+    if (!nextMachines?.some((machine) => sameMachineId(machine.machineId, machineId))) {
+      setSelectedMachineId(null);
+      selectedMachineIdRef.current = null;
+    }
     setConfigs(nextConfigs);
     setEnvProfiles(nextEnvProfiles);
     setSecrets(nextSecrets);
