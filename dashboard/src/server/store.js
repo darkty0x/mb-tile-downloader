@@ -9,6 +9,8 @@ const DEFAULT_COMMAND_LEASE_MS = 120_000;
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL)/;
 const EVENT_SEVERITIES = new Set(["debug", "info", "warn", "error", "success"]);
+const ACTIVE_JOB_STATUSES = new Set(["running", "queued", "claimed"]);
+const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "stopped"]);
 const COMMAND_TYPES = new Set([
   "start_pipeline",
   "stop_pipeline",
@@ -561,7 +563,7 @@ export function createDashboardStore({
       const at = iso(now());
       const status = requireNonEmpty(input.status, "status");
       const finishedAt = input.finishedAt
-        || (["completed", "failed"].includes(status) ? at : null);
+        || (TERMINAL_JOB_STATUSES.has(status) ? at : null);
       const record = {
         jobId,
         machineId: requireStoredMachineId(input.machineId ?? existing?.machineId),
@@ -579,10 +581,31 @@ export function createDashboardStore({
       jobs.set(jobId, record);
       const machine = machines.get(record.machineId);
       if (machine) {
-        machine.currentJobId = ["completed", "failed"].includes(record.status) ? null : record.jobId;
+        machine.currentJobId = TERMINAL_JOB_STATUSES.has(record.status) ? null : record.jobId;
         machine.updatedAt = at;
       }
       return normalizeJob(record);
+    },
+
+    stopRunningJobs({ machineId, error = "pipeline stopped", stage = null, progress = null } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const at = iso(now());
+      const stopped = [];
+      for (const record of jobs.values()) {
+        if (record.machineId !== normalizedMachineId || !ACTIVE_JOB_STATUSES.has(record.status)) continue;
+        record.status = "stopped";
+        record.stage = stage || record.stage;
+        if (progress && typeof progress === "object") record.progress = structuredClone(progress);
+        record.finishedAt = at;
+        record.error = error;
+        stopped.push(normalizeJob(record));
+      }
+      const machine = machines.get(normalizedMachineId);
+      if (machine) {
+        machine.currentJobId = null;
+        machine.updatedAt = at;
+      }
+      return stopped;
     },
 
     listJobs({ machineId } = {}) {

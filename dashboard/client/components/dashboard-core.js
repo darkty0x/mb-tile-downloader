@@ -165,6 +165,7 @@ const STATUS_LABELS = {
   pending: "대기중",
   queued: "대기",
   running: "실행중",
+  stopped: "정지됨",
   success: "성공",
   warn: "경고",
   warning: "경고",

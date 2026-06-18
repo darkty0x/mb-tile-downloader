@@ -217,12 +217,20 @@ export async function runCommand(command, { client, runner, machineId, control =
     if (command.commandType === "stop_pipeline") {
       await control?.requestStopPipeline?.();
       const stopped = runner.stop();
+      const stoppedJobs = await client.stopRunningJobs(machineId, {
+        commandId: command.id,
+        reason: "dashboard stop command",
+      });
       await client.postEvent({
         machineId,
         severity: stopped ? "warn" : "info",
         type: "command.accepted",
         message: stopped ? "Stop signal sent to the active managed process." : "No active managed process was running.",
-        data: { commandId: command.id, commandType: command.commandType },
+        data: {
+          commandId: command.id,
+          commandType: command.commandType,
+          stoppedJobs: stoppedJobs?.jobs?.length || 0,
+        },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       return;

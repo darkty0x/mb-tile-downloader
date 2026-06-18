@@ -273,6 +273,7 @@ function jobEtaLabel(job) {
   }
   if (job?.status === "completed") return "완료";
   if (job?.status === "failed") return "실패";
+  if (job?.status === "stopped") return "정지됨";
   return "계산중";
 }
 
@@ -301,7 +302,7 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId } = {}) {
   const currentStageIndex = stageIndex(activeJob.stage);
   const currentStageProgress = activeJob.status === "completed"
     ? 100
-    : activeJob.status === "failed"
+    : ["failed", "stopped"].includes(activeJob.status)
       ? numericProgress(activeJob.progress) ?? 0
       : numericProgress(activeJob.progress) ?? 0;
   const steps = PIPELINE_STEPS.map(([key, label], index) => {
@@ -312,6 +313,9 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId } = {}) {
       progress = 100;
     } else if (activeJob.status === "failed" && index === currentStageIndex) {
       status = "error";
+      progress = currentStageProgress;
+    } else if (activeJob.status === "stopped" && index === currentStageIndex) {
+      status = "stopped";
       progress = currentStageProgress;
     } else if (index === currentStageIndex) {
       status = activeJob.status === "queued" ? "queued" : "running";

@@ -8,6 +8,7 @@ function createFakePgDb() {
     machines: new Map(),
     machine_events: [],
     machine_commands: new Map(),
+    machine_jobs: new Map(),
     configs: new Map(),
     env_profiles: new Map(),
     dashboard_settings: new Map(),
@@ -196,6 +197,85 @@ function createFakePgDb() {
         row.error = error;
         return rows(row ? [{ ...row }] : []);
       }
+      if (/SELECT \* FROM machine_jobs WHERE job_id=\$1/.test(sql)) {
+        const row = tables.machine_jobs.get(params[0]);
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/INSERT INTO machine_jobs/.test(sql)) {
+        const [
+          job_id,
+          machine_id,
+          config_id,
+          range_id,
+          status,
+          stage,
+          progress_json,
+          started_at,
+          finished_at,
+          error,
+        ] = params;
+        const existing = tables.machine_jobs.get(job_id);
+        const row = {
+          job_id,
+          machine_id,
+          config_id,
+          range_id,
+          status,
+          stage,
+          progress_json,
+          started_at: existing?.started_at || started_at,
+          finished_at,
+          error,
+        };
+        tables.machine_jobs.set(job_id, row);
+        return rows([{ ...row }]);
+      }
+      if (/UPDATE machine_jobs\s+SET status='stopped'/s.test(sql)) {
+        const [machineId, stage, progressJson, finishedAt, error, statuses] = params;
+        const stopped = [];
+        for (const row of tables.machine_jobs.values()) {
+          if (row.machine_id !== machineId || !statuses.includes(row.status)) continue;
+          row.status = "stopped";
+          row.stage = stage || row.stage;
+          if (progressJson !== null && progressJson !== undefined) row.progress_json = progressJson;
+          row.finished_at = finishedAt;
+          row.error = error;
+          stopped.push({ ...row });
+        }
+        return rows(stopped);
+      }
+      if (/UPDATE machines SET current_job_id=\$1/.test(sql)) {
+        const [current_job_id, updated_at, machine_id] = params;
+        const row = tables.machines.get(machine_id);
+        if (row) {
+          row.current_job_id = current_job_id;
+          row.updated_at = updated_at;
+        }
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/UPDATE machines SET current_job_id=NULL/.test(sql)) {
+        const [updated_at, machine_id] = params;
+        const row = tables.machines.get(machine_id);
+        if (row) {
+          row.current_job_id = null;
+          row.updated_at = updated_at;
+        }
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/SELECT \* FROM machine_jobs WHERE machine_id=\$1/.test(sql)) {
+        const [machineId] = params;
+        return rows(
+          [...tables.machine_jobs.values()]
+            .filter((row) => row.machine_id === machineId)
+            .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || a.job_id.localeCompare(b.job_id))
+        );
+      }
+      if (/SELECT \* FROM machine_jobs ORDER BY started_at DESC/.test(sql)) {
+        return rows(
+          [...tables.machine_jobs.values()]
+            .sort((a, b) => String(b.started_at).localeCompare(String(a.started_at)) || a.job_id.localeCompare(b.job_id))
+        );
+      }
       if (/UPDATE configs SET active=false/.test(sql)) {
         const [machine_id] = params;
         for (const row of tables.configs.values()) {
@@ -358,6 +438,41 @@ test("postgres store persists events and command lifecycle", async () => {
   assert.equal((await store.listEvents({ machineId: "worker-a" }))[0].id, event.id);
   assert.equal(claimed[0].status, "claimed");
   assert.equal(completed.status, "completed");
+});
+
+test("postgres store stops active jobs and clears machine active job state", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 8 },
+  });
+
+  const stopped = await store.stopRunningJobs({
+    machineId: "server-01",
+    error: "dashboard stop command",
+  });
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machine = await store.getMachine("server-01");
+
+  assert.equal(stopped.length, 1);
+  assert.equal(stopped[0].status, "stopped");
+  assert.equal(jobs[0].status, "stopped");
+  assert.equal(jobs[0].error, "dashboard stop command");
+  assert.equal(machine.currentJobId, null);
 });
 
 test("postgres store marks events read and deletes events by scope", async () => {

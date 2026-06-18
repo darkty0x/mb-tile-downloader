@@ -32,6 +32,10 @@ test("dashboard store persists job lifecycle updates", async () => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),
   });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
 
   await store.upsertJob({
     jobId: "job-1",
@@ -58,6 +62,39 @@ test("dashboard store persists job lifecycle updates", async () => {
   assert.equal(jobs[0].jobId, "job-1");
   assert.equal(jobs[0].stage, "validate");
   assert.equal(jobs[0].progress.tilesDone, 100);
+});
+
+test("dashboard store stops active jobs and clears machine active job state", async () => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 7 },
+  });
+
+  const stopped = await store.stopRunningJobs({
+    machineId: "SERVER-01",
+    error: "dashboard stop command",
+  });
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machines = await store.listMachines();
+
+  assert.equal(stopped.length, 1);
+  assert.equal(jobs[0].status, "stopped");
+  assert.equal(jobs[0].finishedAt, "2026-06-16T00:00:00.000Z");
+  assert.equal(jobs[0].error, "dashboard stop command");
+  assert.equal(machines.find((machine) => machine.machineId === "server-01")?.currentJobId, null);
 });
 
 test("canonical agent job routes require token and expose dashboard job list", async (t) => {
@@ -112,6 +149,42 @@ test("canonical agent job routes require token and expose dashboard job list", a
   assert.equal(listed.status, 200);
   assert.equal(listed.body.jobs.length, 1);
   assert.equal(listed.body.jobs[0].progress.percent, 100);
+});
+
+test("canonical agent stop route marks active jobs stopped", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  const server = await withServer(t, store);
+  const headers = { authorization: "Bearer agent-token" };
+
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/jobs",
+    headers,
+    body: {
+      jobId: "job-stop-route",
+      machineId: "server-01",
+      configId: "cfg-1",
+      rangeId: "range-0",
+      status: "running",
+      stage: "download",
+      progress: { percent: 12 },
+    },
+  });
+
+  const stopped = await request(server, {
+    method: "POST",
+    path: "/api/agents/jobs/stop-running",
+    headers,
+    body: { machineId: "server-01", error: "dashboard stop command" },
+  });
+  const listed = await request(server, { path: "/api/jobs?machineId=server-01" });
+
+  assert.equal(stopped.status, 200);
+  assert.equal(stopped.body.jobs.length, 1);
+  assert.equal(stopped.body.jobs[0].status, "stopped");
+  assert.equal(listed.body.jobs[0].status, "stopped");
 });
 
 test("legacy singular agent job routes remain compatibility aliases", async (t) => {

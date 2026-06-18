@@ -10,6 +10,8 @@ const SETTINGS_KEY = "dashboard";
 const ENV_NAME_PATTERN = /^[A-Z_][A-Z0-9_]*$/;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL)/;
 const EVENT_SEVERITIES = new Set(["debug", "info", "warn", "error", "success"]);
+const ACTIVE_JOB_STATUSES = new Set(["running", "queued", "claimed"]);
+const TERMINAL_JOB_STATUSES = new Set(["completed", "failed", "stopped"]);
 const COMMAND_TYPES = new Set([
   "start_pipeline",
   "stop_pipeline",
@@ -631,7 +633,7 @@ export function createPostgresDashboardStore({
       const at = now().toISOString();
       const status = requireNonEmpty(input.status, "status");
       const finishedAt = input.finishedAt
-        || (["completed", "failed"].includes(status) ? at : null);
+        || (TERMINAL_JOB_STATUSES.has(status) ? at : null);
       const machineId = requireStoredMachineId(input.machineId ?? existing?.machine_id);
       const row = await firstRow(
         db,
@@ -665,9 +667,38 @@ export function createPostgresDashboardStore({
       );
       await db.query(
         "UPDATE machines SET current_job_id=$1, updated_at=$2 WHERE machine_id=$3",
-        [["completed", "failed"].includes(status) ? null : jobId, at, machineId]
+        [TERMINAL_JOB_STATUSES.has(status) ? null : jobId, at, machineId]
       );
       return jobFromRow(row);
+    },
+
+    async stopRunningJobs({ machineId, error = "pipeline stopped", stage = null, progress = null } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const at = now().toISOString();
+      const statuses = [...ACTIVE_JOB_STATUSES];
+      const result = await db.query(
+        `UPDATE machine_jobs
+         SET status='stopped',
+             stage=COALESCE($2, stage),
+             progress_json=CASE WHEN $3::jsonb IS NULL THEN progress_json ELSE $3::jsonb END,
+             finished_at=$4,
+             error=$5
+         WHERE machine_id=$1 AND status = ANY($6::text[])
+         RETURNING *`,
+        [
+          normalizedMachineId,
+          stage,
+          progress && typeof progress === "object" ? toJsonbParam(progress, {}) : null,
+          at,
+          error,
+          statuses,
+        ]
+      );
+      await db.query(
+        "UPDATE machines SET current_job_id=NULL, updated_at=$1 WHERE machine_id=$2",
+        [at, normalizedMachineId]
+      );
+      return result.rows.map(jobFromRow);
     },
 
     async listJobs({ machineId } = {}) {

@@ -52,5 +52,17 @@ export function createJobReporter({ client, machineId, configId, rangeId = null,
     });
   }
 
-  return { start, stage, complete, fail };
+  async function stop({ stage, error, progress = {} }) {
+    await client.updateJob(jobId, {
+      machineId,
+      configId,
+      rangeId,
+      status: "stopped",
+      stage,
+      progress,
+      error: error?.message || String(error || "pipeline stopped"),
+    });
+  }
+
+  return { start, stage, complete, fail, stop };
 }

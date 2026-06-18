@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildGlobalSearchResults } from "../lib/global-search";
+import { eventNotificationId, eventRecordId } from "../lib/event-identity";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { AppButton, IconButton, StatusPill, SwitchField, TextInput } from "./ui";
@@ -292,8 +293,8 @@ function buildNotifications(state, overview) {
     .reverse()
     .slice(0, 10)
     .map((event, index) => ({
-      id: `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`,
-      eventId: event.eventId,
+      id: eventNotificationId(event, index),
+      eventId: eventRecordId(event),
       source: "event",
       read: Boolean(event.readAt),
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",

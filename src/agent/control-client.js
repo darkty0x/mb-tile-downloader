@@ -82,6 +82,10 @@ export function createControlClient({ baseUrl, agentToken, fetchImpl = fetch }) 
       return request(`/api/agents/jobs/${encodeURIComponent(jobId)}`, payload, "PUT");
     },
 
+    stopRunningJobs(machineId, payload = {}) {
+      return request("/api/agents/jobs/stop-running", { machineId, ...payload });
+    },
+
     listSecrets(machineId) {
       return get(`/api/agents/secrets?machineId=${encodeURIComponent(machineId)}`);
     },

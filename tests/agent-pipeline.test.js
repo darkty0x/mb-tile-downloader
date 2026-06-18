@@ -161,6 +161,10 @@ test("agent stop command records a stop request and signals the active runner", 
   const client = {
     ackCommand: async (commandId) => calls.push(["ack", commandId]),
     postEvent: async (event) => calls.push(["event", event.type, event.message]),
+    stopRunningJobs: async (machineId) => {
+      calls.push(["stop-jobs", machineId]);
+      return { jobs: [{ jobId: "job-stop" }] };
+    },
   };
   const control = {
     requestStopPipeline: async () => calls.push(["stop-file"]),
@@ -185,6 +189,7 @@ test("agent stop command records a stop request and signals the active runner", 
   assert.deepEqual(calls, [
     ["stop-file"],
     ["runner-stop"],
+    ["stop-jobs", "worker-a"],
     ["event", "command.accepted", "Stop signal sent to the active managed process."],
     ["ack", "cmd-stop"],
   ]);

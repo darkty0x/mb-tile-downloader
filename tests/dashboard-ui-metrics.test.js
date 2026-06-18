@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
+import { eventNotificationId, eventRecordId } from "../dashboard/client/lib/event-identity.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 import { diskPeakForMachine } from "../dashboard/client/components/dashboard-core.js";
 
@@ -61,6 +62,16 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.pipeline[1].status, "complete");
   assert.equal(model.resourceAlerts.length, 2);
   assert.equal(model.activeRanges[0].name, "ukraine-range-01");
+});
+
+test("event notification identity uses the durable event id field", () => {
+  const localStoreEvent = { id: "evt-local", type: "command.accepted", message: "accepted" };
+  const postgresEvent = { eventId: "evt-postgres", type: "command.accepted", message: "accepted" };
+
+  assert.equal(eventRecordId(localStoreEvent), "evt-local");
+  assert.equal(eventRecordId(postgresEvent), "evt-postgres");
+  assert.equal(eventNotificationId(localStoreEvent), "event-evt-local");
+  assert.equal(eventNotificationId(postgresEvent), "event-evt-postgres");
 });
 
 test("overview model displays dashboard-created zoom ranges", () => {
@@ -237,6 +248,14 @@ test("server command rows follow selected machine lifecycle state", () => {
       jobs: [{ machineId: "server-01", status: "running", startedAt: "2026-06-18T01:00:00.000Z" }],
     }).map(([type]) => type),
     ["pause_after_range", "stop_pipeline", "sync_config", "sync_env"]
+  );
+
+  assert.deepEqual(
+    buildMachineCommandRows({
+      machineId: "server-01",
+      jobs: [{ machineId: "server-01", status: "stopped", finishedAt: "2026-06-18T01:05:00.000Z" }],
+    }).map(([type]) => type),
+    ["start_pipeline", "sync_config", "sync_env"]
   );
 
   assert.deepEqual(

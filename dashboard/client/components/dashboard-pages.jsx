@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-model";
+import { eventNotificationId } from "../lib/event-identity";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
@@ -358,10 +359,6 @@ function QuickActionsCard({ actions }) {
       </div>
     </Surface>
   );
-}
-
-function eventNotificationId(event, index = 0) {
-  return `event-${event.id || event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`;
 }
 
 function isConsoleOutputEvent(event = {}) {

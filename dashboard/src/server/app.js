@@ -108,6 +108,12 @@ function handleError(res, err) {
 }
 
 async function handleAgentJobRoute({ req, res, url, store, basePath }) {
+  if (req.method === "POST" && url.pathname === `${basePath}/jobs/stop-running`) {
+    const body = await readJson(req);
+    json(res, 200, { jobs: await store.stopRunningJobs(body) });
+    return true;
+  }
+
   if (req.method === "POST" && url.pathname === `${basePath}/jobs`) {
     const body = await readJson(req);
     json(res, 200, { job: await store.upsertJob(body) });

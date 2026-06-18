@@ -224,7 +224,7 @@ export async function runRangePipeline({
           message: errorObject.message,
           data: { configPath, rangeIndex, label: range.label || null, stage },
         });
-        if (reporter) await reporter.fail({ stage, error: errorObject });
+        if (reporter) await reporter.stop({ stage, error: errorObject });
         throw errorObject;
       }
       const progress = {
@@ -284,7 +284,7 @@ export async function runRangePipeline({
           message: errorObject.message,
           data: { configPath, rangeIndex, label: range.label || null, stage },
         });
-        if (reporter) await reporter.fail({ stage, error: errorObject, progress });
+        if (reporter) await reporter.stop({ stage, error: errorObject, progress });
         throw errorObject;
       }
     }
