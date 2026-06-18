@@ -624,7 +624,9 @@ export function createDashboardStore({
       }
       const machine = machines.get(normalizedMachineId);
       if (machine) {
-        machine.currentJobId = null;
+        if (configId === null || stopped.some((job) => job.jobId === machine.currentJobId)) {
+          machine.currentJobId = null;
+        }
         machine.updatedAt = at;
       }
       return stopped;

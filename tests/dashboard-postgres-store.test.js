@@ -231,10 +231,11 @@ function createFakePgDb() {
         return rows([{ ...row }]);
       }
       if (/UPDATE machine_jobs\s+SET status='stopped'/s.test(sql)) {
-        const [machineId, stage, progressJson, finishedAt, error, statuses] = params;
+        const [machineId, stage, progressJson, finishedAt, error, statuses, configId] = params;
         const stopped = [];
         for (const row of tables.machine_jobs.values()) {
           if (row.machine_id !== machineId || !statuses.includes(row.status)) continue;
+          if (configId !== null && configId !== undefined && row.config_id !== configId) continue;
           row.status = "stopped";
           row.stage = stage || row.stage;
           if (progressJson !== null && progressJson !== undefined) row.progress_json = progressJson;
@@ -254,11 +255,14 @@ function createFakePgDb() {
         return rows(row ? [{ ...row }] : []);
       }
       if (/UPDATE machines SET current_job_id=NULL/.test(sql)) {
-        const [updated_at, machine_id] = params;
+        const [updated_at, machine_id, config_id] = params;
         const row = tables.machines.get(machine_id);
         if (row) {
-          row.current_job_id = null;
-          row.updated_at = updated_at;
+          const activeJob = row.current_job_id ? tables.machine_jobs.get(row.current_job_id) : null;
+          if (config_id === null || config_id === undefined || !row.current_job_id || activeJob?.config_id === config_id) {
+            row.current_job_id = null;
+            row.updated_at = updated_at;
+          }
         }
         return rows(row ? [{ ...row }] : []);
       }
@@ -473,6 +477,50 @@ test("postgres store stops active jobs and clears machine active job state", asy
   assert.equal(jobs[0].status, "stopped");
   assert.equal(jobs[0].error, "dashboard stop command");
   assert.equal(machine.currentJobId, null);
+});
+
+test("postgres store config-scoped stop does not clear an unrelated active job", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  await store.upsertJob({
+    jobId: "job-a",
+    machineId: "server-01",
+    configId: "cfg-a",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 8 },
+  });
+  await store.upsertJob({
+    jobId: "job-b",
+    machineId: "server-01",
+    configId: "cfg-b",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 9 },
+  });
+
+  const stopped = await store.stopRunningJobs({
+    machineId: "server-01",
+    configId: "cfg-a",
+    error: "config deleted",
+  });
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machine = await store.getMachine("server-01");
+
+  assert.deepEqual(stopped.map((job) => job.jobId), ["job-a"]);
+  assert.equal(jobs.find((job) => job.jobId === "job-a")?.status, "stopped");
+  assert.equal(jobs.find((job) => job.jobId === "job-b")?.status, "running");
+  assert.equal(machine.currentJobId, "job-b");
 });
 
 test("postgres store marks events read and deletes events by scope", async () => {

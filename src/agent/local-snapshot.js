@@ -66,7 +66,19 @@ async function listJsonConfigs(configDir) {
     if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     const filePath = path.join(configDir, entry.name);
     const fileStat = await existsStat(filePath);
-    const config = await readJsonFile(filePath);
+    let content = "";
+    let config = null;
+    let parseError = null;
+    try {
+      content = await readFile(filePath, "utf8");
+      try {
+        config = JSON.parse(content);
+      } catch (err) {
+        parseError = err?.message || "invalid json";
+      }
+    } catch (err) {
+      parseError = err?.message || "read failed";
+    }
     files.push({
       name: displayConfigName(entry.name, config),
       fileName: entry.name,
@@ -78,7 +90,8 @@ async function listJsonConfigs(configDir) {
       sizeBytes: fileStat?.size || 0,
       updatedAt: fileStat?.mtime?.toISOString?.() || null,
       config,
-      content: config ? `${JSON.stringify(config, null, 2)}\n` : "",
+      content,
+      parseError,
     });
   }
   return files.sort((a, b) => a.name.localeCompare(b.name));

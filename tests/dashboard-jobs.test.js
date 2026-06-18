@@ -97,6 +97,48 @@ test("dashboard store stops active jobs and clears machine active job state", as
   assert.equal(machines.find((machine) => machine.machineId === "server-01")?.currentJobId, null);
 });
 
+test("dashboard store config-scoped stop does not clear an unrelated active job", async () => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+
+  await store.upsertJob({
+    jobId: "job-a",
+    machineId: "server-01",
+    configId: "cfg-a",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 7 },
+  });
+  await store.upsertJob({
+    jobId: "job-b",
+    machineId: "server-01",
+    configId: "cfg-b",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 9 },
+  });
+
+  const stopped = await store.stopRunningJobs({
+    machineId: "server-01",
+    configId: "cfg-a",
+    error: "config deleted",
+  });
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machine = await store.getMachine("server-01");
+
+  assert.deepEqual(stopped.map((job) => job.jobId), ["job-a"]);
+  assert.equal(jobs.find((job) => job.jobId === "job-a")?.status, "stopped");
+  assert.equal(jobs.find((job) => job.jobId === "job-b")?.status, "running");
+  assert.equal(machine.currentJobId, "job-b");
+});
+
 test("canonical agent job routes require token and expose dashboard job list", async (t) => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),

@@ -58,6 +58,25 @@ test("local snapshot reports local configs env files proxy counts and bounded st
   assert.equal(snapshot.storage.some((item) => item.type === "configs"), false);
 });
 
+test("local snapshot keeps raw local config content even when JSON is invalid", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-invalid-config-"));
+  await mkdir(path.join(dir, "configs"), { recursive: true });
+  await mkdir(path.join(dir, "tiles"), { recursive: true });
+  await mkdir(path.join(dir, "archives"), { recursive: true });
+  await writeFile(path.join(dir, ".env"), "MACHINE_ID=server-01\n");
+  await writeFile(
+    path.join(dir, "configs", "broken-mapbox.config.json"),
+    '{\n  "provider": "mapbox",\n  "ranges": [\n'
+  );
+
+  const snapshot = await collectLocalSnapshot({ projectDir: dir, stateDir: path.join(dir, ".tile-state") });
+
+  assert.equal(snapshot.configs[0].fileName, "broken-mapbox.config.json");
+  assert.equal(snapshot.configs[0].config, null);
+  assert.match(snapshot.configs[0].content, /"provider": "mapbox"/);
+  assert.match(snapshot.configs[0].parseError, /JSON|Unexpected|Expected/i);
+});
+
 test("local snapshot reports exact tile storage beyond shallow scan limits", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-large-"));
   const tileDir = path.join(dir, "tiles", "vector", "17", "76642");
