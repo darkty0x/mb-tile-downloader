@@ -292,7 +292,9 @@ test("agent writes forwarded process output to the local console snapshot log", 
   assert.match(runnerEnv.DASHBOARD_AGENT_LOG_PATH, /\.tile-state\/dashboard-agent\.log$/);
   assert.match(await readFile(path.join(stateDir, "dashboard-agent.log"), "utf8"), /preflight wrote this line/);
   assert.equal(calls.some((call) => call[0] === "event" && call[1] === "preflight wrote this line"), false);
-  assert.deepEqual(calls.at(-1), ["ack", "cmd-preflight"]);
+  assert.equal(calls.some((call) => call[0] === "ack" && call[1] === "cmd-preflight"), true);
+  assert.deepEqual(calls.at(-1)?.[0], "heartbeat");
+  assert.match(calls.at(-1)?.[1]?.join("\n") || "", /preflight wrote this line/);
 });
 
 test("agent write_env command updates root env and preserves mapbox tokens", async () => {
