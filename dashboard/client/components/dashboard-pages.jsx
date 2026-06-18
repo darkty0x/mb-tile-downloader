@@ -654,9 +654,11 @@ function storageBreakdownForDisk(disk, storage) {
   const totalBytes = Math.max(0, Number(disk.totalBytes) || 0);
   const byType = new Map();
   for (const item of storage.filter((entry) => ["tiles", "zip"].includes(entry.type) && entry.exists && storageBelongsToDisk(entry, disk))) {
-    const current = byType.get(item.type) || { type: item.type, label: labels[item.type] || item.label, sizeBytes: 0, truncated: false };
+    const current = byType.get(item.type) || { type: item.type, label: labels[item.type] || item.label, sizeBytes: 0, exactSizeBytes: 0, truncated: false, sizeEstimated: false };
     current.sizeBytes += Number(item.sizeBytes) || 0;
+    current.exactSizeBytes += Number(item.exactSizeBytes ?? item.sizeBytes) || 0;
     current.truncated = current.truncated || Boolean(item.truncated);
+    current.sizeEstimated = current.sizeEstimated || Boolean(item.sizeEstimated);
     byType.set(item.type, current);
   }
   const knownItems = [...byType.values()].filter((item) => item.sizeBytes > 0 || item.truncated);
@@ -688,15 +690,19 @@ function aggregateStorageItems(storage) {
       absolutePath: item.absolutePath,
       exists: false,
       sizeBytes: 0,
+      exactSizeBytes: 0,
       fileCount: 0,
       dirCount: 0,
       truncated: false,
+      sizeEstimated: false,
     };
     current.exists = current.exists || Boolean(item.exists);
     current.sizeBytes += Number(item.sizeBytes) || 0;
+    current.exactSizeBytes += Number(item.exactSizeBytes ?? item.sizeBytes) || 0;
     current.fileCount += Number(item.fileCount) || 0;
     current.dirCount += Number(item.dirCount) || 0;
     current.truncated = current.truncated || Boolean(item.truncated);
+    current.sizeEstimated = current.sizeEstimated || Boolean(item.sizeEstimated);
     result.set(item.type, current);
   }
   return ["tiles", "zip"].map((type) => result.get(type)).filter(Boolean);
@@ -739,7 +745,7 @@ function ServerPageStorage({ machine }) {
                       <span className="block h-full rounded-full" style={{ width: `${item.pctOfUsed}%`, background: item.color }} />
                     </span>
                     <span className="text-right font-[720] text-[var(--ptg-on-surface-variant)]">
-                      {formatBytes(item.sizeBytes)} | {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
+                      {item.sizeEstimated ? "추산 " : ""}{formatBytes(item.sizeBytes)} | {item.pctOfDrive.toFixed(item.pctOfDrive >= 10 ? 0 : 1)}%
                     </span>
                   </div>
                 ))}
@@ -759,9 +765,10 @@ function ServerPageStorage({ machine }) {
                 <strong className="block truncate text-[12.5px]">{item.label}</strong>
                 <small className="block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
                   {item.path} | {item.exists ? `화일 ${item.fileCount}개, 등록부 ${item.dirCount}개` : "찾을수 없음"}
+                  {item.sizeEstimated ? ` | 정확계산 ${formatBytes(item.exactSizeBytes)}` : ""}
                 </small>
               </span>
-              <strong className="text-right text-[12px]">{formatBytes(item.sizeBytes)}</strong>
+              <strong className="text-right text-[12px]">{item.sizeEstimated ? "추산 " : ""}{formatBytes(item.sizeBytes)}</strong>
             </div>
           ))}
         </div>

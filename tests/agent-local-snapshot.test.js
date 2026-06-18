@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { collectLocalSnapshot } from "../src/agent/local-snapshot.js";
+import { applyTileStorageEstimates, collectLocalSnapshot } from "../src/agent/local-snapshot.js";
 
 test("local snapshot reports local configs env files proxy counts and bounded storage", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-snapshot-"));
@@ -111,4 +111,43 @@ test("local snapshot scans every configured tile root exactly", async () => {
   assert.equal(tileItems.reduce((sum, item) => sum + item.fileCount, 0), 2);
   assert.equal(tileItems.reduce((sum, item) => sum + item.sizeBytes, 0), "root-a".length + "root-b".length);
   assert.equal(tileItems.some((item) => item.truncated), false);
+});
+
+test("tile storage estimate uses drive usage when exact tile walk is implausibly tiny", () => {
+  const eightyFourGb = 84 * 1024 * 1024 * 1024;
+  const estimated = applyTileStorageEstimates({
+    disks: [
+      {
+        name: "C:",
+        mount: "C:",
+        totalBytes: 476 * 1024 * 1024 * 1024,
+        usedBytes: eightyFourGb,
+        freeBytes: 392 * 1024 * 1024 * 1024,
+      },
+    ],
+    tileStorage: [
+      {
+        label: "Tile Content",
+        type: "tiles",
+        exists: true,
+        absolutePath: "C:/mb-tile-downloader/tiles",
+        sizeBytes: 621 * 1024,
+        fileCount: 613,
+        dirCount: 13877,
+      },
+    ],
+    otherStorage: [
+      {
+        label: "Zip Archives",
+        type: "zip",
+        exists: true,
+        absolutePath: "C:/mb-tile-downloader/archives",
+        sizeBytes: 0,
+      },
+    ],
+  });
+
+  assert.equal(estimated[0].sizeEstimated, true);
+  assert.equal(estimated[0].exactSizeBytes, 621 * 1024);
+  assert.equal(estimated[0].sizeBytes, eightyFourGb);
 });

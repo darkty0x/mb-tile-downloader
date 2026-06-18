@@ -8,6 +8,9 @@ import { resolveOutputStorage } from "../runtime/output-storage.js";
 
 const MAX_DIR_ENTRIES = 80;
 const MAX_CONSOLE_LINES = 80;
+const TILE_ESTIMATE_MIN_DRIVE_USED_BYTES = 1024 * 1024 * 1024;
+const TILE_ESTIMATE_MAX_EXACT_BYTES = 128 * 1024 * 1024;
+const TILE_ESTIMATE_MIN_TREE_ITEMS = 100;
 const SECRET_NAME_PATTERN = /(TOKEN|PASSWORD|SECRET|KEY|ACCESS|CREDENTIAL|PASS)/i;
 const API_ENV_NAMES = new Set(["MAPBOX_ACCESS_TOKENS"]);
 
@@ -214,6 +217,60 @@ async function shallowDirSummary(projectDir, targetPath, { label, type }) {
   };
 }
 
+function normalizedStoragePath(value) {
+  return slashPath(value).replace(/\/+$/, "").toLowerCase();
+}
+
+function storageBelongsToDisk(item, disk) {
+  const itemPath = normalizedStoragePath(item.absolutePath || item.path);
+  const mount = normalizedStoragePath(disk.mount || disk.name);
+  if (!itemPath || !mount) return false;
+  if (itemPath === mount) return true;
+  if (mount === "/" && itemPath.startsWith("/")) return true;
+  return itemPath.startsWith(`${mount}/`);
+}
+
+function shouldEstimateTileStorage(item, disk) {
+  const exactBytes = Number(item.sizeBytes) || 0;
+  const treeItems = (Number(item.fileCount) || 0) + (Number(item.dirCount) || 0);
+  const driveUsedBytes = Number(disk.usedBytes) || 0;
+  return Boolean(
+    item.exists &&
+    item.type === "tiles" &&
+    storageBelongsToDisk(item, disk) &&
+    driveUsedBytes >= TILE_ESTIMATE_MIN_DRIVE_USED_BYTES &&
+    exactBytes < TILE_ESTIMATE_MAX_EXACT_BYTES &&
+    treeItems >= TILE_ESTIMATE_MIN_TREE_ITEMS
+  );
+}
+
+export function applyTileStorageEstimates({ tileStorage = [], otherStorage = [], disks = [] } = {}) {
+  const next = tileStorage.map((item) => ({ ...item }));
+  for (const disk of disks) {
+    const candidates = next.filter((item) => shouldEstimateTileStorage(item, disk));
+    if (!candidates.length) continue;
+    const nonTileBytes = otherStorage
+      .filter((item) => item.exists && storageBelongsToDisk(item, disk))
+      .reduce((sum, item) => sum + (Number(item.sizeBytes) || 0), 0);
+    const estimatedTileBytes = Math.max(0, (Number(disk.usedBytes) || 0) - nonTileBytes);
+    if (!estimatedTileBytes) continue;
+    const totalWeight = candidates.reduce((sum, item) => {
+      const weight = Math.max(1, (Number(item.fileCount) || 0) + (Number(item.dirCount) || 0));
+      return sum + weight;
+    }, 0);
+    for (const item of candidates) {
+      const weight = Math.max(1, (Number(item.fileCount) || 0) + (Number(item.dirCount) || 0));
+      const share = candidates.length === 1 ? estimatedTileBytes : Math.round((estimatedTileBytes * weight) / totalWeight);
+      if (share <= (Number(item.sizeBytes) || 0)) continue;
+      item.exactSizeBytes = Number(item.sizeBytes) || 0;
+      item.sizeBytes = share;
+      item.sizeEstimated = true;
+      item.estimateReason = "drive-used-minus-known-managed-storage";
+    }
+  }
+  return next;
+}
+
 function selectPlatformPath(config = {}, baseKey, platform = process.platform) {
   if (platform === "win32" && config[`${baseKey}Windows`]) return config[`${baseKey}Windows`];
   if (platform === "darwin" && config[`${baseKey}Mac`]) return config[`${baseKey}Mac`];
@@ -326,7 +383,7 @@ export async function collectLocalSnapshot({
     path.join(resolvedProject, "tiles"),
     ...tileDirsForDisks({ disks, projectDir: resolvedProject, platform }),
   ], platform);
-  const tileStorage = await Promise.all(
+  const exactTileStorage = await Promise.all(
     tileRoots.map((root, index) =>
       shallowDirSummary(resolvedProject, root, {
         label: tileRoots.length > 1 ? `Tile Content ${index + 1}` : "Tile Content",
@@ -337,6 +394,7 @@ export async function collectLocalSnapshot({
   const storage = await Promise.all([
     shallowDirSummary(resolvedProject, archiveDirForConfig(activeConfig, resolvedProject, platform), { label: "Zip Archives", type: "zip" }),
   ]);
+  const tileStorage = applyTileStorageEstimates({ tileStorage: exactTileStorage, otherStorage: storage, disks });
 
   return {
     projectDir: slashPath(resolvedProject),
