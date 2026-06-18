@@ -1157,13 +1157,18 @@ export function createDashboardApp({
         if (req.method === "POST" && commandMatch) {
           const body = await readJson(req);
           const machineId = decodeURIComponent(commandMatch[1]);
+          const command = await store.queueCommand({
+            machineId,
+            commandType: body.commandType,
+            payload: body.payload || {},
+            requestedBy: body.requestedBy || null,
+          });
+          const machine = body.commandType === "clear_agent_log" && store.clearMachineConsole
+            ? await store.clearMachineConsole(machineId)
+            : null;
           json(res, 200, {
-            command: await store.queueCommand({
-              machineId,
-              commandType: body.commandType,
-              payload: body.payload || {},
-              requestedBy: body.requestedBy || null,
-            }),
+            command,
+            ...(machine ? { machine } : {}),
           });
           return;
         }

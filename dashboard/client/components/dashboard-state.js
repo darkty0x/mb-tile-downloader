@@ -440,7 +440,7 @@ export function useDashboardState() {
           storageKey: "clear-agent-log",
         });
         if (!confirmed) return;
-        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+        const result = await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
           method: "POST",
           body: JSON.stringify({
             commandType: "clear_agent_log",
@@ -448,6 +448,11 @@ export function useDashboardState() {
             requestedBy: "dashboard",
           }),
         });
+        if (result.machine) {
+          setMachines((current) => current.map((machine) => (
+            sameMachineId(machine.machineId, targetMachineId) ? result.machine : machine
+          )));
+        }
         setNotice({ message: "내리적재 Console 기록 삭제명령이 대기에 들어갔습니다", kind: "success" });
         await refreshMachineData(targetMachineId);
       },

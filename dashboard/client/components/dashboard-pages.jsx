@@ -1102,7 +1102,7 @@ function ServerPageConsole({ state, actions }) {
     <section className="grid gap-3">
       <SectionTitle
         title="Console"
-        meta={`Event ${eventLines.length}개 | 기록줄 ${localLines.length}개`}
+        meta={`Event ${eventLines.length}개 | Console ${localLines.length}개`}
         action={(
           <div className="flex flex-wrap justify-end gap-2">
             <AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>갱신</AppButton>

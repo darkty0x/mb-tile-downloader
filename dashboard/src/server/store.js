@@ -291,6 +291,26 @@ export function createDashboardStore({
       return record ? normalizeMachine(record, { now: now() }) : null;
     },
 
+    clearMachineConsole(machineId) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const existing = machines.get(normalizedMachineId);
+      if (!existing) throw new Error(`machine "${normalizedMachineId}" not found`);
+      const at = now();
+      const agentSnapshot = structuredClone(existing.agentSnapshot || {});
+      agentSnapshot.console = {
+        ...(agentSnapshot.console || {}),
+        recentLines: [],
+        clearedAt: iso(at),
+      };
+      const next = {
+        ...existing,
+        agentSnapshot,
+        updatedAt: iso(at),
+      };
+      machines.set(normalizedMachineId, next);
+      return normalizeMachine(next, { now: at });
+    },
+
     deleteMachine(machineId) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const existing = machines.get(normalizedMachineId);

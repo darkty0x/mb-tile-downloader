@@ -337,6 +337,25 @@ export function createPostgresDashboardStore({
       return row ? machineFromRow(row, { now: now() }) : null;
     },
 
+    async clearMachineConsole(machineId) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const existing = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [normalizedMachineId]);
+      if (!existing) throw new Error(`machine "${normalizedMachineId}" not found`);
+      const at = now();
+      const agentSnapshot = jsonValue(existing.agent_snapshot_json, {});
+      agentSnapshot.console = {
+        ...(agentSnapshot.console || {}),
+        recentLines: [],
+        clearedAt: at.toISOString(),
+      };
+      const row = await firstRow(
+        db,
+        "UPDATE machines SET agent_snapshot_json=$2, updated_at=$3 WHERE machine_id=$1 RETURNING *",
+        [normalizedMachineId, toJsonbParam(agentSnapshot, {}), at.toISOString()]
+      );
+      return machineFromRow(row, { now: at });
+    },
+
     async deleteMachine(machineId) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const row = await firstRow(db, "SELECT * FROM machines WHERE machine_id=$1", [normalizedMachineId]);

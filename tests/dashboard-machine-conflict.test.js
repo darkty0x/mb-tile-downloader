@@ -103,6 +103,33 @@ test("lists machines as offline after heartbeat lease expires", () => {
   assert.equal(store.getMachine("worker-a").status, "offline");
 });
 
+test("clears cached downloader console lines without deleting machine events", () => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({
+    machineId: "worker-a",
+    agentInstanceId: "agent-1",
+    agentSnapshot: {
+      console: {
+        recentLines: ["row 1", "row 2"],
+      },
+    },
+  });
+  store.recordEvent({
+    machineId: "worker-a",
+    severity: "info",
+    type: "command.accepted",
+    message: "Sync config completed.",
+  });
+
+  const cleared = store.clearMachineConsole("worker-a");
+
+  assert.deepEqual(cleared.agentSnapshot.console.recentLines, []);
+  assert.equal(cleared.agentSnapshot.console.clearedAt, "2026-06-16T00:00:00.000Z");
+  assert.equal(store.listEvents({ machineId: "worker-a" }).length, 1);
+});
+
 test("deletes a machine and its machine-owned dashboard state", () => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),
