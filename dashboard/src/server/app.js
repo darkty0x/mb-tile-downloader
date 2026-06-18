@@ -1085,7 +1085,7 @@ export function createDashboardApp({
           if (req.method === "GET") {
             if (!secretVault.getSecretForDashboard) throw new Error("secret vault cannot decrypt dashboard secrets");
             const secret = await secretVault.getSecretForDashboard(secretId);
-            if (["credential", SERVER_CONNECTION_SECRET_TYPE].includes(secret.secretType)) {
+            if (["credential", SERVER_CONNECTION_SECRET_TYPE, "mapbox_token", "proxy_txt"].includes(secret.secretType)) {
               json(res, 200, { secret });
               return;
             }

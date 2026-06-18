@@ -648,9 +648,12 @@ function EnvForm({ record, actions }) {
 function SecretForm({ record, editor, state, actions }) {
   const id = record?.secretId || "";
   const initialSecretType = record?.secretType || editor?.secretType || "mapbox_token";
+  const initialPoolSecretValue = ["mapbox_token", "proxy_txt"].includes(initialSecretType) ? String(record?.value || "") : "";
   const credential = record?.credential || {};
   const [selectedSecretType, setSelectedSecretType] = useState(initialSecretType);
   const [selectedMachineIds, setSelectedMachineIds] = useState(() => (state?.machines || []).map((machine) => machine.machineId));
+  const [poolSecretValue, setPoolSecretValue] = useState(initialPoolSecretValue);
+  const [poolSecretValueLoaded, setPoolSecretValueLoaded] = useState(!id || Boolean(initialPoolSecretValue));
   const [credentialMachineId, setCredentialMachineId] = useState(credential.machineId || record?.targetMachineId || "");
   const [credentialPassword, setCredentialPassword] = useState("");
   const [showCredentialPassword, setShowCredentialPassword] = useState(false);
@@ -692,6 +695,31 @@ function SecretForm({ record, editor, state, actions }) {
       cancelled = true;
     };
   }, [id, isCredential]);
+
+  useEffect(() => {
+    if (!id || !isPoolSecret) {
+      setPoolSecretValue(String(record?.value || ""));
+      setPoolSecretValueLoaded(true);
+      return;
+    }
+    let cancelled = false;
+    setPoolSecretValueLoaded(Boolean(record?.value));
+    if (record?.value) setPoolSecretValue(String(record.value));
+    actions.api(`/api/secrets/${encodeURIComponent(id)}`)
+      .then(({ secret }) => {
+        if (cancelled) return;
+        setPoolSecretValue(String(secret.value || ""));
+        setPoolSecretValueLoaded(true);
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setPoolSecretValueLoaded(true);
+        actions.setNotice({ message: err.message, kind: "error" });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [id, isPoolSecret, record?.value]);
 
   return (
     <form className="grid gap-3" onSubmit={async (event) => {
@@ -804,7 +832,9 @@ function SecretForm({ record, editor, state, actions }) {
           label="값"
           name="value"
           spellCheck="false"
-          placeholder={id ? "현재 값을 유지하려면 비워두십시오" : selectedSecretType === "proxy_txt" ? "Proxy URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API Key를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
+          value={isPoolSecret ? poolSecretValue : undefined}
+          onChange={isPoolSecret ? (event) => setPoolSecretValue(event.target.value) : undefined}
+          placeholder={id && !poolSecretValueLoaded ? "값 읽는중" : selectedSecretType === "proxy_txt" ? "Proxy URL을 한줄에 하나씩 또는 반점으로 갈라 넣으십시오" : "API Key를 한줄에 하나씩 또는 반점으로 갈라 넣으십시오"}
         />
       )}
       {isPoolSecret && !id ? (

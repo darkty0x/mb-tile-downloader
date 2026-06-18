@@ -1695,15 +1695,6 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
     });
   }
 
-  async function disable(secret) {
-    await actions.api(`/api/secrets/${encodeURIComponent(secret.secretId)}`, {
-      method: "PUT",
-      body: JSON.stringify({ status: "disabled" }),
-    });
-    await actions.refreshSecretPool();
-    await actions.refreshMachineData();
-  }
-
   async function deleteIds(secretIds, label) {
     const uniqueIds = [...new Set(secretIds)].filter(Boolean);
     if (!uniqueIds.length) return;
@@ -1762,14 +1753,13 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   const endLabel = Math.min(pageStart + pageItems.length, filteredItems.length);
   const activeCount = poolItems.filter((secret) => secret.status === "active").length;
   const assignedCount = poolItems.filter((secret) => secret.status === "active" && secret.machineId).length;
-  const disabledCount = poolItems.filter((secret) => secret.status !== "active").length;
   const addSecretType = secretType;
 
   return (
     <Surface className="max-w-full overflow-hidden">
       <SectionTitle
         title={title}
-        meta={`리용가능 ${activeCount}개 | 배정됨 ${assignedCount}개 | 비활성 ${disabledCount}개`}
+        meta={`리용가능 ${activeCount}개 | 배정됨 ${assignedCount}개`}
         action={
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AppButton variant="tonal" icon="sync" loading={validating} onClick={() => validatePool().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!validatableIds.length}>전체 검증</AppButton>
@@ -1867,7 +1857,6 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                         {!secret.localOnly && ["mapbox_token", "proxy_txt"].includes(secret.secretType) ? (
                           <IconButton label="검증" icon="sync" onClick={() => validateOne(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
                         ) : null}
-                        {!secret.localOnly && secret.status === "active" ? <IconButton label="비활성" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
                         {!secret.localOnly ? <IconButton label="편집" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} /> : null}
                         {!secret.localOnly ? <IconButton label="삭제" icon="trash" onClick={() => deleteIds([secret.secretId], "record").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
                       </div>

@@ -1563,6 +1563,33 @@ test("dashboard secret edit route returns one decrypted credential without unred
   assert.equal(JSON.stringify(listed.body).includes("server-password"), false);
 });
 
+test("dashboard secret edit route returns exact resource value for admin editing", async (t) => {
+  const server = await withServer(t, {
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "mapbox-a",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+
+  await request(server, {
+    method: "POST",
+    path: "/api/secrets",
+    body: {
+      secretType: "mapbox_token",
+      label: "Mapbox",
+      value: "pk.exact-token-value",
+    },
+  });
+  const single = await request(server, { path: "/api/secrets/mapbox-a" });
+  const listed = await request(server, { path: "/api/secrets" });
+
+  assert.equal(single.status, 200);
+  assert.equal(single.body.secret.secretType, "mapbox_token");
+  assert.equal(single.body.secret.value, "pk.exact-token-value");
+  assert.equal(listed.body.secrets[0].value, "pk.exact-token-value");
+});
+
 test("dashboard server credential update route persists edited agent id", async (t) => {
   const server = await withServer(t, {
     secretVault: createSecretVault({
