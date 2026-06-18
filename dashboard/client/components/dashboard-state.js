@@ -623,6 +623,42 @@ export function useDashboardState() {
         await refreshMachineData();
         setNotice({ message: `API Key ${uniqueIds.length}개가 삭제되였습니다`, kind: "success" });
       },
+      async replaceSecretSection({ secretType, valuesText, secretIds = [], machineIds = [] }) {
+        const values = String(valuesText || "")
+          .split(/\r?\n/)
+          .map((value) => value.trim())
+          .filter(Boolean);
+        const uniqueSecretIds = [...new Set(secretIds)].filter(Boolean);
+        const confirmed = await confirmDanger({
+          title: "자원구간 일괄 편집",
+          message: `${SECRET_LABELS[secretType] || secretType} ${uniqueSecretIds.length}개를 새 목록 ${values.length}개로 교체하겠습니까? 이 동작은 되돌릴수 없습니다.`,
+          confirmLabel: "일괄 보관",
+          storageKey: `replace-${secretType}`,
+        });
+        if (!confirmed) return;
+        if (uniqueSecretIds.length) {
+          await api("/api/secrets", {
+            method: "DELETE",
+            body: JSON.stringify({ secretIds: uniqueSecretIds }),
+          });
+        }
+        if (values.length) {
+          await api("/api/secrets", {
+            method: "POST",
+            body: JSON.stringify({
+              secretType,
+              label: secretType,
+              status: "active",
+              value: values.join("\n"),
+              machineIds,
+            }),
+          });
+        }
+        setEditor({ type: "summary" });
+        await refreshSecretPool();
+        await refreshMachineData();
+        setNotice({ message: `${SECRET_LABELS[secretType] || secretType} 목록이 갱신되였습니다`, kind: "success" });
+      },
       async rebalanceSecrets() {
         const result = await api("/api/secrets/rebalance", {
           method: "POST",

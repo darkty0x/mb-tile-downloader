@@ -813,7 +813,12 @@ function envVariablesWithoutApiKeys(file) {
 }
 
 function envContentWithoutApiKeys(file) {
-  if (typeof file.content === "string") return file.content;
+  if (typeof file.content === "string") {
+    return file.content
+      .split(/\r?\n/)
+      .filter((line) => !/^\s*MAPBOX_ACCESS_TOKENS\s*=/.test(line))
+      .join("\n");
+  }
   return envVariablesWithoutApiKeys(file).map((item) => `${item.name}=${item.value}`).join("\n");
 }
 
@@ -882,53 +887,44 @@ function ServerPageEnv({ state, actions }) {
 function ServerPageSecrets({ state, actions }) {
   const snapshotSecrets = state.selectedMachine?.agentSnapshot?.secrets || {};
   const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
+  const selectedMachineId = state.selectedMachine?.machineId || state.selectedMachineId;
   const mapboxSecrets = state.secrets.filter((secret) => secret.secretType === "mapbox_token");
   const proxySecrets = state.secrets.filter((secret) => secret.secretType === "proxy_txt");
   const localMapboxTokens = mapboxTokensFromSnapshot(snapshotSecrets, envFiles);
-  const renderDashboardSecret = (secret) => {
-    const value = secret.value || secret.redactedValue || "";
-    const title = secret.secretType === "proxy_txt" ? value : (secret.label || value);
-    const detail = secret.secretType === "proxy_txt"
-      ? `${SECRET_LABELS[secret.secretType] || secret.secretType} | ${secret.label || secret.displayName || ""}`
-      : `${SECRET_LABELS[secret.secretType] || secret.secretType} | ${value}`;
-    return (
-      <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
-        <div className="min-w-0">
-          <strong className="block break-all text-[12.5px] leading-snug">{title}</strong>
-          <small className="mt-1 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{detail}</small>
-        </div>
-        <StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill>
-        <TableActions type="secret" id={secret.secretId} actions={actions} />
-      </div>
-    );
-  };
+  const localMapboxItems = mapboxSecrets.length ? [] : localMapboxTokens.map((token, index) => ({
+    secretId: `local-mapbox-${index}`,
+    localOnly: true,
+    secretType: "mapbox_token",
+    label: `MAPBOX_ACCESS_TOKENS #${index + 1}`,
+    value: token,
+    displayName: token,
+    status: "active",
+    machineId: selectedMachineId,
+    updatedAt: state.selectedMachine?.updatedAt,
+  }));
   return (
     <section className="grid gap-3">
       <SectionTitle title="API Key 및 Proxy" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret" })}>추가</AppButton>} />
-      <div className="grid gap-2 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3">
-        <SectionTitle title="Mapbox API Key" meta={`${mapboxSecrets.length || localMapboxTokens.length}개`} />
-        {mapboxSecrets.length ? mapboxSecrets.map(renderDashboardSecret) : localMapboxTokens.length ? localMapboxTokens.map((token, index) => (
-          <div key={`local-mapbox-${index}`} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
-            <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">MAPBOX_ACCESS_TOKENS #{index + 1}</strong>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">Mapbox API Key | {token}</small>
-            </span>
-            <StatusPill status="active">Local .env</StatusPill>
-          </div>
-        )) : <EmptyLine>Mapbox API Key가 없습니다</EmptyLine>}
-      </div>
-      <div className="grid gap-2 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3">
-        <SectionTitle title="Proxy" meta={`${proxySecrets.length || snapshotSecrets.proxy?.availableCount || 0}개`} />
-        {proxySecrets.length ? proxySecrets.map(renderDashboardSecret) : snapshotSecrets.proxy ? (
-          <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
-            <span className="min-w-0">
-              <strong className="block truncate text-[12.5px]">proxy.txt</strong>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{snapshotSecrets.proxy.path || "proxy.txt"} | Local Proxy {snapshotSecrets.proxy.availableCount || 0}개</small>
-            </span>
-            <StatusPill status={snapshotSecrets.proxy.exists ? "active" : "neutral"}>{snapshotSecrets.proxy.exists ? "읽음" : "없음"}</StatusPill>
-          </div>
-        ) : <EmptyLine>Proxy가 없습니다</EmptyLine>}
-      </div>
+      <ResourcePoolTypeTable
+        actions={actions}
+        addLabel="API Key 추가"
+        emptyLabel="이 봉사기에 배정된 Mapbox API Key가 없습니다"
+        items={[...mapboxSecrets, ...localMapboxItems]}
+        machineIds={selectedMachineId ? [selectedMachineId] : []}
+        secretType="mapbox_token"
+        state={state}
+        title="Mapbox API Key"
+      />
+      <ResourcePoolTypeTable
+        actions={actions}
+        addLabel="Proxy 추가"
+        emptyLabel={snapshotSecrets.proxy ? `관리체계에 배정된 Proxy가 없습니다. Local proxy.txt: ${snapshotSecrets.proxy.availableCount || 0}개` : "이 봉사기에 배정된 Proxy가 없습니다"}
+        items={proxySecrets}
+        machineIds={selectedMachineId ? [selectedMachineId] : []}
+        secretType="proxy_txt"
+        state={state}
+        title="Proxy"
+      />
     </section>
   );
 }
@@ -1447,10 +1443,14 @@ function secretRank(secret) {
   return 2;
 }
 
+function secretValueForDisplay(secret) {
+  return secret.value || secret.redactedValue || secret.displayName || secret.label || "";
+}
+
 function secretTableName(secret) {
   return secret.secretType === "proxy_txt"
-    ? (secret.displayName || secret.redactedValue || secret.label)
-    : (secret.displayName || secret.label);
+    ? secretValueForDisplay(secret)
+    : (secret.displayName || secretValueForDisplay(secret));
 }
 
 function secretSearchText(secret, state) {
@@ -1462,6 +1462,7 @@ function secretSearchText(secret, state) {
     SECRET_LABELS[secret.secretType],
     secret.status,
     secret.redactedValue,
+    secret.value,
     secret.machineId,
     machineLabel(state, secret.machineId),
   ].filter(Boolean).join(" ").toLowerCase();
@@ -1480,16 +1481,20 @@ function PaginationButton({ icon, iconPosition = "left", children, className = "
   );
 }
 
-function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, emptyLabel }) {
+function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, emptyLabel, items = null, machineIds = [] }) {
   const [query, setQuery] = useState("");
   const [pageSize, setPageSize] = useState(50);
   const [page, setPage] = useState(1);
   const [selectedIds, setSelectedIds] = useState(() => new Set());
+  const [bulkEditing, setBulkEditing] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkSaving, setBulkSaving] = useState(false);
 
-  const poolItems = useMemo(() => state.secretPool
+  const sourceItems = items || state.secretPool;
+  const poolItems = useMemo(() => sourceItems
     .filter((secret) => secret.secretType === secretType)
     .slice()
-    .sort((a, b) => secretRank(a) - secretRank(b) || (a.machineId || "").localeCompare(b.machineId || "") || a.label.localeCompare(b.label)), [secretType, state.secretPool]);
+    .sort((a, b) => secretRank(a) - secretRank(b) || (a.machineId || "").localeCompare(b.machineId || "") || (a.label || "").localeCompare(b.label || "")), [secretType, sourceItems]);
   const filteredItems = useMemo(() => {
     const needle = query.trim().toLowerCase();
     return poolItems.filter((secret) => !needle || secretSearchText(secret, state).includes(needle));
@@ -1499,8 +1504,8 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   const safePage = Math.min(page, totalPages);
   const pageStart = (safePage - 1) * pageSize;
   const pageItems = filteredItems.slice(pageStart, pageStart + pageSize);
-  const pageIds = pageItems.map((secret) => secret.secretId);
-  const filteredIds = filteredItems.map((secret) => secret.secretId);
+  const pageIds = pageItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId);
+  const filteredIds = filteredItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId);
   const pageSelected = pageIds.length > 0 && pageIds.every((secretId) => selectedIds.has(secretId));
   const selectedVisibleCount = filteredIds.filter((secretId) => selectedIds.has(secretId)).length;
 
@@ -1513,7 +1518,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
   }, [pageSize, query]);
 
   useEffect(() => {
-    const knownIds = new Set(poolItems.map((secret) => secret.secretId));
+    const knownIds = new Set(poolItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId));
     setSelectedIds((current) => {
       const next = new Set([...current].filter((secretId) => knownIds.has(secretId)));
       return next.size === current.size ? current : next;
@@ -1557,6 +1562,27 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
     setSelectedIds(new Set());
   }
 
+  function startBulkEdit() {
+    setBulkText(poolItems.map(secretValueForDisplay).filter(Boolean).join("\n"));
+    setBulkEditing(true);
+  }
+
+  async function saveBulkEdit() {
+    setBulkSaving(true);
+    try {
+      await actions.replaceSecretSection({
+        secretType,
+        valuesText: bulkText,
+        secretIds: poolItems.filter((secret) => !secret.localOnly).map((secret) => secret.secretId),
+        machineIds,
+      });
+      setSelectedIds(new Set());
+      setBulkEditing(false);
+    } finally {
+      setBulkSaving(false);
+    }
+  }
+
   const startLabel = filteredItems.length ? pageStart + 1 : 0;
   const endLabel = Math.min(pageStart + pageItems.length, filteredItems.length);
   const activeCount = poolItems.filter((secret) => secret.status === "active").length;
@@ -1573,11 +1599,30 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
           <div className="flex flex-wrap items-center justify-end gap-2">
             <AppButton icon="trash" onClick={() => deleteIds([...selectedIds], "selected records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!selectedIds.size}>선택 삭제</AppButton>
             <AppButton className="danger-button" icon="trash" onClick={() => deleteIds(filteredIds, "filtered records").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} disabled={!filteredIds.length}>모두 삭제</AppButton>
+            <AppButton variant="tonal" icon="edit" onClick={startBulkEdit}>일괄 편집</AppButton>
             <AppButton variant="tonal" icon="sync" onClick={() => actions.rebalanceSecrets().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>재배정</AppButton>
             <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-secret", secretType: addSecretType })}>{addLabel}</AppButton>
           </div>
         }
       />
+      {bulkEditing ? (
+        <div className="mb-3 grid gap-2 rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <span className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">{title} 일괄 편집</span>
+            <span className="text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">한줄에 하나씩 입력합니다. 보관하면 이 구간의 기존 항목이 교체됩니다.</span>
+          </div>
+          <textarea
+            className="ptg-scrollbar min-h-[180px] w-full resize-y rounded-xl border border-[var(--ptg-outline)] bg-white px-3 py-2 font-mono text-[12px] leading-relaxed outline-none transition focus:border-[var(--ptg-primary)] focus:ring-2 focus:ring-[rgba(103,80,164,0.18)]"
+            spellCheck="false"
+            value={bulkText}
+            onChange={(event) => setBulkText(event.target.value)}
+          />
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton type="button" onClick={() => setBulkEditing(false)}>취소</AppButton>
+            <AppButton variant="filled" icon="check" type="button" loading={bulkSaving} onClick={() => saveBulkEdit().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>일괄 보관</AppButton>
+          </div>
+        </div>
+      ) : null}
       <div className="mb-3 grid grid-cols-[minmax(220px,1fr)_auto] items-end gap-2 max-lg:grid-cols-1">
         <label className="relative block">
           <Icon name="search" className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[var(--ptg-on-surface-variant)]" />
@@ -1621,7 +1666,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                 return (
                   <tr key={secret.secretId} className="transition hover:bg-[var(--ptg-surface-container)]">
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
-                      <input aria-label={`${name} 선택`} checked={selectedIds.has(secret.secretId)} onChange={() => toggleRow(secret.secretId)} type="checkbox" />
+                      <input aria-label={`${name} 선택`} checked={selectedIds.has(secret.secretId)} disabled={secret.localOnly} onChange={() => toggleRow(secret.secretId)} type="checkbox" />
                     </td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex min-w-0 items-center gap-2.5">
@@ -1634,17 +1679,17 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                         </span>
                       </div>
                     </td>
-                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill></td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={secret.status}>{secret.localOnly ? "Local .env" : displayStatus(secret.status)}</StatusPill></td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.machineId ? machineLabel(state, secret.machineId) : "미배정"}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{shortDate(secret.updatedAt || secret.createdAt)}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex justify-end gap-1.5">
-                        {["mapbox_token", "proxy_txt"].includes(secret.secretType) ? (
+                        {!secret.localOnly && ["mapbox_token", "proxy_txt"].includes(secret.secretType) ? (
                           <IconButton label="검증" icon="sync" onClick={() => actions.validateSecret(secret.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
                         ) : null}
-                        {secret.status === "active" ? <IconButton label="비활성" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
-                        <IconButton label="편집" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} />
-                        <IconButton label="삭제" icon="trash" onClick={() => deleteIds([secret.secretId], "record").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+                        {!secret.localOnly && secret.status === "active" ? <IconButton label="비활성" icon="stop" onClick={() => disable(secret).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
+                        {!secret.localOnly ? <IconButton label="편집" icon="edit" onClick={() => actions.setEditor({ type: "secret", id: secret.secretId })} /> : null}
+                        {!secret.localOnly ? <IconButton label="삭제" icon="trash" onClick={() => deleteIds([secret.secretId], "record").catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} /> : null}
                       </div>
                     </td>
                   </tr>
