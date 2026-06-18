@@ -132,6 +132,50 @@ test("deleting an active config stops matching running jobs and queues a scoped 
   assert.equal(commands[0].payload.configId, config.configId);
 });
 
+test("queueing stop command immediately stops active jobs and cancels pending starts", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-09",
+    agentInstanceId: "agent-09",
+  });
+  await store.upsertJob({
+    jobId: "job-active",
+    machineId: "server-09",
+    configId: "config-a",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 1 },
+  });
+  await store.queueCommand({
+    machineId: "server-09",
+    commandType: "start_pipeline",
+    payload: { configPath: "configs/config-a.config.json" },
+    requestedBy: "test",
+  });
+
+  const server = await withServer(t, { store });
+  const stopped = await request(server, {
+    method: "POST",
+    path: "/api/machines/server-09/commands",
+    body: {
+      commandType: "stop_pipeline",
+      payload: {},
+      requestedBy: "dashboard",
+    },
+  });
+  const jobs = await store.listJobs({ machineId: "server-09" });
+  const commands = await store.claimCommands({ machineId: "server-09" });
+
+  assert.equal(stopped.status, 200);
+  assert.equal(stopped.body.stoppedJobs.length, 1);
+  assert.equal(stopped.body.canceledCommands.length, 1);
+  assert.equal(jobs.find((job) => job.jobId === "job-active")?.status, "stopped");
+  assert.deepEqual(commands.map((command) => command.commandType), ["stop_pipeline"]);
+});
+
 test("health endpoint does not require authentication", async (t) => {
   const server = await withServer(t);
 

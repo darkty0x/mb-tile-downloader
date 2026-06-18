@@ -24,6 +24,7 @@ const COMMAND_TYPES = new Set([
   "git_pull_restart",
   "run_preflight",
 ]);
+const RUNTIME_START_COMMAND_TYPES = new Set(["start_pipeline", "resume_pipeline", "run_preflight"]);
 
 function requireNonEmpty(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -538,6 +539,25 @@ export function createDashboardStore({
       return normalizeCommand(record);
     },
 
+    cancelPendingRuntimeCommands({ machineId, reason = "pipeline stopped" } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const at = iso(now());
+      const canceled = [];
+      for (const record of commands.values()) {
+        if (
+          record.machineId === normalizedMachineId
+          && record.status === "queued"
+          && RUNTIME_START_COMMAND_TYPES.has(record.commandType)
+        ) {
+          record.status = "cancelled";
+          record.completedAt = at;
+          record.error = reason;
+          canceled.push(normalizeCommand(record));
+        }
+      }
+      return canceled;
+    },
+
     claimCommands({ machineId, limit = 10 }) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const atDate = now();
@@ -583,6 +603,9 @@ export function createDashboardStore({
       const existing = jobs.get(jobId);
       const at = iso(now());
       const status = requireNonEmpty(input.status, "status");
+      if (existing && TERMINAL_JOB_STATUSES.has(existing.status) && !TERMINAL_JOB_STATUSES.has(status)) {
+        return normalizeJob(existing);
+      }
       const finishedAt = input.finishedAt
         || (TERMINAL_JOB_STATUSES.has(status) ? at : null);
       const record = {

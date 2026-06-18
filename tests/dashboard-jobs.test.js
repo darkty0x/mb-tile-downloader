@@ -97,6 +97,45 @@ test("dashboard store stops active jobs and clears machine active job state", as
   assert.equal(machines.find((machine) => machine.machineId === "server-01")?.currentJobId, null);
 });
 
+test("dashboard store does not revive stopped jobs from late progress", async () => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 7 },
+  });
+  await store.stopRunningJobs({
+    machineId: "server-01",
+    error: "dashboard stop command",
+  });
+
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 9 },
+  });
+
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machine = await store.getMachine("server-01");
+  assert.equal(jobs[0].status, "stopped");
+  assert.equal(jobs[0].progress.percent, 7);
+  assert.equal(machine.currentJobId, null);
+});
+
 test("dashboard store config-scoped stop does not clear an unrelated active job", async () => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),

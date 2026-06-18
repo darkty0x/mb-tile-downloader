@@ -1178,6 +1178,24 @@ export function createDashboardApp({
         if (req.method === "POST" && commandMatch) {
           const body = await readJson(req);
           const machineId = decodeURIComponent(commandMatch[1]);
+          let stoppedJobs = [];
+          let canceledCommands = [];
+          if (body.commandType === "stop_pipeline") {
+            const configId = body.payload?.configId || null;
+            if (store.stopRunningJobs) {
+              stoppedJobs = await store.stopRunningJobs({
+                machineId,
+                configId,
+                error: body.payload?.reason || "dashboard stop requested",
+              });
+            }
+            if (store.cancelPendingRuntimeCommands) {
+              canceledCommands = await store.cancelPendingRuntimeCommands({
+                machineId,
+                reason: "dashboard stop requested",
+              });
+            }
+          }
           const command = await store.queueCommand({
             machineId,
             commandType: body.commandType,
@@ -1189,6 +1207,8 @@ export function createDashboardApp({
             : null;
           json(res, 200, {
             command,
+            ...(stoppedJobs.length ? { stoppedJobs } : {}),
+            ...(canceledCommands.length ? { canceledCommands } : {}),
             ...(machine ? { machine } : {}),
           });
           return;

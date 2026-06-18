@@ -25,6 +25,7 @@ const COMMAND_TYPES = new Set([
   "git_pull_restart",
   "run_preflight",
 ]);
+const RUNTIME_START_COMMAND_TYPES = new Set(["start_pipeline", "resume_pipeline", "run_preflight"]);
 
 function iso(value) {
   if (!value) return null;
@@ -599,6 +600,20 @@ export function createPostgresDashboardStore({
       return commandFromRow(row, { commandLeaseMs });
     },
 
+    async cancelPendingRuntimeCommands({ machineId, reason = "pipeline stopped" } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const result = await db.query(
+        `UPDATE machine_commands
+         SET status='cancelled', completed_at=$1, error=$2
+         WHERE machine_id=$3
+           AND status='queued'
+           AND command_type = ANY($4::text[])
+         RETURNING *`,
+        [now().toISOString(), reason, normalizedMachineId, [...RUNTIME_START_COMMAND_TYPES]]
+      );
+      return result.rows.map((row) => commandFromRow(row, { commandLeaseMs }));
+    },
+
     async claimCommands({ machineId, limit = 10 }) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const at = now();
@@ -652,6 +667,9 @@ export function createPostgresDashboardStore({
       const existing = await firstRow(db, "SELECT * FROM machine_jobs WHERE job_id=$1", [jobId]);
       const at = now().toISOString();
       const status = requireNonEmpty(input.status, "status");
+      if (existing && TERMINAL_JOB_STATUSES.has(existing.status) && !TERMINAL_JOB_STATUSES.has(status)) {
+        return jobFromRow(existing);
+      }
       const finishedAt = input.finishedAt
         || (TERMINAL_JOB_STATUSES.has(status) ? at : null);
       const machineId = requireStoredMachineId(input.machineId ?? existing?.machine_id);

@@ -149,6 +149,23 @@ function createFakePgDb() {
         tables.machine_commands.set(String(row.id), row);
         return rows([{ ...row }]);
       }
+      if (/UPDATE machine_commands\s+SET status='cancelled'/s.test(sql)) {
+        const [completed_at, error, machine_id, commandTypes] = params;
+        const canceled = [];
+        for (const row of tables.machine_commands.values()) {
+          if (
+            row.machine_id === machine_id
+            && row.status === "queued"
+            && commandTypes.includes(row.command_type)
+          ) {
+            row.status = "cancelled";
+            row.completed_at = completed_at;
+            row.error = error;
+            canceled.push({ ...row });
+          }
+        }
+        return rows(canceled);
+      }
       if (/SELECT \* FROM machine_commands/.test(sql)) {
         const [machineId, limit] = params;
         return rows(
@@ -444,6 +461,47 @@ test("postgres store persists events and command lifecycle", async () => {
   assert.equal(completed.status, "completed");
 });
 
+test("postgres store cancels pending runtime starts before stop is claimed", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-09",
+    agentInstanceId: "agent-09",
+  });
+  await store.queueCommand({
+    machineId: "server-09",
+    commandType: "start_pipeline",
+    payload: { configPath: "configs/a.config.json" },
+    requestedBy: "test",
+  });
+  await store.queueCommand({
+    machineId: "server-09",
+    commandType: "sync_env",
+    payload: {},
+    requestedBy: "test",
+  });
+  const canceled = await store.cancelPendingRuntimeCommands({
+    machineId: "server-09",
+    reason: "dashboard stop requested",
+  });
+  const stop = await store.queueCommand({
+    machineId: "server-09",
+    commandType: "stop_pipeline",
+    payload: {},
+    requestedBy: "dashboard",
+  });
+  const claimed = await store.claimCommands({ machineId: "server-09" });
+
+  assert.equal(canceled.length, 1);
+  assert.equal(canceled[0].commandType, "start_pipeline");
+  assert.equal(canceled[0].status, "cancelled");
+  assert.deepEqual(claimed.map((command) => command.commandType), ["sync_env", "stop_pipeline"]);
+  assert.equal(claimed.find((command) => command.id === stop.id)?.commandType, "stop_pipeline");
+});
+
 test("postgres store stops active jobs and clears machine active job state", async () => {
   const db = createFakePgDb();
   const store = createPostgresDashboardStore({
@@ -476,6 +534,48 @@ test("postgres store stops active jobs and clears machine active job state", asy
   assert.equal(stopped[0].status, "stopped");
   assert.equal(jobs[0].status, "stopped");
   assert.equal(jobs[0].error, "dashboard stop command");
+  assert.equal(machine.currentJobId, null);
+});
+
+test("postgres store does not revive stopped jobs from late progress", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 8 },
+  });
+  await store.stopRunningJobs({
+    machineId: "server-01",
+    error: "dashboard stop command",
+  });
+
+  await store.upsertJob({
+    jobId: "job-stop",
+    machineId: "server-01",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 12 },
+  });
+
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const machine = await store.getMachine("server-01");
+  assert.equal(jobs[0].status, "stopped");
+  assert.equal(jobs[0].progress.percent, 8);
   assert.equal(machine.currentJobId, null);
 });
 
