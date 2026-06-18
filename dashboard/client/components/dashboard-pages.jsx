@@ -998,8 +998,8 @@ export function SecretsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-3 grid gap-2.5">
       <section className="grid grid-cols-4 gap-2.5 max-xl:grid-cols-2 max-sm:grid-cols-1">
-        <MetricCard icon="key" label="Mapbox 리용가능" value={`${mapbox.available}/${mapbox.total}`} palette="sky" />
-        <MetricCard icon="secrets" label="Proxy 리용가능" value={`${proxies.available}/${proxies.total}`} palette="mint" />
+        <MetricCard icon="key" label="Mapbox API Key 상태" value={`${mapbox.available}/${mapbox.total}`} palette="sky" />
+        <MetricCard icon="secrets" label="Proxy 상태" value={`${proxies.available}/${proxies.total}`} palette="mint" />
         <MetricCard icon="servers" label="배정된 항목" value={mapbox.assigned + proxies.assigned} palette="lilac" />
         <MetricCard icon={alerts.length ? "warning" : "check"} label="경보" value={alerts.length || "정상"} palette={alerts.length ? "peach" : "mint"} />
       </section>
