@@ -52,6 +52,18 @@ function redact(value) {
   return `${text.slice(0, 4)}...${text.slice(-4)}`;
 }
 
+function proxyDisplayName(value) {
+  const text = String(value || "").trim();
+  if (!text) return "";
+  try {
+    const parsed = new URL(normalizeProxyForRuntime(text));
+    return parsed.port ? `${parsed.hostname}:${parsed.port}` : parsed.hostname;
+  } catch {
+    const cleaned = text.replace(/^[a-z][a-z0-9+.-]*:\/\//i, "").replace(/^[^@\s]+@/, "");
+    return cleaned.split(/[/?#]/)[0] || text;
+  }
+}
+
 function parseCredentialValue(value, { requireMachineId = false } = {}) {
   const payload = typeof value === "string" ? JSON.parse(value) : value;
   if (!payload || typeof payload !== "object" || Array.isArray(payload)) {
@@ -154,12 +166,14 @@ function secretUsage(record) {
 function normalizeSecret(record, { includeValue = false, appSecret } = {}) {
   const value = decrypt(record.encryptedValue, appSecret);
   const credential = CREDENTIAL_SECRET_TYPES.has(record.secretType) ? credentialBrowserMetadata(value) : null;
+  const displayName = record.secretType === "proxy_txt" ? proxyDisplayName(value) : record.label;
   return {
     secretId: record.secretId,
     machineId: record.machineId,
     assignedMachineId: record.machineId,
     secretType: record.secretType,
     label: record.label,
+    displayName,
     status: record.status,
     usage: secretUsage(record),
     ...(credential?.machineId ? { targetMachineId: credential.machineId } : {}),

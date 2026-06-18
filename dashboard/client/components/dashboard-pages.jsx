@@ -1368,17 +1368,16 @@ function secretRank(secret) {
   return 2;
 }
 
-function secretUsage(secret, state) {
-  const active = secret.status === "active";
-  const assigned = Boolean(secret.machineId);
-  if (active && !assigned) return { status: "active", label: "리용가능" };
-  if (active) return { status: "busy", label: machineLabel(state, secret.machineId) };
-  return { status: secret.status, label: displayStatus(secret.status) };
+function secretTableName(secret) {
+  return secret.secretType === "proxy_txt"
+    ? (secret.displayName || secret.redactedValue || secret.label)
+    : (secret.displayName || secret.label);
 }
 
 function secretSearchText(secret, state) {
   return [
     secret.label,
+    secret.displayName,
     secret.secretId,
     secret.secretType,
     SECRET_LABELS[secret.secretType],
@@ -1387,6 +1386,19 @@ function secretSearchText(secret, state) {
     secret.machineId,
     machineLabel(state, secret.machineId),
   ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function PaginationButton({ icon, iconPosition = "left", children, className = "", ...props }) {
+  return (
+    <button
+      {...props}
+      className={`state-layer ptg-button inline-flex max-w-full shrink-0 items-center justify-center gap-2 whitespace-nowrap ptg-button-secondary disabled:cursor-not-allowed disabled:opacity-60 ${className}`}
+    >
+      {icon && iconPosition !== "right" ? <Icon name={icon} className="h-4 w-4" /> : null}
+      <span className="min-w-0 truncate">{children}</span>
+      {icon && iconPosition === "right" ? <Icon name={icon} className="h-4 w-4" /> : null}
+    </button>
+  );
 }
 
 function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, emptyLabel }) {
@@ -1519,19 +1531,18 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">이름</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">상태</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">배정된 봉사기</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">값</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">갱신</th>
                 <th className="w-36 border-b border-[var(--ptg-outline)] px-3 py-3 text-right">조작</th>
               </tr>
             </thead>
             <tbody>
               {pageItems.length ? pageItems.map((secret) => {
-                const usage = secretUsage(secret, state);
                 const icon = secretType === "mapbox_token" ? "key" : "secrets";
+                const name = secretTableName(secret);
                 return (
                   <tr key={secret.secretId} className="transition hover:bg-[var(--ptg-surface-container)]">
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
-                      <input aria-label={`${secret.label} 선택`} checked={selectedIds.has(secret.secretId)} onChange={() => toggleRow(secret.secretId)} type="checkbox" />
+                      <input aria-label={`${name} 선택`} checked={selectedIds.has(secret.secretId)} onChange={() => toggleRow(secret.secretId)} type="checkbox" />
                     </td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex min-w-0 items-center gap-2.5">
@@ -1539,16 +1550,13 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                           <Icon name={icon} className="h-4 w-4" />
                         </span>
                         <span className="min-w-0">
-                          <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{secret.label}</strong>
-                          <small className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.secretId}</small>
+                          <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{name}</strong>
+                          <small className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{SECRET_LABELS[secret.secretType] || secret.secretType}</small>
                         </span>
                       </div>
                     </td>
-                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={usage.status}>{usage.label}</StatusPill></td>
+                    <td className="border-b border-[var(--ptg-outline)] px-3 py-3"><StatusPill status={secret.status}>{displayStatus(secret.status)}</StatusPill></td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{secret.machineId ? machineLabel(state, secret.machineId) : "미배정"}</td>
-                    <td className="max-w-[260px] border-b border-[var(--ptg-outline)] px-3 py-3">
-                      <code className="block truncate rounded-md bg-[var(--ptg-surface-container)] px-2 py-1 text-[11px] font-[700] text-[var(--ptg-on-surface-variant)]">{secret.redactedValue || "-"}</code>
-                    </td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">{shortDate(secret.updatedAt || secret.createdAt)}</td>
                     <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
                       <div className="flex justify-end gap-1.5">
@@ -1564,7 +1572,7 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
                 );
               }) : (
                 <tr>
-                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={7}>{emptyLabel}</td>
+                  <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={6}>{emptyLabel}</td>
                 </tr>
               )}
             </tbody>
@@ -1574,9 +1582,9 @@ function ResourcePoolTypeTable({ state, actions, secretType, title, addLabel, em
       <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
         <span>{filteredItems.length}개중 {startLabel}-{endLabel} 표시 | {selectedVisibleCount}개 선택</span>
         <div className="flex items-center gap-2">
-          <AppButton icon="chevronLeft" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>이전</AppButton>
+          <PaginationButton icon="chevronLeft" onClick={() => setPage((current) => Math.max(1, current - 1))} disabled={safePage <= 1}>이전</PaginationButton>
           <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-white px-3 py-2 font-[800] text-[var(--ptg-on-surface)]">페지 {safePage} / {totalPages}</span>
-          <AppButton icon="chevronRight" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages}>다음</AppButton>
+          <PaginationButton icon="chevronRight" iconPosition="right" onClick={() => setPage((current) => Math.min(totalPages, current + 1))} disabled={safePage >= totalPages}>다음</PaginationButton>
         </div>
       </div>
     </Surface>

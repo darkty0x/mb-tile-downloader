@@ -39,6 +39,21 @@ test("agent sync receives decrypted secret values", () => {
   assert.equal(agentSecrets[0].value, "http://u:p@1.2.3.4:8080");
 });
 
+test("browser proxy secrets expose endpoint display name without showing the full value", () => {
+  const vault = createSecretVault({ appSecret: "test-secret" });
+  vault.createSecret({
+    machineId: "worker-a",
+    secretType: "proxy_txt",
+    label: "proxy uuid label",
+    value: "http://user:pass@65.111.31.179:3129",
+  });
+
+  const browserSecrets = vault.listSecretsForBrowser({ machineId: "worker-a" });
+
+  assert.equal(browserSecrets[0].displayName, "65.111.31.179:3129");
+  assert.equal(browserSecrets[0].value, undefined);
+});
+
 test("credential secrets expose browser metadata without the password", () => {
   const vault = createSecretVault({
     appSecret: "test-secret",
