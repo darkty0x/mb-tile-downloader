@@ -1199,31 +1199,24 @@ export function SecretsDashboard({ state, actions }) {
 
 export function CredentialsDashboard({ state, actions }) {
   const [credentialSearch, setCredentialSearch] = useState("");
-  const remoteProtocols = new Set(["rdp", "ssh", "winrm", "winrms"]);
   const isServerCredentialRecord = (secret) => secret.secretType === "server_rdp_credential"
-    || Boolean(secret.credential?.machineId)
-    || remoteProtocols.has(String(secret.credential?.protocol || "").toLowerCase());
+    || Boolean(secret.credential?.machineId);
   const items = state.secretPool
-    .filter((secret) => ["credential", "server_rdp_credential"].includes(secret.secretType))
+    .filter((secret) => secret.secretType === "credential" && !isServerCredentialRecord(secret))
     .slice()
-    .sort((a, b) => {
-      const typeOrder = Number(isServerCredentialRecord(a)) - Number(isServerCredentialRecord(b));
-      return typeOrder || a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || "");
-    });
+    .sort((a, b) => a.label.localeCompare(b.label) || (a.credential?.protocolUrl || "").localeCompare(b.credential?.protocolUrl || ""));
   const query = credentialSearch.trim().toLowerCase();
   const visibleItems = query
     ? items.filter((secret) => `${secret.label} ${secret.credential?.protocolUrl || ""} ${secret.credential?.username || ""}`.toLowerCase().includes(query))
     : items;
-  const protocolItems = visibleItems.filter((secret) => !isServerCredentialRecord(secret));
-  const serverItems = visibleItems.filter(isServerCredentialRecord);
   const active = items.filter((secret) => secret.status === "active").length;
   const disabled = items.filter((secret) => secret.status !== "active").length;
-  const renderRows = (rows, { empty, icon, iconClass }) => rows.length ? rows.map((secret) => (
+  const renderRows = (rows) => rows.length ? rows.map((secret) => (
     <tr key={secret.secretId} className="bg-white transition hover:bg-[var(--ptg-surface-container)]">
       <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
         <div className="flex min-w-0 items-center gap-2.5">
-          <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg ${iconClass}`}>
-            <Icon name={icon} className="h-4 w-4" />
+          <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+            <Icon name="credentials" className="h-4 w-4" />
           </span>
           <strong className="min-w-0 truncate text-[12.5px] font-[800] text-[var(--ptg-on-surface)]">{secret.label}</strong>
         </div>
@@ -1234,17 +1227,14 @@ export function CredentialsDashboard({ state, actions }) {
       <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
         {secret.credential?.username || "없음"}
       </td>
-      <td className="border-b border-[var(--ptg-outline)] px-3 py-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-        {secret.credential?.machineId ? displayMachineId(secret.credential.machineId) : "없음"}
-      </td>
       <td className="border-b border-[var(--ptg-outline)] px-3 py-3">
         <TableActions type="secret" id={secret.secretId} actions={actions} />
       </td>
     </tr>
   )) : (
     <tr>
-      <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={5}>
-        {empty}
+      <td className="px-3 py-10 text-center text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]" colSpan={4}>
+        {items.length ? "검색에 일치한 Protocol 계정정보가 없습니다" : "아직 보관된 Protocol 계정정보가 없습니다"}
       </td>
     </tr>
   );
@@ -1277,49 +1267,19 @@ export function CredentialsDashboard({ state, actions }) {
             </div>
           }
         />
-        <div className="mb-3 flex flex-wrap gap-2 text-[11px] font-[760]">
-          <span className="rounded-full bg-[var(--ptg-primary-soft)] px-3 py-1 text-[var(--ptg-primary)]">Protocol {protocolItems.length}개</span>
-          <span className="rounded-full bg-[var(--ptg-tertiary-soft)] px-3 py-1 text-[var(--ptg-tertiary)]">봉사기 접속정보 {serverItems.length}개</span>
-        </div>
-        <SectionTitle title="Protocol 계정정보" meta={`${protocolItems.length}개`} />
+        <SectionTitle title="Protocol 계정정보" meta={`${visibleItems.length}개`} />
         <div className="ptg-scrollbar mb-4 max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
-          <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
+          <table className="w-full min-w-[680px] border-collapse text-[12.5px]">
             <thead>
               <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol 명</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Protocol URL</th>
                 <th className="border-b border-[var(--ptg-outline)] px-3 py-3">사용자이름</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Agent ID</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">암호</th>
+                <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">조작</th>
               </tr>
             </thead>
             <tbody>
-              {renderRows(protocolItems, {
-                empty: items.length ? "검색에 일치한 Protocol 계정정보가 없습니다" : "아직 보관된 Protocol 계정정보가 없습니다",
-                icon: "credentials",
-                iconClass: "bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]",
-              })}
-            </tbody>
-          </table>
-        </div>
-        <SectionTitle title="봉사기 접속정보" meta={`${serverItems.length}개`} />
-        <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
-          <table className="w-full min-w-[760px] border-collapse text-[12.5px]">
-            <thead>
-              <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">봉사기 명</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">접속 URL</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">사용자이름</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3">Agent ID</th>
-                <th className="border-b border-[var(--ptg-outline)] px-3 py-3 text-right">암호</th>
-              </tr>
-            </thead>
-            <tbody>
-              {renderRows(serverItems, {
-                empty: items.length ? "검색에 일치한 봉사기 접속정보가 없습니다" : "아직 보관된 봉사기 접속정보가 없습니다",
-                icon: "servers",
-                iconClass: "bg-[var(--ptg-tertiary-soft)] text-[var(--ptg-tertiary)]",
-              })}
+              {renderRows(visibleItems)}
             </tbody>
           </table>
         </div>

@@ -143,6 +143,14 @@ function averageDownloadThroughput(jobs = [], machineId) {
   };
 }
 
+function failedTileCount(jobs = [], machineId) {
+  return scopedJobsForMachine(jobs, machineId).reduce((sum, job) => {
+    const progress = job?.progress || {};
+    const value = Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0);
+    return sum + (Number.isFinite(value) && value > 0 ? value : 0);
+  }, 0);
+}
+
 function pipelineStatus(events, step) {
   const completed = events.some((event) => event.type === `range.${step}.completed`);
   if (completed) return "complete";
@@ -356,7 +364,7 @@ export function buildOverviewModel({
 } = {}) {
   const online = machines.filter((machine) => machine.status === "online").length;
   const dashboardEvents = events.filter((event) => !isConsoleOutputEvent(event));
-  const failedJobs = dashboardEvents.filter((event) => event.severity === "error" || event.type === "range.failed").length;
+  const failedTiles = failedTileCount(jobs, machineId);
   const activeJobs = activeJobCount(jobs, machineId)
     || dashboardEvents.filter((event) => /\.started$/.test(event.type || "")).length;
   const queuedJobs = queuedJobCount(jobs, machineId);
@@ -399,7 +407,7 @@ export function buildOverviewModel({
         detail: throughput.count ? `내리적재중인 봉사기 ${throughput.count}대 평균` : "내리적재중인 봉사기 없음",
       },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
-      failedJobs: { label: "실패한 타일수", value: failedJobs, detail: failedJobs ? "주의 필요" : "정상" },
+      failedJobs: { label: "실패한 타일수", value: failedTiles, detail: failedTiles ? "주의 필요" : "정상" },
       resourceAlerts: { label: "API Key 및 Proxy상태", value: resourceAlerts.length, detail: resourceAlerts.length ? "주의 필요" : "정상" },
     },
     pipeline: pipelineModel.steps,

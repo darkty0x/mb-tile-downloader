@@ -54,7 +54,7 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   });
 
   assert.equal(model.kpis.serversOnline.value, "1 / 2");
-  assert.equal(model.kpis.failedJobs.value, 1);
+  assert.equal(model.kpis.failedJobs.value, 0);
   assert.equal(model.diskPressure, 92);
   assert.deepEqual(model.pipeline.map((step) => step.label), ["내리적재", "검증", "압축", "올리적재"]);
   assert.equal(model.pipeline[0].status, "running");
@@ -93,9 +93,35 @@ test("overview model excludes downloader console output from events", () => {
     ],
   });
 
-  assert.equal(model.kpis.failedJobs.value, 1);
+  assert.equal(model.kpis.failedJobs.value, 0);
   assert.equal(model.recentEvents.length, 1);
   assert.equal(model.recentEvents[0].type, "range.failed");
+});
+
+test("overview model counts failed tile progress instead of generic failed events", () => {
+  const model = buildOverviewModel({
+    events: [
+      { type: "command.failed", severity: "error", message: "unsupported command", createdAt: "2026-06-18T01:00:00.000Z" },
+      { type: "range.failed", severity: "error", message: "stage failed", createdAt: "2026-06-18T01:01:00.000Z" },
+    ],
+    jobs: [
+      {
+        machineId: "server-01",
+        status: "running",
+        stage: "download",
+        progress: { tilesFailed: 7 },
+      },
+      {
+        machineId: "server-02",
+        status: "running",
+        stage: "download",
+        progress: { failed: 3 },
+      },
+    ],
+  });
+
+  assert.equal(model.kpis.failedJobs.value, 10);
+  assert.equal(model.kpis.failedJobs.detail, "주의 필요");
 });
 
 test("overview model counts assigned active resources as usable", () => {

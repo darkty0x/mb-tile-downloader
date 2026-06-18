@@ -293,6 +293,9 @@ function buildNotifications(state, overview) {
     .slice(0, 10)
     .map((event, index) => ({
       id: `event-${event.eventId || `${event.createdAt || ""}-${event.type || ""}-${event.message || ""}` || index}`,
+      eventId: event.eventId,
+      source: "event",
+      read: Boolean(event.readAt),
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
       icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
       title: event.type || "관리체계 Event",
@@ -309,10 +312,12 @@ function NotificationsMenu({ notifications, actions, state }) {
   const readIds = state.readNotificationIds || new Set();
   const visibleNotifications = notifications.map((notification) => ({
     ...notification,
-    read: readIds.has(notification.id),
+    read: Boolean(notification.read || readIds.has(notification.id)),
   }));
   const unreadNotifications = visibleNotifications.filter((notification) => !notification.read);
   const count = unreadNotifications.length;
+  const eventIds = notifications.map((notification) => notification.eventId).filter(Boolean);
+  const readEventIds = visibleNotifications.filter((notification) => notification.read && notification.eventId).map((notification) => notification.eventId);
 
   useEffect(() => {
     if (!open) return undefined;
@@ -335,13 +340,29 @@ function NotificationsMenu({ notifications, actions, state }) {
     actions.setSelectedTab(tab);
   };
 
-  const markAllRead = () => {
+  const markAllRead = async () => {
     actions.markNotificationsRead(notifications.map((notification) => notification.id));
+    if (eventIds.length) {
+      await actions.markEventsRead({ eventIds });
+    }
   };
 
-  const openNotification = (notification) => {
+  const openNotification = async (notification) => {
     actions.markNotificationsRead([notification.id]);
+    if (notification.eventId) {
+      await actions.markEventsRead({ eventIds: [notification.eventId] });
+    }
     openTab(notification.actionTab);
+  };
+
+  const deleteReadEvents = async () => {
+    if (!readEventIds.length) return;
+    await actions.deleteEvents({ eventIds: readEventIds, readState: "read" });
+  };
+
+  const deleteAllEvents = async () => {
+    if (!eventIds.length) return;
+    await actions.deleteEvents({ eventIds });
   };
 
   return (
@@ -376,10 +397,31 @@ function NotificationsMenu({ notifications, actions, state }) {
                 <button
                   type="button"
                   role="menuitem"
-                  onClick={markAllRead}
+                  onClick={() => markAllRead().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
                   className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
                 >
                   읽음처리
+                </button>
+              ) : null}
+              {eventIds.length ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  disabled={!readEventIds.length}
+                  onClick={() => deleteReadEvents().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)] disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  읽은 삭제
+                </button>
+              ) : null}
+              {eventIds.length ? (
+                <button
+                  type="button"
+                  role="menuitem"
+                  onClick={() => deleteAllEvents().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-error)] hover:bg-[#fff0ef]"
+                >
+                  모두 삭제
                 </button>
               ) : null}
               {state.webNotificationPermission === "default" ? (
@@ -403,7 +445,7 @@ function NotificationsMenu({ notifications, actions, state }) {
                 key={notification.id}
                 type="button"
                 role="menuitem"
-                onClick={() => openNotification(notification)}
+                onClick={() => openNotification(notification).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
                 className={`state-layer grid grid-cols-[34px_minmax(0,1fr)_auto] items-start gap-2 rounded-[14px] px-3 py-2.5 text-left transition hover:bg-[var(--ptg-primary-soft)] ${notification.read ? "opacity-65" : "bg-[var(--ptg-primary-soft)]"}`}
               >
                 <span className={`mt-0.5 inline-flex h-8 w-8 items-center justify-center rounded-full ${notification.kind === "error"
