@@ -12,6 +12,10 @@ function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
 }
 
+function normalizePathKey(value) {
+  return String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
+}
+
 function ServerOnboardingForm({ state, actions }) {
   const defaults = useMemo(() => nextServerDefaults(state), [state.machines, state.secretPool]);
   const formRef = useRef(null);
@@ -258,7 +262,10 @@ export function EditorDrawer({ state, actions }) {
   }
   const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
   const localConfig = editor.type === "local-config"
-    ? (state.selectedMachine?.agentSnapshot?.configs || []).find((item) => item.path === editor.path)
+    ? (state.selectedMachine?.agentSnapshot?.configs || []).find((item) => {
+        const target = normalizePathKey(editor.path);
+        return [item.path, item.absolutePath, item.fileName, item.name].some((candidate) => normalizePathKey(candidate) === target);
+      })
     : null;
   const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
@@ -658,6 +665,7 @@ function LocalConfigForm({ record, actions }) {
         <small className="block text-[11px] font-[760] text-[var(--ptg-on-surface-variant)]">Local Config 화일</small>
         <strong className="mt-1 block break-all text-[13px]">{displayLocalConfigName(record.name || record.fileName)}</strong>
         <p className="mt-1 break-all text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{record.path}</p>
+        {record.parseError ? <p className="mt-2 text-[11px] font-[700] text-[var(--ptg-error)]">JSON 해석오유: {record.parseError}</p> : null}
       </div>
       <TextArea
         label="Config 화일 JSON"

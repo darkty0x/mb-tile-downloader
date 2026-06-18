@@ -237,6 +237,90 @@ test("agent stop command records a stop request and signals the active runner", 
   ]);
 });
 
+test("agent scoped stop only signals a runner using that dashboard config", async () => {
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message, event.data.configId]),
+    stopRunningJobs: async (machineId, payload) => {
+      calls.push(["stop-jobs", machineId, payload.configId]);
+      return { jobs: [{ jobId: "job-stop" }] };
+    },
+  };
+  const control = {
+    requestStopPipeline: async () => calls.push(["stop-file"]),
+  };
+  const runner = {
+    activeCommandSpec: {
+      command: "node",
+      args: ["src/agent/pipeline.js", ".tile-state/dashboard/configs/cfg-a.json"],
+    },
+    stop() {
+      calls.push(["runner-stop"]);
+      return true;
+    },
+  };
+
+  await runCommand(
+    {
+      id: "cmd-stop-scoped",
+      commandType: "stop_pipeline",
+      payload: { configId: "cfg-a" },
+      claimedAt: "claim-stop",
+    },
+    { client, runner, machineId: "worker-a", control }
+  );
+
+  assert.deepEqual(calls, [
+    ["stop-file"],
+    ["runner-stop"],
+    ["stop-jobs", "worker-a", "cfg-a"],
+    ["event", "command.accepted", "Stop signal sent to the active managed process.", "cfg-a"],
+    ["ack", "cmd-stop-scoped"],
+  ]);
+});
+
+test("agent scoped stop does not kill an unrelated active config", async () => {
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message, event.data.configId]),
+    stopRunningJobs: async (machineId, payload) => {
+      calls.push(["stop-jobs", machineId, payload.configId]);
+      return { jobs: [] };
+    },
+  };
+  const control = {
+    requestStopPipeline: async () => calls.push(["stop-file"]),
+  };
+  const runner = {
+    activeCommandSpec: {
+      command: "node",
+      args: ["src/agent/pipeline.js", ".tile-state/dashboard/configs/cfg-b.json"],
+    },
+    stop() {
+      calls.push(["runner-stop"]);
+      return true;
+    },
+  };
+
+  await runCommand(
+    {
+      id: "cmd-stop-unrelated",
+      commandType: "stop_pipeline",
+      payload: { configId: "cfg-a" },
+      claimedAt: "claim-stop",
+    },
+    { client, runner, machineId: "worker-a", control }
+  );
+
+  assert.deepEqual(calls, [
+    ["stop-jobs", "worker-a", "cfg-a"],
+    ["event", "command.accepted", "No active managed process matched the deleted config.", "cfg-a"],
+    ["ack", "cmd-stop-unrelated"],
+  ]);
+});
+
 test("range pipeline stops before the next stage when stop is requested", async () => {
   const calls = [];
   const events = [];

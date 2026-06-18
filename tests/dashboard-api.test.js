@@ -85,6 +85,53 @@ async function withTcpServer(t) {
   return server;
 }
 
+test("deleting an active config stops matching running jobs and queues a scoped stop command", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  const config = await store.createConfig({
+    machineId: "server-01",
+    name: "range-a",
+    active: true,
+    config: {
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+    },
+  });
+  await store.upsertJob({
+    jobId: "job-a",
+    machineId: "server-01",
+    configId: config.configId,
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 1 },
+  });
+
+  const server = await withServer(t, { store });
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: `/api/configs/${encodeURIComponent(config.configId)}`,
+  });
+  const jobs = await store.listJobs({ machineId: "server-01" });
+  const commands = await store.claimCommands({ machineId: "server-01" });
+
+  assert.equal(deleted.status, 200);
+  assert.equal(deleted.body.stoppedJobs.length, 1);
+  assert.equal(deleted.body.stoppedJobs[0].jobId, "job-a");
+  assert.equal(deleted.body.command.commandType, "stop_pipeline");
+  assert.equal(deleted.body.command.payload.configId, config.configId);
+  assert.equal(jobs.find((job) => job.jobId === "job-a")?.status, "stopped");
+  assert.equal(commands[0].commandType, "stop_pipeline");
+  assert.equal(commands[0].payload.configId, config.configId);
+});
+
 test("health endpoint does not require authentication", async (t) => {
   const server = await withServer(t);
 
