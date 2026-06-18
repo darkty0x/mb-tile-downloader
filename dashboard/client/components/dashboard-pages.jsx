@@ -1103,7 +1103,27 @@ function ServerPageConsole({ state, actions }) {
       <SectionTitle
         title="Console"
         meta={`Event ${eventLines.length}개 | 기록줄 ${localLines.length}개`}
-        action={<AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>갱신</AppButton>}
+        action={(
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton icon="sync" onClick={() => actions.refreshMachineData().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>갱신</AppButton>
+            <AppButton
+              variant="danger"
+              icon="trash"
+              disabled={!eventLines.length}
+              onClick={() => actions.deleteEvents({ machineId: state.selectedMachine?.machineId }).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            >
+              Event 삭제
+            </AppButton>
+            <AppButton
+              variant="danger"
+              icon="deleteSweep"
+              disabled={!localLines.length}
+              onClick={() => actions.clearAgentLog(state.selectedMachine?.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            >
+              기록 삭제
+            </AppButton>
+          </div>
+        )}
       />
       <div className="grid gap-3">
         <div className="grid gap-2">

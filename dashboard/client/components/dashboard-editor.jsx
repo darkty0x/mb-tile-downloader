@@ -628,7 +628,13 @@ function ConfigForm({ record, state, actions, editor }) {
 
 function LocalConfigForm({ record, actions }) {
   const [submitting, setSubmitting] = useState(false);
-  const configText = record?.content || (record?.config ? `${JSON.stringify(record.config, null, 2)}\n` : "");
+  const initialConfigText = record?.content || (record?.config ? `${JSON.stringify(record.config, null, 2)}\n` : "");
+  const [configText, setConfigText] = useState(initialConfigText);
+
+  useEffect(() => {
+    setConfigText(initialConfigText);
+  }, [record?.path, initialConfigText]);
+
   if (!record) {
     return <EmptyLine>Local Config 화일을 찾을수 없습니다</EmptyLine>;
   }
@@ -640,7 +646,7 @@ function LocalConfigForm({ record, actions }) {
         setSubmitting(true);
         await actions.writeLocalConfig({
           configPath: record.path,
-          configText: event.currentTarget.elements.configText.value,
+          configText,
         });
       } catch (err) {
         actions.setNotice({ message: err.message, kind: "error" });
@@ -653,7 +659,13 @@ function LocalConfigForm({ record, actions }) {
         <strong className="mt-1 block break-all text-[13px]">{displayLocalConfigName(record.name || record.fileName)}</strong>
         <p className="mt-1 break-all text-[11px] font-[560] text-[var(--ptg-on-surface-variant)]">{record.path}</p>
       </div>
-      <TextArea label="Config 화일 JSON" name="configText" spellCheck="false" defaultValue={configText} />
+      <TextArea
+        label="Config 화일 JSON"
+        name="configText"
+        spellCheck="false"
+        value={configText}
+        onChange={(event) => setConfigText(event.target.value)}
+      />
       <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Config 화일 보관</AppButton>
     </form>
   );

@@ -174,7 +174,7 @@ function createAgentControlFiles({ stateDir }) {
   };
 }
 
-export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null, projectDir = process.cwd() }) {
+export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null, projectDir = process.cwd(), agentLogPath = path.join(".tile-state", "dashboard-agent.log") }) {
   try {
     if (command.commandType === "pause_after_range") {
       await control?.requestPauseAfterRange?.();
@@ -276,6 +276,21 @@ export async function runCommand(command, { client, runner, machineId, control =
         type: "command.accepted",
         message: `Config updated: ${result.configPath}`,
         data: { commandId: command.id, commandType: command.commandType, configPath: result.configPath },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
+    if (command.commandType === "clear_agent_log") {
+      await mkdir(path.dirname(agentLogPath), { recursive: true });
+      await writeFile(agentLogPath, "", "utf8");
+      await syncNow?.({ reason: command.commandType });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: "Downloader console log cleared.",
+        data: { commandId: command.id, commandType: command.commandType },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       return;
@@ -437,6 +452,7 @@ export async function runAgent({
         control,
         syncNow: syncAndPublishSnapshot,
         projectDir,
+        agentLogPath,
       });
     }
   }

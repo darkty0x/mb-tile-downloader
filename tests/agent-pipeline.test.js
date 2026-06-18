@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -51,6 +51,10 @@ test("process runner resolves only whitelisted commands", () => {
     commandType: "write_config",
     payload: { configPath: "configs/a.json", configText: "{}" },
   });
+  const clearAgentLog = resolveManagedCommand({
+    commandType: "clear_agent_log",
+    payload: {},
+  });
 
   assert.equal(start.command, process.execPath);
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/a.json"]);
@@ -60,10 +64,48 @@ test("process runner resolves only whitelisted commands", () => {
   assert.deepEqual(updateRestart.args, ["git_pull_restart"]);
   assert.equal(writeConfig.command, "agent-internal");
   assert.deepEqual(writeConfig.args, ["write_config"]);
+  assert.equal(clearAgentLog.command, "agent-internal");
+  assert.deepEqual(clearAgentLog.args, ["clear_agent_log"]);
   assert.throws(
     () => resolveManagedCommand({ commandType: "shell", payload: { command: "echo bad" } }),
     /unsupported command/
   );
+});
+
+test("agent clear_agent_log command truncates the local downloader console log", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-clear-log-"));
+  const agentLogPath = path.join(dir, ".tile-state", "dashboard-agent.log");
+  await mkdir(path.dirname(agentLogPath), { recursive: true });
+  await writeFile(agentLogPath, "old log line\n", "utf8");
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message]),
+  };
+
+  await runCommand(
+    {
+      id: "cmd-clear-log",
+      commandType: "clear_agent_log",
+      payload: {},
+      claimedAt: "claim-clear-log",
+    },
+    {
+      client,
+      runner: {},
+      machineId: "worker-a",
+      projectDir: dir,
+      agentLogPath,
+      syncNow: async ({ reason }) => calls.push(["sync", reason]),
+    }
+  );
+
+  assert.equal(await readFile(agentLogPath, "utf8"), "");
+  assert.deepEqual(calls, [
+    ["sync", "clear_agent_log"],
+    ["event", "command.accepted", "Downloader console log cleared."],
+    ["ack", "cmd-clear-log"],
+  ]);
 });
 
 test("agent sync commands force immediate materialization before acknowledgement", async () => {

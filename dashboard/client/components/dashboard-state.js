@@ -430,6 +430,27 @@ export function useDashboardState() {
         setNotice({ message: `${result.count || 0}개 Event가 삭제되였습니다`, kind: "success" });
         await refreshAll({ showLoading: false });
       },
+      async clearAgentLog(machineId = selectedMachineId) {
+        const targetMachineId = normalizeMachineId(machineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기를 선택하십시오");
+        const confirmed = await confirmDanger({
+          title: "내리적재 Console 기록 삭제 확인",
+          message: "선택한 봉사기의 내리적재 Console 기록을 삭제하겠습니까? 이 동작은 되돌릴수 없습니다.",
+          confirmLabel: "삭제",
+          storageKey: "clear-agent-log",
+        });
+        if (!confirmed) return;
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({
+            commandType: "clear_agent_log",
+            payload: {},
+            requestedBy: "dashboard",
+          }),
+        });
+        setNotice({ message: "내리적재 Console 기록 삭제명령이 대기에 들어갔습니다", kind: "success" });
+        await refreshMachineData(targetMachineId);
+      },
       async requestWebNotifications() {
         if (typeof window === "undefined" || !("Notification" in window)) {
           setWebNotificationPermission("unsupported");

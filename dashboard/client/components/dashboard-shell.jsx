@@ -386,22 +386,24 @@ function NotificationsMenu({ notifications, actions, state }) {
           role="menu"
           className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-[min(380px,calc(100vw-32px))] overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
         >
-          <header className="flex items-center justify-between gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
-            <span className="min-w-0">
+          <header className="grid grid-cols-[minmax(116px,1fr)_auto] items-start gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
+            <span className="min-w-[116px]">
               <strong className="block text-[13px] font-[850]">알림</strong>
-              <small className="block text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
+              <small className="mt-0.5 block text-[11px] font-[650] leading-snug text-[var(--ptg-on-surface-variant)]">
                 {count ? `읽지 않은 알림 ${count}개` : state.webNotificationPermission === "granted" ? "웹경보가 켜져있습니다" : "읽지 않은 알림 없음"}
               </small>
             </span>
-            <div className="flex shrink-0 items-center gap-1">
+            <div className="flex max-w-[210px] flex-wrap justify-end gap-1">
               {count ? (
                 <button
                   type="button"
                   role="menuitem"
+                  aria-label="읽음처리"
+                  title="읽음처리"
                   onClick={() => markAllRead().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
-                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
+                  className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
                 >
-                  읽음처리
+                  <Icon name="markEmailRead" className="h-4 w-4" />
                 </button>
               ) : null}
               {eventIds.length ? (
@@ -409,34 +411,47 @@ function NotificationsMenu({ notifications, actions, state }) {
                   type="button"
                   role="menuitem"
                   disabled={!readEventIds.length}
+                  aria-label="읽은 알림 삭제"
+                  title="읽은 알림 삭제"
                   onClick={() => deleteReadEvents().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
-                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)] disabled:cursor-not-allowed disabled:opacity-45"
+                  className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)] disabled:cursor-not-allowed disabled:opacity-45"
                 >
-                  읽은 삭제
+                  <Icon name="deleteSweep" className="h-4 w-4" />
                 </button>
               ) : null}
               {eventIds.length ? (
                 <button
                   type="button"
                   role="menuitem"
+                  aria-label="모든 알림 삭제"
+                  title="모든 알림 삭제"
                   onClick={() => deleteAllEvents().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
-                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-error)] hover:bg-[#fff0ef]"
+                  className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ptg-error)] hover:bg-[#fff0ef]"
                 >
-                  모두 삭제
+                  <Icon name="trash" className="h-4 w-4" />
                 </button>
               ) : null}
               {state.webNotificationPermission === "default" ? (
                 <button
                   type="button"
                   role="menuitem"
+                  aria-label="웹알림 켜기"
+                  title="웹알림 켜기"
                   onClick={() => actions.requestWebNotifications().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
-                  className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
+                  className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
                 >
-                  켜기
+                  <Icon name="notificationsActive" className="h-4 w-4" />
                 </button>
               ) : null}
-              <button type="button" role="menuitem" onClick={() => openTab("events")} className="state-layer rounded-full px-3 py-2 text-[11px] font-[800] text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]">
-                모두 보기
+              <button
+                type="button"
+                role="menuitem"
+                aria-label="모든 알림 보기"
+                title="모든 알림 보기"
+                onClick={() => openTab("events")}
+                className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-full text-[var(--ptg-primary)] hover:bg-[var(--ptg-primary-soft)]"
+              >
+                <Icon name="eye" className="h-4 w-4" />
               </button>
             </div>
           </header>
