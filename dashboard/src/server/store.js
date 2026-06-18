@@ -608,12 +608,13 @@ export function createDashboardStore({
       return normalizeJob(record);
     },
 
-    stopRunningJobs({ machineId, error = "pipeline stopped", stage = null, progress = null } = {}) {
+    stopRunningJobs({ machineId, configId = null, error = "pipeline stopped", stage = null, progress = null } = {}) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const at = iso(now());
       const stopped = [];
       for (const record of jobs.values()) {
         if (record.machineId !== normalizedMachineId || !ACTIVE_JOB_STATUSES.has(record.status)) continue;
+        if (configId !== null && record.configId !== String(configId)) continue;
         record.status = "stopped";
         record.stage = stage || record.stage;
         if (progress && typeof progress === "object") record.progress = structuredClone(progress);

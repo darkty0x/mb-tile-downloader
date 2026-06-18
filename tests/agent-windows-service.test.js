@@ -5,6 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import {
+  buildUnlimitedExecutionTimeArgs,
   buildSchtasksCreateArgs,
   buildWindowsAgentWrapper,
   installWindowsAgentService,
@@ -47,7 +48,17 @@ test("windows agent service creates an on-startup SYSTEM scheduled task", () => 
   );
 });
 
-test("windows agent service install writes wrapper and invokes schtasks", async () => {
+test("windows agent service removes execution time limit after creating the task", () => {
+  const args = buildUnlimitedExecutionTimeArgs({ taskName: "PTG Dashboard Agent" });
+  const command = args.at(-1);
+
+  assert.equal(args[0], "-NoProfile");
+  assert.match(command, /ExecutionTimeLimit = 'PT0S'/);
+  assert.match(command, /DisallowStartIfOnBatteries = \$false/);
+  assert.match(command, /StopIfGoingOnBatteries = \$false/);
+});
+
+test("windows agent service install stops previous task recreates it and starts it", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-windows-service-"));
   const calls = [];
 
@@ -60,8 +71,19 @@ test("windows agent service install writes wrapper and invokes schtasks", async 
     },
   });
 
-  assert.equal(calls[0].command, "schtasks.exe");
-  assert.equal(calls[0].args.includes("/SC"), true);
-  assert.equal(calls[0].args.includes("ONSTART"), true);
+  assert.deepEqual(calls.map((call) => call.command), [
+    "schtasks.exe",
+    "schtasks.exe",
+    "schtasks.exe",
+    "powershell.exe",
+    "schtasks.exe",
+  ]);
+  assert.deepEqual(calls[0].args.slice(0, 4), ["/End", "/TN", "PTG Dashboard Agent"]);
+  assert.deepEqual(calls[1].args.slice(0, 4), ["/Delete", "/TN", "PTG Dashboard Agent", "/F"]);
+  assert.equal(calls[2].args.includes("/SC"), true);
+  assert.equal(calls[2].args.includes("ONSTART"), true);
+  assert.match(calls[3].args.at(-1), /ExecutionTimeLimit = 'PT0S'/);
+  assert.deepEqual(calls[4].args.slice(0, 4), ["/Run", "/TN", "PTG Dashboard Agent"]);
+  assert.equal(result.started, true);
   assert.match(await readFile(result.wrapperPath, "utf8"), /src\\agent\\agent.js/);
 });

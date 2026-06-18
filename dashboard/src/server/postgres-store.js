@@ -692,7 +692,7 @@ export function createPostgresDashboardStore({
       return jobFromRow(row);
     },
 
-    async stopRunningJobs({ machineId, error = "pipeline stopped", stage = null, progress = null } = {}) {
+    async stopRunningJobs({ machineId, configId = null, error = "pipeline stopped", stage = null, progress = null } = {}) {
       const normalizedMachineId = requireStoredMachineId(machineId);
       const at = now().toISOString();
       const statuses = [...ACTIVE_JOB_STATUSES];
@@ -703,7 +703,9 @@ export function createPostgresDashboardStore({
              progress_json=CASE WHEN $3::jsonb IS NULL THEN progress_json ELSE $3::jsonb END,
              finished_at=$4,
              error=$5
-         WHERE machine_id=$1 AND status = ANY($6::text[])
+         WHERE machine_id=$1
+           AND status = ANY($6::text[])
+           AND ($7::text IS NULL OR config_id=$7)
          RETURNING *`,
         [
           normalizedMachineId,
@@ -712,11 +714,21 @@ export function createPostgresDashboardStore({
           at,
           error,
           statuses,
+          configId === null ? null : String(configId),
         ]
       );
       await db.query(
-        "UPDATE machines SET current_job_id=NULL, updated_at=$1 WHERE machine_id=$2",
-        [at, normalizedMachineId]
+        `UPDATE machines
+         SET current_job_id=NULL, updated_at=$1
+         WHERE machine_id=$2
+           AND (
+             $3::text IS NULL
+             OR current_job_id IS NULL
+             OR current_job_id IN (
+               SELECT job_id FROM machine_jobs WHERE machine_id=$2 AND config_id=$3
+             )
+           )`,
+        [at, normalizedMachineId, configId === null ? null : String(configId)]
       );
       return result.rows.map(jobFromRow);
     },

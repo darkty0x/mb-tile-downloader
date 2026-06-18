@@ -71,6 +71,47 @@ export function buildSchtasksCreateArgs({
   return args;
 }
 
+function powershellSingleQuote(value) {
+  return `'${String(value).replaceAll("'", "''")}'`;
+}
+
+export function buildUnlimitedExecutionTimeArgs({
+  taskName = DEFAULT_WINDOWS_AGENT_TASK_NAME,
+} = {}) {
+  return [
+    "-NoProfile",
+    "-ExecutionPolicy",
+    "Bypass",
+    "-Command",
+    [
+      `$task = Get-ScheduledTask -TaskName ${powershellSingleQuote(taskName)} -ErrorAction Stop`,
+      "$task.Settings.ExecutionTimeLimit = 'PT0S'",
+      "$task.Settings.DisallowStartIfOnBatteries = $false",
+      "$task.Settings.StopIfGoingOnBatteries = $false",
+      "$task.Settings.RestartCount = 3",
+      "$task.Settings.RestartInterval = 'PT1M'",
+      "$task | Set-ScheduledTask | Out-Null",
+    ].join("; "),
+  ];
+}
+
+async function execSchtasksIgnoreFailure(execFileImpl, args) {
+  try {
+    const result = await execFileImpl("schtasks.exe", args, { windowsHide: true });
+    return {
+      ok: true,
+      stdout: String(result?.stdout || "").trim(),
+      stderr: String(result?.stderr || "").trim(),
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      stdout: String(err?.stdout || "").trim(),
+      stderr: String(err?.stderr || err?.message || "").trim(),
+    };
+  }
+}
+
 export async function installWindowsAgentService({
   projectDir = process.cwd(),
   nodePath = process.execPath,
@@ -79,15 +120,30 @@ export async function installWindowsAgentService({
   execFileImpl = execFileAsync,
 } = {}) {
   const paths = servicePaths({ projectDir });
+  const stopResult = await execSchtasksIgnoreFailure(execFileImpl, ["/End", "/TN", taskName]);
+  const deleteResult = await execSchtasksIgnoreFailure(execFileImpl, ["/Delete", "/TN", taskName, "/F"]);
   await mkdir(paths.stateDir, { recursive: true });
   await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath }), "utf8");
   const args = buildSchtasksCreateArgs({ taskName, wrapperPath: paths.wrapperPath, runAs });
   const result = await execFileImpl("schtasks.exe", args, { windowsHide: true });
+  const settingsResult = await execFileImpl("powershell.exe", buildUnlimitedExecutionTimeArgs({ taskName }), { windowsHide: true });
+  const startResult = await execFileImpl("schtasks.exe", ["/Run", "/TN", taskName], { windowsHide: true });
   return {
     taskName,
     ...paths,
     stdout: String(result?.stdout || "").trim(),
     stderr: String(result?.stderr || "").trim(),
+    stoppedPrevious: stopResult.ok,
+    removedPrevious: deleteResult.ok,
+    stopStdout: stopResult.stdout,
+    stopStderr: stopResult.stderr,
+    deleteStdout: deleteResult.stdout,
+    deleteStderr: deleteResult.stderr,
+    settingsStdout: String(settingsResult?.stdout || "").trim(),
+    settingsStderr: String(settingsResult?.stderr || "").trim(),
+    started: true,
+    startStdout: String(startResult?.stdout || "").trim(),
+    startStderr: String(startResult?.stderr || "").trim(),
   };
 }
 
