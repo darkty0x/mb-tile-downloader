@@ -808,27 +808,70 @@ function ServerPageConfigs({ state, actions }) {
   );
 }
 
-function ServerPageEnv({ state }) {
+function envVariablesWithoutApiKeys(file) {
+  return (file.variables || []).filter((item) => item.name !== "MAPBOX_ACCESS_TOKENS");
+}
+
+function envContentWithoutApiKeys(file) {
+  if (typeof file.content === "string") return file.content;
+  return envVariablesWithoutApiKeys(file).map((item) => `${item.name}=${item.value}`).join("\n");
+}
+
+function mapboxTokensFromSnapshot(snapshotSecrets = {}, envFiles = []) {
+  const tokens = Array.isArray(snapshotSecrets.mapboxTokens) ? [...snapshotSecrets.mapboxTokens] : [];
+  for (const file of envFiles) {
+    const variable = (file.variables || []).find((item) => item.name === "MAPBOX_ACCESS_TOKENS");
+    if (!variable?.value || /\*{3,}/.test(variable.value)) continue;
+    tokens.push(...String(variable.value).split(/[,\r\n;]+/).map((item) => item.trim()).filter(Boolean));
+  }
+  return [...new Set(tokens)];
+}
+
+function ServerPageEnv({ state, actions }) {
   const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
+  const [envDrafts, setEnvDrafts] = useState({});
+  const [savingPath, setSavingPath] = useState(null);
   return (
     <section className="grid gap-2">
-      <SectionTitle title=".Env" meta="Project root .env 화일" />
+      <SectionTitle title=".Env" meta="Project root .env 화일을 한줄에 변수 하나씩 편집합니다" />
       {envFiles.length ? envFiles.map((file) => (
         <div key={file.path} className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
           <div className="flex items-center justify-between gap-2">
             <span className="min-w-0">
               <strong className="block truncate text-[12.5px]">{file.path}</strong>
-              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{file.exists ? `변수 ${file.variableCount}개 | ${formatBytes(file.sizeBytes)}` : "찾을수 없음"}</small>
+              <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">{file.exists ? `변수 ${envVariablesWithoutApiKeys(file).length}개 | ${formatBytes(file.sizeBytes)}` : "찾을수 없음"}</small>
             </span>
             <StatusPill status={file.exists ? "active" : "neutral"}>{file.exists ? "Local" : "없음"}</StatusPill>
           </div>
-          {file.variables?.length ? (
-            <div className="mt-2 grid gap-1.5">
-              {file.variables.map((item) => (
-                <code key={`${file.path}-${item.name}`} className="truncate rounded-md bg-[var(--ptg-surface-container)] px-2 py-1 text-[11px] text-[var(--ptg-on-surface-variant)]">{item.name}={item.value}</code>
-              ))}
-            </div>
-          ) : null}
+          <textarea
+            className="ptg-scrollbar mt-3 min-h-[260px] w-full resize-y rounded-xl border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-3 py-2 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] outline-none transition focus:border-[var(--ptg-primary)] focus:ring-2 focus:ring-[rgba(103,80,164,0.18)]"
+            spellCheck="false"
+            value={envDrafts[file.path] ?? envContentWithoutApiKeys(file)}
+            onChange={(event) => setEnvDrafts((current) => ({ ...current, [file.path]: event.target.value }))}
+          />
+          <div className="mt-3 flex flex-wrap justify-end gap-2">
+            <AppButton
+              icon="sync"
+              onClick={() => setEnvDrafts((current) => ({ ...current, [file.path]: envContentWithoutApiKeys(file) }))}
+            >
+              되돌리기
+            </AppButton>
+            <AppButton
+              variant="filled"
+              icon="check"
+              loading={savingPath === file.path}
+              onClick={async () => {
+                setSavingPath(file.path);
+                try {
+                  await actions.writeRootEnv(envDrafts[file.path] ?? envContentWithoutApiKeys(file));
+                } finally {
+                  setSavingPath(null);
+                }
+              }}
+            >
+              .Env 보관
+            </AppButton>
+          </div>
         </div>
       )) : <EmptyLine>이 봉사기의 project root .env 화일을 아직 읽지 못했습니다</EmptyLine>}
     </section>
@@ -837,9 +880,10 @@ function ServerPageEnv({ state }) {
 
 function ServerPageSecrets({ state, actions }) {
   const snapshotSecrets = state.selectedMachine?.agentSnapshot?.secrets || {};
+  const envFiles = state.selectedMachine?.agentSnapshot?.envFiles || [];
   const mapboxSecrets = state.secrets.filter((secret) => secret.secretType === "mapbox_token");
   const proxySecrets = state.secrets.filter((secret) => secret.secretType === "proxy_txt");
-  const localMapboxTokens = Array.isArray(snapshotSecrets.mapboxTokens) ? snapshotSecrets.mapboxTokens : [];
+  const localMapboxTokens = mapboxTokensFromSnapshot(snapshotSecrets, envFiles);
   const renderDashboardSecret = (secret) => (
     <div key={secret.secretId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
       <div className="min-w-0">

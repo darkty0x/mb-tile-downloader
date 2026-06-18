@@ -24,6 +24,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "sync_env":
     case "pause_after_range":
     case "stop_pipeline":
+    case "write_env":
       return {
         command: "agent-internal",
         args: [commandType],

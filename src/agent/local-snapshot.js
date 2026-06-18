@@ -86,6 +86,7 @@ async function summarizeEnvFile(projectDir, filePath, { omitNames = new Set() } 
     return {
       path: rel(projectDir, filePath),
       exists: false,
+      content: "",
       variables: [],
       variableCount: 0,
       sizeBytes: 0,
@@ -108,9 +109,11 @@ async function summarizeEnvFile(projectDir, filePath, { omitNames = new Set() } 
       };
     })
     .filter((item) => !omitNames.has(item.name));
+  const visibleContent = variables.map((item) => `${item.name}=${item.value}`).join("\n");
   return {
     path: rel(projectDir, filePath),
     exists: true,
+    content: `${visibleContent}${visibleContent ? "\n" : ""}`,
     variables,
     variableCount: variables.length,
     sizeBytes: fileStat.size,

@@ -83,6 +83,8 @@ test("local snapshot omits mapbox tokens from env list and reports them as API k
 
   assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "MAPBOX_ACCESS_TOKENS"), false);
   assert.equal(snapshot.envFiles[0].variables.some((item) => item.name === "PORT"), true);
+  assert.equal(snapshot.envFiles[0].content.includes("MAPBOX_ACCESS_TOKENS"), false);
+  assert.match(snapshot.envFiles[0].content, /PORT=3001/);
   assert.deepEqual(snapshot.secrets.mapboxTokens, ["pk.one", "pk.two"]);
   assert.equal(snapshot.secrets.mapboxTokenCount, 2);
 });

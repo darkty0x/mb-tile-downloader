@@ -16,6 +16,7 @@ const COMMAND_TYPES = new Set([
   "resume_pipeline",
   "sync_config",
   "sync_env",
+  "write_env",
   "run_preflight",
 ]);
 

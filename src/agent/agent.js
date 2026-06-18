@@ -14,6 +14,7 @@ import { collectLocalSnapshot } from "./local-snapshot.js";
 import { DASHBOARD_MANAGED_RUN_ENV } from "./managed-run-guard.js";
 import { createProcessRunner, resolveManagedCommand } from "./process-runner.js";
 import { createProgressEventForwarder } from "./progress-events.js";
+import { writeRootEnvFile } from "./root-env.js";
 import { materializeSecrets } from "./secret-materializer.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
@@ -134,7 +135,7 @@ function createAgentControlFiles({ stateDir }) {
   };
 }
 
-export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null }) {
+export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null, projectDir = process.cwd() }) {
   try {
     if (command.commandType === "pause_after_range") {
       await control?.requestPauseAfterRange?.();
@@ -172,6 +173,20 @@ export async function runCommand(command, { client, runner, machineId, control =
         type: "command.accepted",
         message: `${command.commandType === "sync_config" ? "Sync config" : "Sync env"} completed.`,
         data: { commandId: command.id, commandType: command.commandType },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
+    if (command.commandType === "write_env") {
+      const result = await writeRootEnvFile({ projectDir, envText: command.payload?.envText || "" });
+      await syncNow?.({ reason: command.commandType });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: `.env updated (${result.variableCount} variables).`,
+        data: { commandId: command.id, commandType: command.commandType, variableCount: result.variableCount },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       return;
@@ -331,6 +346,7 @@ export async function runAgent({
         machineId: identity.machineId,
         control,
         syncNow: syncAndPublishSnapshot,
+        projectDir,
       });
     }
   }

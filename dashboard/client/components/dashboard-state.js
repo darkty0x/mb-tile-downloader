@@ -398,8 +398,23 @@ export function useDashboardState() {
           stop_pipeline: "정지",
           sync_config: "Config 화일 동기화",
           sync_env: ".Env 동기화",
+          write_env: ".Env 보관",
         }[commandType] || commandType;
         setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
+        await refreshMachineData(targetMachineId);
+      },
+      async writeRootEnv(envText) {
+        const targetMachineId = normalizeMachineId(selectedMachineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+          method: "POST",
+          body: JSON.stringify({
+            commandType: "write_env",
+            payload: { envText },
+            requestedBy: "dashboard",
+          }),
+        });
+        setNotice({ message: ".Env 보관 명령이 대기에 들어갔습니다", kind: "success" });
         await refreshMachineData(targetMachineId);
       },
       async deleteMachine(machineId) {

@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { runAgent, syncManagedState } from "../src/agent/agent.js";
+import { runAgent, runCommand, syncManagedState } from "../src/agent/agent.js";
 import { syncDashboardSecretsIfConfigured } from "../src/agent/dashboard-secrets-sync.js";
 
 test("agent sync materializes active dashboard config env and secrets", async () => {
@@ -265,4 +265,37 @@ test("agent writes forwarded process output to the local console snapshot log", 
   assert.match(await readFile(path.join(stateDir, "dashboard-agent.log"), "utf8"), /preflight wrote this line/);
   assert.deepEqual(calls.at(-2), ["event", "preflight wrote this line"]);
   assert.deepEqual(calls.at(-1), ["ack", "cmd-preflight"]);
+});
+
+test("agent write_env command updates root env and preserves mapbox tokens", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-write-env-"));
+  await writeFile(path.join(dir, ".env"), "MAPBOX_ACCESS_TOKENS=pk.one,pk.two\nPORT=3001\n");
+  const calls = [];
+  const client = {
+    async postEvent(event) {
+      calls.push(["event", event.type, event.message]);
+    },
+    async ackCommand(commandId) {
+      calls.push(["ack", commandId]);
+    },
+  };
+
+  await runCommand({
+    id: "cmd-write-env",
+    commandType: "write_env",
+    payload: { envText: "PORT=4000\nDASHBOARD_URL=https://dashboard.example.com\n" },
+    claimedAt: "claim-write-env",
+  }, {
+    client,
+    runner: { stop: () => false, run: async () => ({ code: 0, signal: null }) },
+    machineId: "server-01",
+    projectDir: dir,
+    syncNow: async () => calls.push(["sync"]),
+  });
+
+  const envText = await readFile(path.join(dir, ".env"), "utf8");
+  assert.match(envText, /PORT=4000/);
+  assert.match(envText, /DASHBOARD_URL=https:\/\/dashboard\.example\.com/);
+  assert.match(envText, /MAPBOX_ACCESS_TOKENS=pk\.one,pk\.two/);
+  assert.deepEqual(calls.map((call) => call[0]), ["sync", "event", "ack"]);
 });
