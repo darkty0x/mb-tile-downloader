@@ -168,6 +168,33 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   assert.equal(model.pipelineEta, "10초");
 });
 
+test("overview model exposes completed upload share link as pipeline proof", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-09", status: "online" }],
+    jobs: [
+      {
+        jobId: "job-server-09",
+        machineId: "server-09",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:25:00.000Z",
+        finishedAt: "2026-06-16T00:35:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/range-1/",
+          storjRawLinkPrefix: "https://link.storjshare.io/raw/testshare/mapbox/range-1/",
+        },
+      },
+    ],
+    machineId: "server-09",
+  });
+
+  assert.equal(model.pipelineStage, "올리적재");
+  assert.equal(model.pipelineProgress, "100%");
+  assert.equal(model.pipelineEta, "완료");
+  assert.equal(model.storjShareUrl, "https://link.storjshare.io/s/testshare/mapbox/range-1/");
+});
+
 test("server command rows follow selected machine lifecycle state", () => {
   assert.deepEqual(
     buildMachineCommandRows({ machineId: "server-01" }).map(([type]) => type),

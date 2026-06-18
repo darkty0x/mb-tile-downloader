@@ -472,7 +472,7 @@ async function printShareLink({ bucket, prefix, dryRun }, configDir) {
   const target = shareTargetUrl(bucket, prefix);
   if (dryRun) {
     console.log(`Share link: dry-run skipped for ${target}`);
-    return;
+    return { ok: true, status: "dry-run-share-skipped", bucket, target };
   }
 
   const result = await runUplink(["share", "--url", "--readonly", "--not-after=none", target], {
@@ -481,17 +481,19 @@ async function printShareLink({ bucket, prefix, dryRun }, configDir) {
   });
   if (result.code !== 0) {
     console.warn(`Share link: failed to create for ${target}: ${result.stderr || result.stdout}`);
-    return;
+    return { ok: false, status: "share-failed", bucket, target, error: result.stderr || result.stdout };
   }
 
   const shareUrl = extractShareUrl(`${result.stdout}\n${result.stderr}`);
   if (!shareUrl) {
     console.warn(`Share link: uplink did not print a URL for ${target}`);
-    return;
+    return { ok: false, status: "share-missing-url", bucket, target };
   }
 
+  const rawLinkPrefix = shareUrl.replace("/s/", "/raw/");
   console.log(`Share link: ${shareUrl}`);
-  console.log(`Raw link prefix: ${shareUrl.replace("/s/", "/raw/")}`);
+  console.log(`Raw link prefix: ${rawLinkPrefix}`);
+  return { ok: true, status: "shared", bucket, target, shareUrl, rawLinkPrefix };
 }
 
 async function main() {
@@ -545,10 +547,11 @@ async function main() {
     console.log("Share link: skipped because config upload is incomplete");
     process.exitCode = 1;
   } else {
-    await printShareLink(
+    const shareResult = await printShareLink(
       { bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun },
       opts.uplinkConfigDir
     );
+    if (shareResult) console.log(`[storj-result] ${JSON.stringify(shareResult)}`);
   }
 }
 

@@ -118,6 +118,24 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
           );
         })}
       </div>
+      {overview.storjShareUrl ? (
+        <div className="mt-4 rounded-[16px] border border-[var(--ptg-success)] bg-[rgba(0,166,118,0.10)] p-3">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="min-w-0">
+              <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명</span>
+              <a
+                className="mt-1 block break-all font-mono text-[12px] font-[700] text-[var(--ptg-on-surface)] underline decoration-[var(--ptg-success)] underline-offset-4"
+                href={overview.storjShareUrl}
+                rel="noreferrer"
+                target="_blank"
+              >
+                {overview.storjShareUrl}
+              </a>
+            </span>
+            <Icon name="upload" className="h-6 w-6 shrink-0 text-[var(--ptg-success)]" />
+          </div>
+        </div>
+      ) : null}
     </Surface>
   );
 }

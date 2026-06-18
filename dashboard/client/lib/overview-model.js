@@ -270,6 +270,8 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId } = {}) {
       etaLabel: "대기중",
       stageLabel: "대기중",
       progressLabel: "0%",
+      storjShareUrl: "",
+      storjRawLinkPrefix: "",
     };
   }
 
@@ -303,6 +305,8 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId } = {}) {
     etaLabel: jobEtaLabel(activeJob),
     stageLabel: PIPELINE_STEPS[currentStageIndex]?.[1] || activeJob.stage || "대기중",
     progressLabel: `${overall}%`,
+    storjShareUrl: activeJob.progress?.storjShareUrl || "",
+    storjRawLinkPrefix: activeJob.progress?.storjRawLinkPrefix || "",
   };
 }
 
@@ -402,6 +406,8 @@ export function buildOverviewModel({
     pipelineEta: pipelineModel.etaLabel,
     pipelineStage: pipelineModel.stageLabel,
     pipelineProgress: pipelineModel.progressLabel,
+    storjShareUrl: pipelineModel.storjShareUrl,
+    storjRawLinkPrefix: pipelineModel.storjRawLinkPrefix,
     activeJob: pipelineModel.activeJob,
     diskPressure,
     health,

@@ -448,6 +448,13 @@ test("storj uploader prints share link after upload", async () => {
     assert.match(calls, /share --url --readonly --not-after=none sj:\/\/mapbox\/13-mapbox-pbf\//);
     assert.match(stdout, /Share link: https:\/\/link\.storjshare\.io\/s\/testshare\/mapbox\/13-mapbox-pbf\//);
     assert.match(stdout, /Raw link prefix: https:\/\/link\.storjshare\.io\/raw\/testshare\/mapbox\/13-mapbox-pbf\//);
+    const shareResultLine = stdout
+      .split(/\r?\n/)
+      .find((item) => item.startsWith("[storj-result] ") && item.includes('"status":"shared"'));
+    assert.ok(shareResultLine, "expected a structured storj share result");
+    const shareResult = JSON.parse(shareResultLine.replace("[storj-result] ", ""));
+    assert.equal(shareResult.shareUrl, "https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/");
+    assert.equal(shareResult.rawLinkPrefix, "https://link.storjshare.io/raw/testshare/mapbox/13-mapbox-pbf/");
   } finally {
     await import("node:fs/promises").then(({ rm }) => rm(fakeUplink, { force: true }));
     if (renamed) {

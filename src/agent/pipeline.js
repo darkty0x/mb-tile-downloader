@@ -47,6 +47,53 @@ function mergeProgress(baseProgress = {}, parsedProgress = {}) {
   };
 }
 
+function parseStorjResultLine(line) {
+  const prefix = "[storj-result] ";
+  if (!String(line || "").startsWith(prefix)) return null;
+  try {
+    return JSON.parse(String(line).slice(prefix.length));
+  } catch {
+    return null;
+  }
+}
+
+function mergeStorjProof(current = {}, result = {}) {
+  const next = { ...current };
+  if (result.status === "shared" && result.shareUrl) {
+    next.storjShareUrl = result.shareUrl;
+    next.storjRawLinkPrefix = result.rawLinkPrefix || null;
+    next.storjTarget = result.target || null;
+    next.storjBucket = result.bucket || null;
+  }
+  if (result.remoteUrl || result.remotePath) {
+    next.storjArchives = [
+      ...(next.storjArchives || []),
+      {
+        status: result.status || null,
+        bucket: result.bucket || null,
+        remotePath: result.remotePath || null,
+        remoteUrl: result.remoteUrl || null,
+        bytes: result.bytes || 0,
+      },
+    ];
+  }
+  return next;
+}
+
+export function parseStorjProofFromLine(line, current = {}) {
+  const result = parseStorjResultLine(line);
+  if (result) return mergeStorjProof(current, result);
+  const shareMatch = String(line || "").match(/^Share link:\s+(https:\/\/link\.storjshare\.io\/\S+)/);
+  if (shareMatch) {
+    return {
+      ...current,
+      storjShareUrl: shareMatch[1],
+      storjRawLinkPrefix: shareMatch[1].replace("/s/", "/raw/"),
+    };
+  }
+  return current;
+}
+
 function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null, stage = null, baseProgress = {} } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
@@ -57,6 +104,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
     activeStageChild = child;
     let stdoutBuffer = "";
     let stderrBuffer = "";
+    let storjProof = {};
 
     const handleOutput = (chunk, stream) => {
       const target = stream === "stderr" ? process.stderr : process.stdout;
@@ -77,6 +125,9 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
             })
           ).catch(() => {});
         }
+        if (stage === "upload") {
+          storjProof = parseStorjProofFromLine(line, storjProof);
+        }
       }
     };
 
@@ -92,7 +143,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
         resolve({ ok: false, error: "pipeline stopped" });
         return;
       }
-      resolve(code === 0 ? { ok: true } : { ok: false, error: `${args[0]} exited with code ${code}` });
+      resolve(code === 0 ? { ok: true, storjProof } : { ok: false, error: `${args[0]} exited with code ${code}` });
     });
   });
 }
@@ -163,6 +214,7 @@ export async function runRangePipeline({
   for (let rangeIndex = 0; rangeIndex < config.ranges.length; rangeIndex++) {
     const range = config.ranges[rangeIndex];
     const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex, range }) : null;
+    let uploadProof = {};
     for (const [stageIndex, stage] of STAGES.entries()) {
       if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage })) {
         const errorObject = new Error("pipeline stopped");
@@ -215,11 +267,14 @@ export async function runRangePipeline({
         if (reporter) await reporter.fail({ stage, error: errorObject, progress });
         throw errorObject;
       }
+      if (stage === "upload" && result.storjProof) {
+        uploadProof = result.storjProof;
+      }
       emitEvent({
         severity: "success",
         type: `range.${stage}.completed`,
         message: `${stage} completed`,
-        data: { configPath, rangeIndex, label: range.label || null },
+        data: { configPath, rangeIndex, label: range.label || null, ...(stage === "upload" ? uploadProof : {}) },
       });
       if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage, afterStage: true })) {
         const errorObject = new Error("pipeline stopped");
@@ -243,6 +298,7 @@ export async function runRangePipeline({
           stageIndex: STAGES.length,
           stageCount: STAGES.length,
           percent: 100,
+          ...uploadProof,
         },
       });
     }

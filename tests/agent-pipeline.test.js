@@ -4,7 +4,7 @@ import assert from "node:assert/strict";
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { runCommand } from "../src/agent/agent.js";
 import { resolveManagedCommand } from "../src/agent/process-runner.js";
-import { runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
+import { parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -313,6 +313,7 @@ test("range pipeline stops before zip and upload when download fails", async () 
 
 test("range pipeline reports durable job stages", async () => {
   const reports = [];
+  const completions = [];
 
   await runRangePipeline({
     config: { ranges: [{ label: "r1" }] },
@@ -323,11 +324,22 @@ test("range pipeline reports durable job stages", async () => {
       return {
         start: async ({ stage }) => reports.push(`start:${stage}`),
         stage: async ({ stage }) => reports.push(`stage:${stage}`),
-        complete: async ({ stage }) => reports.push(`complete:${stage}`),
+        complete: async ({ stage, progress }) => {
+          reports.push(`complete:${stage}`);
+          completions.push(progress);
+        },
         fail: async ({ stage, error }) => reports.push(`fail:${stage}:${error.message}`),
       };
     },
-    runStage: async () => ({ ok: true }),
+    runStage: async (stage) => stage === "upload"
+      ? {
+          ok: true,
+          storjProof: {
+            storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/r1/",
+            storjRawLinkPrefix: "https://link.storjshare.io/raw/testshare/mapbox/r1/",
+          },
+        }
+      : { ok: true },
     emitEvent: () => {},
   });
 
@@ -338,6 +350,17 @@ test("range pipeline reports durable job stages", async () => {
     "stage:upload",
     "complete:upload",
   ]);
+  assert.equal(completions[0].storjShareUrl, "https://link.storjshare.io/s/testshare/mapbox/r1/");
+  assert.equal(completions[0].percent, 100);
+});
+
+test("range pipeline parses Storj upload proof from uploader output lines", () => {
+  let proof = parseStorjProofFromLine('[storj-result] {"ok":true,"status":"uploaded","bucket":"mapbox","remotePath":"job/archive.zip","remoteUrl":"sj://mapbox/job/archive.zip","bytes":123}');
+  proof = parseStorjProofFromLine('[storj-result] {"ok":true,"status":"shared","bucket":"mapbox","target":"sj://mapbox/job/","shareUrl":"https://link.storjshare.io/s/testshare/mapbox/job/","rawLinkPrefix":"https://link.storjshare.io/raw/testshare/mapbox/job/"}', proof);
+
+  assert.equal(proof.storjShareUrl, "https://link.storjshare.io/s/testshare/mapbox/job/");
+  assert.equal(proof.storjRawLinkPrefix, "https://link.storjshare.io/raw/testshare/mapbox/job/");
+  assert.equal(proof.storjArchives[0].remoteUrl, "sj://mapbox/job/archive.zip");
 });
 
 test("range pipeline passes reporter and base progress to stage runners", async () => {
