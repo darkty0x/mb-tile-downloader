@@ -1,12 +1,19 @@
 "use client";
 
+import { useEffect } from "react";
+
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
 import { AuthCheckingScreen, ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
 import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
+import { buildDashboardDocumentTitle } from "../lib/page-title";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
+
+  useEffect(() => {
+    document.title = buildDashboardDocumentTitle(state);
+  }, [state]);
 
   if (state.authStatus === "checking") {
     return <AuthCheckingScreen />;

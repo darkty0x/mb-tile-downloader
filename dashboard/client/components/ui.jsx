@@ -36,7 +36,7 @@ export function Surface({ className = "", children }) {
 export function ModalShell({ title, subtitle, width = "w-[min(760px,calc(100vw-32px))]", children, onClose }) {
   return (
     <div className="ptg-modal-backdrop fixed inset-0 z-30 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
-      <section className={`ptg-modal-panel ${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]`}>
+      <section className={`ptg-modal-panel ${width} max-h-[calc(100vh-32px)] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)]`}>
         <header className="flex min-h-[72px] items-start justify-between gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-5 py-4">
           <div className="min-w-0">
             <h3 className="truncate text-[18px] font-[820] text-[var(--ptg-on-surface)]">{title}</h3>
@@ -221,7 +221,7 @@ export function SwitchField({ label, description, className = "", inputClassName
           {...props}
         />
         <span className="absolute inset-0 rounded-full bg-[#dfe5ee] transition peer-checked:bg-[var(--ptg-primary)] peer-focus-visible:shadow-[0_0_0_3px_rgba(96,64,239,0.2)]" />
-        <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white shadow-[0_1px_4px_rgba(10,26,51,0.24)] transition peer-checked:translate-x-5" />
+        <span className="absolute left-1 top-1 h-5 w-5 rounded-full bg-white transition peer-checked:translate-x-5" />
       </span>
     </label>
   );

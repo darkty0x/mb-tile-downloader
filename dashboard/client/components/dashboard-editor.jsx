@@ -276,7 +276,7 @@ export function EditorDrawer({ state, actions }) {
     : null;
   const env = editor.type === "env" ? state.envProfiles.find((item) => item.envProfileId === editor.id) : null;
   const secret = editor.type === "secret" ? [...state.secrets, ...state.secretPool].find((item) => item.secretId === editor.id) : null;
-  const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: false } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
+  const record = editor.duplicate && config ? { ...config, configId: "", name: `${config.name}-copy`, active: true } : editor.duplicate && env ? { ...env, envProfileId: "", name: `${env.name}-copy`, active: false } : config || env || secret;
   return (
     <ModalShell
       title={editorTitle(editor.type, record, editor)}
@@ -613,7 +613,6 @@ function ConfigForm({ record, state, actions, editor }) {
   const [draftTexts, setDraftTexts] = useState([]);
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
-  const defaultActive = record?.active ?? !id;
   const effectiveMachineIds = id ? [record?.machineId || state.selectedMachineId].filter(Boolean) : selectedMachineIds;
   const effectiveMachines = effectiveMachineIds.map((machineId) => findMachineById(state.machines, machineId)).filter(Boolean);
   const missingMachineCount = effectiveMachineIds.length - effectiveMachines.length;
@@ -661,7 +660,6 @@ function ConfigForm({ record, state, actions, editor }) {
       }
     }}>
       <TextInput label="이름" name="name" defaultValue={record?.name || ""} onChange={clearBatchPreview} required />
-      <SwitchField name="active" label="상태" defaultChecked={defaultActive} onChange={clearBatchPreview} />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}

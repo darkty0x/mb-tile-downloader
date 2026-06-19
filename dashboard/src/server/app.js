@@ -534,7 +534,7 @@ async function resolveMachineTargets(store, body) {
 
 function displayNameForTarget({ baseName, target, multipleTargets }) {
   if (!multipleTargets) return baseName;
-  return `${baseName} - ${target.label}`;
+  return `${baseName}-${target.label}`;
 }
 
 function jobNameForTarget({ baseJobName, target, multipleTargets }) {
@@ -563,7 +563,7 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
   const rangeSummary = summarizeRanges(parsedRanges);
   const drafts = [];
 
-  for (const [index, template] of templates.entries()) {
+  for (const template of templates) {
     const sourceName = configNameForTemplate({
       baseName: body.name,
       template,
@@ -587,7 +587,7 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
           templateId: template.id,
           templateLabel: template.label,
           name,
-          active: Boolean(body.active) && index === 0,
+          active: true,
           config: split[targetIndex].config,
         });
       }
@@ -605,7 +605,7 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
         templateId: template.id,
         templateLabel: template.label,
         name,
-        active: Boolean(body.active) && index === 0,
+        active: true,
         config,
       });
     }
@@ -631,7 +631,7 @@ async function createConfigsFromDrafts({ store, drafts }) {
       await store.createConfig({
         machineId,
         name: String(draft.name || draft.config.jobName || `dashboard-config-${index + 1}`).trim(),
-        active: Boolean(draft.active),
+        active: true,
         config: draft.config,
       })
     );

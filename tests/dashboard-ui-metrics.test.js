@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
 import { eventNotificationId, eventRecordId } from "../dashboard/client/lib/event-identity.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
+import { buildDashboardDocumentTitle } from "../dashboard/client/lib/page-title.js";
 import { diskPeakForMachine } from "../dashboard/client/components/dashboard-core.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
@@ -356,6 +357,42 @@ test("overview model exposes per-server process status for the server list", () 
   assert.equal(model.machineProcesses["server-07"].processLabel, "올리적재");
   assert.equal(model.machineProcesses["server-07"].statusLabel, "대기중");
   assert.equal(model.machineProcesses["server-07"].etaLabel, "대기중");
+});
+
+test("server management document title shows server number step and active job percent", () => {
+  const title = buildDashboardDocumentTitle({
+    authStatus: "authenticated",
+    selectedTab: "servers",
+    selectedMachineId: "server-06",
+    editor: { type: "server-management", machineId: "server-06" },
+    machines: [{ machineId: "server-06", status: "online", currentJobId: "job-server-06" }],
+    jobs: [
+      {
+        jobId: "job-server-06",
+        machineId: "server-06",
+        status: "running",
+        stage: "download",
+        progress: { percent: 73 },
+      },
+    ],
+    events: [],
+    configs: [],
+    secretPool: [],
+    settings: {},
+  });
+
+  assert.equal(title, "PTG 관리체계 | 06:1:73%");
+});
+
+test("server management document title waits for authenticated dashboard state", () => {
+  const title = buildDashboardDocumentTitle({
+    authStatus: "unauthenticated",
+    selectedTab: "servers",
+    selectedMachineId: "server-06",
+    editor: { type: "server-management", machineId: "server-06" },
+  });
+
+  assert.equal(title, "PTG 관리체계");
 });
 
 test("overview model does not show stale ETA for stopped machine tasks", () => {

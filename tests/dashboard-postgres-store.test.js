@@ -572,6 +572,40 @@ test("postgres store stops active jobs and clears machine active job state", asy
   assert.equal(machine.currentJobId, null);
 });
 
+test("postgres store deletes persisted jobs and clears machine active job state", async () => {
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+
+  await store.registerMachine({
+    machineId: "server-09",
+    agentInstanceId: "agent-09",
+  });
+  await store.upsertJob({
+    jobId: "job-delete",
+    machineId: "server-09",
+    configId: "cfg-1",
+    rangeId: "range-0",
+    status: "running",
+    stage: "download",
+    progress: { percent: 1, etaSeconds: 86400 },
+  });
+
+  const deleted = await store.deleteMachineJobs({
+    machineId: "SERVER-09",
+    jobId: "job-delete",
+  });
+  const jobs = await store.listJobs({ machineId: "server-09" });
+  const machine = await store.getMachine("server-09");
+
+  assert.equal(deleted.length, 1);
+  assert.equal(deleted[0].jobId, "job-delete");
+  assert.equal(jobs.length, 0);
+  assert.equal(machine.currentJobId, null);
+});
+
 test("postgres store does not revive stopped jobs from late progress", async () => {
   const db = createFakePgDb();
   const store = createPostgresDashboardStore({
@@ -791,7 +825,7 @@ test("postgres store persists config and env profile versions", async () => {
   assert.equal(configV2.version, 2);
   assert.deepEqual(
     (await store.listConfigs({ machineId: "worker-a" })).map((item) => item.active),
-    [false, true]
+    [true, true]
   );
   assert.equal((await store.listEnvProfiles({ machineId: "worker-a" }))[0].envProfileId, env.envProfileId);
 });

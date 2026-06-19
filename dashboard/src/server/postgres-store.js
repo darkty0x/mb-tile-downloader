@@ -150,7 +150,7 @@ function configFromRow(row) {
     name: row.name,
     version: row.version,
     config: jsonValue(row.config_json, {}),
-    active: row.active,
+    active: true,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
   };
@@ -375,9 +375,6 @@ export function createPostgresDashboardStore({
       const name = requireNonEmpty(input.name, "name");
       const config = validateConfig(input.config);
       const at = now().toISOString();
-      if (input.active) {
-        await db.query("UPDATE configs SET active=false WHERE machine_id=$1", [machineId]);
-      }
       const row = await firstRow(
         db,
         `INSERT INTO configs (
@@ -385,7 +382,7 @@ export function createPostgresDashboardStore({
         )
         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
         RETURNING *`,
-        [idGenerator(), machineId, name, 1, toJsonbParam(config, {}), Boolean(input.active), at, at]
+        [idGenerator(), machineId, name, 1, toJsonbParam(config, {}), true, at, at]
       );
       return configFromRow(row);
     },
@@ -393,10 +390,6 @@ export function createPostgresDashboardStore({
     async updateConfig(configId, input) {
       const existing = await firstRow(db, "SELECT * FROM configs WHERE config_id=$1", [configId]);
       if (!existing) throw new Error(`config "${configId}" not found`);
-      const active = Boolean(input.active);
-      if (active) {
-        await db.query("UPDATE configs SET active=false WHERE machine_id=$1", [existing.machine_id]);
-      }
       const at = now().toISOString();
       const row = await firstRow(
         db,
@@ -411,7 +404,7 @@ export function createPostgresDashboardStore({
           input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
           toJsonbParam(validateConfig(input.config ?? jsonValue(existing.config_json, {})), {}),
-          active,
+          true,
           iso(existing.created_at),
           at,
         ]

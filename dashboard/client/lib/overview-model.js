@@ -343,6 +343,15 @@ function jobStageProgress(job) {
   return numericProgress(job?.progress) ?? 0;
 }
 
+export function jobPipelineStepNumber(job) {
+  const stage = String(job?.stage || "").toLowerCase();
+  return stage ? stageIndex(stage) + 1 : null;
+}
+
+export function jobStageProgressPercent(job) {
+  return jobStageProgress(job);
+}
+
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "계산중";
   const whole = Math.round(seconds);

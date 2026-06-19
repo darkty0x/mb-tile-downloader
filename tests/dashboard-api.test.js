@@ -882,7 +882,7 @@ test("dashboard batch config creation creates one runnable config per selected t
   assert.equal(response.status, 200);
   assert.deepEqual(
     response.body.configs.map((config) => config.name),
-    ["Ukraine Range 01 - mapbox-pbf", "Ukraine Range 01 - esri-satellite"]
+    ["Ukraine Range 01-mapbox-pbf", "Ukraine Range 01-esri-satellite"]
   );
   assert.deepEqual(
     response.body.configs.map((config) => config.config.jobName),
@@ -890,7 +890,7 @@ test("dashboard batch config creation creates one runnable config per selected t
   );
   assert.deepEqual(
     response.body.configs.map((config) => config.active),
-    [true, false]
+    [true, true]
   );
   assert.deepEqual(
     response.body.configs.map((config) => config.config.ranges),
@@ -941,7 +941,7 @@ test("dashboard batch config preview returns editable drafts without creating co
   assert.equal(preview.status, 200);
   assert.deepEqual(
     preview.body.drafts.map((draft) => draft.name),
-    ["Ukraine Range 01 - mapbox-pbf", "Ukraine Range 01 - mapbox-satellite"]
+    ["Ukraine Range 01-mapbox-pbf", "Ukraine Range 01-mapbox-satellite"]
   );
   assert.deepEqual(
     preview.body.drafts.map((draft) => draft.config.jobName),
@@ -1020,14 +1020,14 @@ test("dashboard batch config creation assigns selected config types to selected 
     [
       {
         machineId: "worker-a",
-        name: "Ukraine - Worker A",
+        name: "Ukraine-Worker A",
         jobName: "ukraine-mapbox-pbf-worker-a",
         ranges: 1,
         active: true,
       },
       {
         machineId: "worker-b",
-        name: "Ukraine - Worker B",
+        name: "Ukraine-Worker B",
         jobName: "ukraine-mapbox-pbf-worker-b",
         ranges: 1,
         active: true,

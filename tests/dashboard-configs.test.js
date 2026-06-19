@@ -13,7 +13,7 @@ const validConfig = {
   ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
 };
 
-test("dashboard config storage validates ranges and versions edits", () => {
+test("dashboard config storage validates ranges and keeps all config versions active", () => {
   const store = createDashboardStore({ idGenerator: () => "cfg-a" });
 
   assert.throws(
@@ -43,7 +43,7 @@ test("dashboard config storage validates ranges and versions edits", () => {
   assert.deepEqual(
     configs.map((config) => ({ version: config.version, active: config.active })),
     [
-      { version: 1, active: false },
+      { version: 1, active: true },
       { version: 2, active: true },
     ]
   );
@@ -66,6 +66,7 @@ test("dashboard config storage supports rename and delete", () => {
   const deleted = store.deleteConfig(renamed.configId);
 
   assert.equal(renamed.name, "new-name");
+  assert.equal(renamed.active, true);
   assert.equal(deleted.configId, renamed.configId);
   assert.deepEqual(
     store.listConfigs({ machineId: "worker-a" }).map((config) => config.configId),

@@ -39,8 +39,8 @@
   --ptg-rail-outline: rgba(255, 255, 255, 0.12);
   --ptg-rail-text: #f8fbff;
   --ptg-rail-muted: #c8c6d0;
-  --ptg-shadow-1: 0 6px 18px rgba(29, 27, 32, 0.08);
-  --ptg-shadow-2: 0 18px 46px rgba(29, 27, 32, 0.14);
+  --ptg-shadow-1: none;
+  --ptg-shadow-2: none;
   --ptg-emphasized: cubic-bezier(0.05, 0.7, 0.1, 1);
   --ptg-emphasized-accelerate: cubic-bezier(0.3, 0, 0.8, 0.15);
   --ptg-emphasized-decelerate: cubic-bezier(0.05, 0.7, 0.1, 1);
@@ -98,7 +98,6 @@ button {
     color 220ms var(--ptg-standard),
     background-color 220ms var(--ptg-standard),
     border-color 220ms var(--ptg-standard),
-    box-shadow 260ms var(--ptg-standard),
     transform 220ms var(--ptg-emphasized);
 }
 
@@ -124,29 +123,24 @@ button:disabled {
 .material-surface {
   border: 1px solid var(--ptg-outline);
   background: var(--ptg-surface);
-  box-shadow: var(--ptg-shadow-1);
   transition:
     border-color 180ms var(--ptg-standard),
-    box-shadow 240ms var(--ptg-standard),
     transform 180ms var(--ptg-standard),
     background-color 180ms var(--ptg-standard);
 }
 
 .material-surface:hover {
   border-color: var(--ptg-outline-strong);
-  box-shadow: 0 16px 42px rgba(10, 26, 51, 0.10);
-  transform: translateY(-1px);
 }
 
 .state-layer {
   position: relative;
   overflow: hidden;
-  will-change: transform, box-shadow, background-color;
+  will-change: transform, background-color;
   transition:
     color 220ms var(--ptg-standard),
     background-color 220ms var(--ptg-standard),
     border-color 220ms var(--ptg-standard),
-    box-shadow 260ms var(--ptg-standard),
     transform 220ms var(--ptg-emphasized);
 }
 
@@ -194,17 +188,16 @@ button:disabled {
     color 220ms var(--ptg-standard),
     background-color 220ms var(--ptg-standard),
     border-color 220ms var(--ptg-standard),
-    box-shadow 320ms var(--ptg-standard),
     transform 360ms var(--ptg-emphasized),
     filter 220ms var(--ptg-standard);
 }
 
 .ptg-button:hover {
-  transform: translateY(-1px);
+  filter: saturate(1.04);
 }
 
 .ptg-button:active {
-  transform: translateY(0) scale(0.975);
+  transform: scale(0.975);
 }
 
 .ptg-button[data-pending="true"] {
@@ -215,11 +208,10 @@ button:disabled {
   border: 1px solid var(--ptg-primary);
   background: var(--ptg-primary);
   color: #ffffff;
-  box-shadow: 0 6px 16px rgba(103, 80, 164, 0.22);
 }
 
 .ptg-button-primary:hover {
-  box-shadow: 0 12px 28px rgba(103, 80, 164, 0.28);
+  background: var(--ptg-primary-dark);
 }
 
 .ptg-button-tonal {
@@ -344,9 +336,6 @@ button:disabled {
     radial-gradient(circle at 20% 0%, rgba(255, 255, 255, 0.86), transparent 34%),
     linear-gradient(135deg, color-mix(in srgb, var(--ptg-card-bg), #ffffff 10%), var(--ptg-card-bg));
   color: var(--ptg-card-fg);
-  box-shadow:
-    0 1px 2px rgba(29, 27, 32, 0.10),
-    0 12px 34px color-mix(in srgb, var(--ptg-card-border), transparent 74%);
 }
 
 .ptg-metric-tile .ptg-icon-well {
@@ -429,7 +418,7 @@ button:disabled {
 }
 
 .ptg-logo-shadow {
-  filter: drop-shadow(0 10px 22px rgba(0, 0, 0, 0.22));
+  filter: none;
 }
 
 .ptg-brand-logo {
@@ -437,7 +426,6 @@ button:disabled {
   height: 58px;
   object-fit: contain;
   object-position: left center;
-  filter: drop-shadow(0 10px 20px rgba(0, 0, 0, 0.25));
 }
 
 .ptg-picker-list {
@@ -484,7 +472,6 @@ button:disabled {
   overflow: hidden;
   transition:
     border-color 260ms var(--ptg-standard),
-    box-shadow 260ms var(--ptg-standard),
     transform 260ms var(--ptg-emphasized);
 }
 
@@ -500,7 +487,6 @@ button:disabled {
 
 .last-updated-chip[data-pulse="true"] {
   border-color: rgba(103, 80, 164, 0.48);
-  box-shadow: 0 10px 26px rgba(103, 80, 164, 0.16), 0 1px 2px rgba(10, 26, 51, 0.04);
   animation: last-updated-pop 820ms var(--ptg-emphasized) both;
 }
 
@@ -573,10 +559,8 @@ button:disabled {
 @keyframes pulse-step {
   0%,
   100% {
-    box-shadow: 0 0 0 rgba(12, 168, 224, 0);
   }
   50% {
-    box-shadow: 0 0 0 4px rgba(12, 168, 224, 0.08);
   }
 }
 

@@ -315,7 +315,7 @@ export async function selectConfigTemplates(templateIds, options = {}) {
 export function configNameForTemplate({ baseName, template, multiple }) {
   const cleanBase = String(baseName || "").trim();
   if (!cleanBase) return template.label;
-  return multiple ? `${cleanBase} - ${template.label}` : cleanBase;
+  return multiple ? `${cleanBase}-${template.label}` : cleanBase;
 }
 
 export function configJobNameForTemplate({ name, template }) {

@@ -24,6 +24,20 @@ const STEP_ICONS = {
   upload: "upload",
 };
 
+const PROCESS_LABEL_ICONS = {
+  "내리적재": "download",
+  "검증": "check",
+  "압축": "zip",
+  "올리적재": "upload",
+  "대기중": "clock",
+};
+
+function processStageIcon(processLabel) {
+  const label = String(processLabel || "").trim();
+  const lower = label.toLowerCase();
+  return PROCESS_LABEL_ICONS[label] || STEP_ICONS[lower] || "clock";
+}
+
 function kpiTone(key, metric) {
   if (key === "failedJobs" && Number(metric.value) > 0) return "danger";
   if (key === "resourceAlerts" && Number(metric.value) > 0) return "warn";
@@ -48,7 +62,7 @@ function displayPlatformLabel(value) {
 }
 
 function displayConfigName(value) {
-  return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
+  return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "").replace(/\s+-\s+/g, "-");
 }
 
 function formatInteger(value) {
@@ -102,7 +116,7 @@ function ClickableInsightCard({ onClick, ...props }) {
     <button
       type="button"
       onClick={onClick}
-      className="group block w-full min-w-0 rounded-[22px] text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] focus-visible:ring-offset-2"
+      className="group block w-full min-w-0 rounded-[22px] text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] focus-visible:ring-offset-2"
     >
       <InsightCard {...props} />
     </button>
@@ -140,7 +154,7 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
     ["실패", formatInteger(pipelineSummary.failedTiles)],
   ];
   return (
-    <Surface className={`p-4 ${onClick ? "state-layer cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--ptg-primary)] hover:shadow-[0_16px_36px_rgba(38,24,92,0.12)]" : ""}`}>
+    <Surface className={`p-4 ${onClick ? "state-layer cursor-pointer transition hover:border-[var(--ptg-primary)]" : ""}`}>
       <div
         role={onClick ? "button" : undefined}
         tabIndex={onClick ? 0 : undefined}
@@ -580,7 +594,7 @@ function ServerConnectionsSection({ state, actions }) {
           return (
             <div
               key={connection.secretId}
-              className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3 transition hover:border-[var(--ptg-outline-strong)] hover:shadow-[var(--ptg-shadow-1)] max-lg:grid-cols-[34px_minmax(0,1fr)]"
+              className="grid grid-cols-[34px_minmax(0,1fr)_auto] items-center gap-3 rounded-xl border border-[var(--ptg-outline)] bg-white p-3 transition hover:border-[var(--ptg-outline-strong)] max-lg:grid-cols-[34px_minmax(0,1fr)]"
             >
               <span className="ptg-icon-well inline-flex h-8 w-8 items-center justify-center rounded-lg">
                 <Icon name="credentials" className="h-4 w-4" />
@@ -601,7 +615,7 @@ function ServerConnectionsSection({ state, actions }) {
                   </p>
                 ) : null}
               </div>
-              <div className="flex justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
+              <div className="flex items-center justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
                 <AppButton icon="control" onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>관리</AppButton>
                 <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton>
                 <IconButton
@@ -749,7 +763,7 @@ export function ServerManagementPage({ state, actions }) {
             type="button"
             onClick={() => actions.setSelectedServerTab(tab)}
             className={`state-layer flex min-h-10 items-center justify-center gap-1 rounded-[8px] px-2 text-[11px] font-[760] ${
-              state.selectedServerTab === tab ? "bg-white text-[var(--ptg-primary)] shadow-[0_1px_3px_rgba(20,31,37,0.10)]" : "text-[var(--ptg-on-surface-variant)]"
+              state.selectedServerTab === tab ? "bg-white text-[var(--ptg-primary)]" : "text-[var(--ptg-on-surface-variant)]"
             }`}
           >
             <Icon name={icon} className={`h-3.5 w-3.5 ${state.selectedServerTab === tab ? "text-[var(--ptg-secondary)]" : ""}`} />
@@ -913,7 +927,7 @@ function ServerPageStorage({ machine }) {
           const pct = Math.max(0, Math.min(100, Number(disk.percentUsed) || 0));
           const breakdown = storageBreakdownForDisk(disk, storage);
           return (
-            <div key={`${disk.name}-${disk.mount}`} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3 shadow-sm">
+            <div key={`${disk.name}-${disk.mount}`} className="rounded-xl border border-[var(--ptg-outline)] bg-white p-3">
               <div className="flex flex-wrap items-start justify-between gap-3">
                 <span className="min-w-0">
                   <span className="flex min-w-0 items-center gap-2">
@@ -948,7 +962,7 @@ function ServerPageStorage({ machine }) {
         }) : <EmptyLine>아직 구동기사용량과 관련한 정보가 없습니다</EmptyLine>}
       </div>
       {storageSummary.length ? (
-        <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2 shadow-sm">
+        <div className="rounded-xl border border-[var(--ptg-outline)] bg-white p-2">
           {storageSummary.map((item) => (
             <div key={`${item.type}-${item.path}`} className="grid grid-cols-[28px_minmax(0,1fr)_auto] items-center gap-2 rounded-lg px-2 py-2.5 hover:bg-[var(--ptg-surface-container)]">
               <span className="grid h-7 w-7 place-items-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]">
@@ -976,14 +990,13 @@ function ServerPageConfigs({ state, actions }) {
     <section className="grid gap-2">
       <SectionTitle title="Config 화일" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>} />
       {state.configs.length ? state.configs.map((config) => (
-        <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 max-sm:grid-cols-[minmax(0,1fr)_auto]">
+        <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
             <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
               {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | 범위 {config.config.ranges?.length || 0}개 | v{config.version}
             </small>
           </div>
-          <StatusPill status={config.active ? "active" : "neutral"}>{config.active ? "활성" : "비활성"}</StatusPill>
           <TableActions type="config" id={config.configId} duplicate actions={actions} />
         </div>
       )) : localConfigs.length ? localConfigs.map((config) => (
@@ -991,7 +1004,7 @@ function ServerPageConfigs({ state, actions }) {
           key={config.path}
           type="button"
           onClick={() => actions.setEditor({ type: "local-config", path: config.path })}
-          className="state-layer grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:border-[var(--ptg-primary)] hover:shadow-[0_6px_18px_rgba(47,23,112,0.10)]"
+          className="state-layer grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:border-[var(--ptg-primary)]"
         >
           <div className="min-w-0">
             <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
@@ -1205,7 +1218,7 @@ export function ConfigsDashboard({ state, actions }) {
             <button
               key={template.id}
               type="button"
-              className="state-layer group rounded-xl border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:-translate-y-0.5 hover:border-[var(--ptg-primary)] hover:shadow-[0_16px_36px_rgba(38,24,92,0.12)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)]"
+              className="state-layer group rounded-xl border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:border-[var(--ptg-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)]"
               onClick={() => actions.setEditor({ type: "new-config", templateIds: [template.id] })}
             >
               <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${visual.shell}`}>
@@ -1234,7 +1247,7 @@ export function EventsDashboard({ state, actions }) {
   return (
     <section className="screen-enter mt-4 grid gap-4">
       <EventStreamCard events={events} title="관리체계 Console" limit={20} readNotificationIds={state.readNotificationIds} actions={actions} machineId={scopedMachineId} />
-      <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff] shadow-[0_18px_48px_rgba(5,13,30,0.16)]">
+      <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">
         {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "아직 Event가 없습니다"}
       </pre>
     </section>
@@ -1513,7 +1526,7 @@ export function SettingsDashboard({ state, actions }) {
               <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">련결된 봉사기 {serverCount}개에 대한 Poll 및 경보림계값</p>
             </div>
           </div>
-          <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right shadow-[0_1px_1px_rgba(15,23,42,0.03)] max-sm:text-left">
+          <div className="rounded-lg border border-[var(--ptg-outline)] bg-white px-3 py-2 text-right max-sm:text-left">
             <span className="block text-[10.5px] font-[750] uppercase text-[var(--ptg-on-surface-variant)]">봉사기</span>
             <strong className="mt-0.5 block text-[20px] font-[800] leading-none">{serverCount}</strong>
           </div>
@@ -2104,8 +2117,14 @@ function ServersTable({ state, actions }) {
                     </span>
                   </td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">
-                    <span className="flex min-w-[118px] flex-col items-start gap-1">
-                      <strong className="max-w-[150px] truncate text-[12.5px] font-[850]">{process.processLabel}</strong>
+                    <span
+                      aria-label={`${process.processLabel} ${process.statusLabel}`}
+                      className="flex min-w-[118px] items-center gap-1.5 whitespace-nowrap"
+                      title={`${process.processLabel} ${process.statusLabel}`}
+                    >
+                      <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
+                        <Icon name={processStageIcon(process.processLabel)} className="h-4 w-4" />
+                      </span>
                       <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
                     </span>
                   </td>
@@ -2132,7 +2151,7 @@ function ServersTable({ state, actions }) {
                           event.stopPropagation();
                           return actions.manageMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
-                        className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white shadow-sm disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
+                        className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >
                         <Icon name="tool" className="h-3.5 w-3.5 sm:hidden" />
                         <span className="hidden sm:inline">관리</span>

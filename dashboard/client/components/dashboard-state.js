@@ -3,25 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
+import { PAGE_NAMES, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
-const PAGE_NAMES = new Set(["overview", "servers", "configs", "pipelines", "secrets", "credentials", "events", "alerts", "settings", "account"]);
-const SERVER_TAB_NAMES = new Set(["control", "configs", "env", "secrets", "console"]);
-
 function initialRouteState() {
-  if (typeof window === "undefined") {
-    return { selectedTab: "overview", selectedServerTab: "control", selectedMachineId: null };
-  }
-  const url = new URL(window.location.href);
-  const pathPage = url.pathname.split("/").filter(Boolean)[0];
-  const queryPage = url.searchParams.get("page");
-  const selectedTab = PAGE_NAMES.has(pathPage) ? pathPage : PAGE_NAMES.has(queryPage) ? queryPage : "overview";
-  const serverTab = url.searchParams.get("serverTab") || url.searchParams.get("tab");
-  return {
-    selectedTab,
-    selectedServerTab: SERVER_TAB_NAMES.has(serverTab) ? serverTab : "control",
-    selectedMachineId: normalizeMachineId(url.searchParams.get("machineId")) || null,
-  };
+  return parseDashboardRoute(typeof window === "undefined" ? "/" : window.location.href);
 }
 
 export function useDashboardState() {
@@ -46,7 +32,7 @@ export function useDashboardState() {
   const [selectedMachineId, setSelectedMachineId] = useState(initialRouteRef.current.selectedMachineId);
   const [selectedTab, setSelectedTab] = useState(initialRouteRef.current.selectedTab);
   const [selectedServerTab, setSelectedServerTab] = useState(initialRouteRef.current.selectedServerTab);
-  const [editor, setEditor] = useState({ type: "summary" });
+  const [editor, setEditor] = useState(initialRouteRef.current.editor);
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState(null);
   const [confirmRequest, setConfirmRequest] = useState(null);
@@ -81,6 +67,7 @@ export function useDashboardState() {
       setSelectedTab(route.selectedTab);
       setSelectedServerTab(route.selectedServerTab);
       setSelectedMachineId(route.selectedMachineId);
+      setEditor(route.editor);
       selectedMachineIdRef.current = route.selectedMachineId;
       if (route.selectedMachineId) refreshMachineData(route.selectedMachineId).catch((err) => setNotice({ message: err.message, kind: "error" }));
     };
@@ -682,7 +669,6 @@ export function useDashboardState() {
             preview: true,
             machineIds: targetMachineIds,
             name: formData.get("name"),
-            active: formData.get("active") === "on",
             splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
             templateIds,
             rangeInput: formData.get("rangeInput"),
@@ -715,7 +701,6 @@ export function useDashboardState() {
             body: JSON.stringify({
               machineIds: targetMachineIds,
               name: formData.get("name"),
-              active: formData.get("active") === "on",
               splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
               templateIds,
               rangeInput: formData.get("rangeInput"),
@@ -731,7 +716,6 @@ export function useDashboardState() {
         const body = {
           machineId: targetMachineIds[0] || null,
           name: formData.get("name"),
-          active: formData.get("active") === "on",
           config: JSON.parse(formData.get("config")),
         };
         await api(id ? `/api/configs/${encodeURIComponent(id)}` : "/api/configs", {

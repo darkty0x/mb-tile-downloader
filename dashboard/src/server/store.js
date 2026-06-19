@@ -120,7 +120,7 @@ function normalizeConfig(record) {
     name: record.name,
     version: record.version,
     config: structuredClone(record.config),
-    active: record.active,
+    active: true,
     createdAt: record.createdAt,
     updatedAt: record.updatedAt,
   };
@@ -341,18 +341,13 @@ export function createDashboardStore({
       const config = validateConfig(input.config);
       const at = iso(now());
       const id = idGenerator();
-      if (input.active) {
-        for (const record of configs.values()) {
-          if (record.machineId === machineId) record.active = false;
-        }
-      }
       const record = {
         configId: id,
         machineId,
         name,
         version: 1,
         config,
-        active: Boolean(input.active),
+        active: true,
         createdAt: at,
         updatedAt: at,
       };
@@ -369,14 +364,9 @@ export function createDashboardStore({
         name: input.name ? requireNonEmpty(input.name, "name") : existing.name,
         version: existing.version + 1,
         config: validateConfig(input.config ?? existing.config),
-        active: Boolean(input.active),
+        active: true,
         updatedAt: iso(now()),
       };
-      if (next.active) {
-        for (const record of configs.values()) {
-          if (record.machineId === next.machineId) record.active = false;
-        }
-      }
       configs.set(next.configId, next);
       return normalizeConfig(next);
     },

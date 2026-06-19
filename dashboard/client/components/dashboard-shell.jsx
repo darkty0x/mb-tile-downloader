@@ -45,7 +45,7 @@ export function Rail({ state, actions }) {
               type="button"
               onClick={() => actions.setSelectedTab(tab)}
               className={`state-layer relative flex min-h-11 items-center gap-3 rounded-[999px] border px-3 text-left text-[14px] font-[650] max-md:min-w-[130px] ${state.selectedTab === tab
-                  ? "border-[rgba(234,221,255,0.28)] bg-[var(--ptg-primary-soft)] text-[#1d1b20] shadow-[0_12px_26px_rgba(0,10,24,0.22)]"
+                  ? "border-[rgba(234,221,255,0.28)] bg-[var(--ptg-primary-soft)] text-[#1d1b20]"
                   : "border-transparent bg-transparent text-[var(--ptg-rail-muted)] hover:border-[var(--ptg-rail-outline)] hover:bg-[var(--ptg-rail-container)] hover:text-white"
                 }`}
             >
@@ -119,7 +119,7 @@ export function LoginScreen({ state, actions }) {
 
   return (
     <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_20%_10%,rgba(103,80,164,0.18),transparent_34%),linear-gradient(135deg,#fff7ff_0%,#f4f7ff_52%,#eefaf6_100%)] p-4">
-      <section className="screen-enter grid w-[min(440px,calc(100vw-32px))] gap-5 rounded-[32px] border border-[var(--ptg-outline)] bg-white/92 p-6 shadow-[0_28px_90px_rgba(29,27,32,0.22)] backdrop-blur-xl">
+      <section className="screen-enter grid w-[min(440px,calc(100vw-32px))] gap-5 rounded-[32px] border border-[var(--ptg-outline)] bg-white/92 p-6 backdrop-blur-xl">
         <div className="grid gap-3 text-center">
           <span className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
             <Icon name="lock" className="h-9 w-9" filled />
@@ -146,7 +146,7 @@ export function LoginScreen({ state, actions }) {
 export function AuthCheckingScreen() {
   return (
     <main className="grid min-h-screen place-items-center bg-[radial-gradient(circle_at_20%_10%,rgba(103,80,164,0.18),transparent_34%),linear-gradient(135deg,#fff7ff_0%,#f4f7ff_52%,#eefaf6_100%)] p-4">
-      <section className="screen-enter grid place-items-center gap-3 rounded-[28px] border border-[var(--ptg-outline)] bg-white/82 px-8 py-7 shadow-[0_24px_80px_rgba(29,27,32,0.16)] backdrop-blur-xl">
+      <section className="screen-enter grid place-items-center gap-3 rounded-[28px] border border-[var(--ptg-outline)] bg-white/82 px-8 py-7 backdrop-blur-xl">
         <span className="inline-flex h-14 w-14 animate-spin items-center justify-center rounded-[22px] border-2 border-[rgba(103,80,164,0.18)] border-t-[var(--ptg-primary)]" aria-label="가입상태 확인중" />
         <strong className="text-[13px] font-[760] text-[var(--ptg-on-surface-variant)]">가입상태 확인중</strong>
       </section>
@@ -173,7 +173,7 @@ function LastUpdatedChip({ value }) {
   return (
     <span
       aria-live="polite"
-      className="last-updated-chip hidden items-center gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] 2xl:inline-flex"
+      className="last-updated-chip hidden items-center gap-2 rounded-[14px] border border-[var(--ptg-outline)] bg-white px-3 py-2 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)] 2xl:inline-flex"
       data-pulse={pulse ? "true" : "false"}
     >
       <span className="last-updated-chip__icon grid h-7 w-7 place-items-center rounded-full bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
@@ -247,11 +247,11 @@ function GlobalSearch({ state, actions }) {
         }}
         onFocus={() => setOpen(true)}
         placeholder="봉사기, Config 화일, Event 검색..."
-        className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] shadow-[0_1px_2px_rgba(10,26,51,0.04)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+        className="h-11 w-full rounded-[10px] border border-[var(--ptg-outline)] bg-white pl-11 pr-12 text-[13px] font-[650] text-[var(--ptg-on-surface)] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
       />
       <kbd className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-1.5 py-0.5 text-[10px] font-[760] text-[var(--ptg-on-surface-variant)]">⌘ K</kbd>
       {open && query.trim() ? (
-        <div className="screen-enter absolute left-0 top-[calc(100%+10px)] z-30 w-full overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]">
+        <div className="screen-enter absolute left-0 top-[calc(100%+10px)] z-30 w-full overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)]">
           <div className="ptg-scrollbar grid max-h-[360px] gap-1 overflow-auto pr-1">
             {results.length ? results.map((result) => (
               <button
@@ -387,7 +387,7 @@ function NotificationsMenu({ notifications, actions, state }) {
       {open ? (
         <div
           role="menu"
-          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-[min(380px,calc(100vw-32px))] overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
+          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-[min(380px,calc(100vw-32px))] overflow-hidden rounded-[22px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)]"
         >
           <header className="grid grid-cols-[minmax(116px,1fr)_auto] items-start gap-3 rounded-[16px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
             <span className="min-w-[116px]">
@@ -504,7 +504,7 @@ export function ConfirmDialog({ request, actions }) {
 
   return (
     <div className="ptg-modal-backdrop fixed inset-0 z-40 grid place-items-center bg-[#1d1b20]/46 p-4 backdrop-blur-sm">
-      <section className="ptg-modal-panel w-[min(460px,calc(100vw-32px))] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] shadow-[0_28px_80px_rgba(29,27,32,0.28)]">
+      <section className="ptg-modal-panel w-[min(460px,calc(100vw-32px))] overflow-hidden rounded-[28px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)]">
         <header className="grid grid-cols-[44px_minmax(0,1fr)] gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-5 py-4">
           <span className="inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-[#ffdad6] text-[var(--ptg-error)]">
             <Icon name="warning" className="h-5 w-5" />
@@ -565,7 +565,7 @@ function AccountMenu({ state, actions }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((current) => !current)}
-        className="state-layer grid h-11 grid-cols-[32px_minmax(0,1fr)_16px] items-center gap-2 rounded-[999px] border border-[var(--ptg-outline)] bg-white px-2.5 pr-3 text-left shadow-[0_1px_2px_rgba(10,26,51,0.05)] hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-surface-container)] max-md:grid-cols-[32px_16px]"
+        className="state-layer grid h-11 grid-cols-[32px_minmax(0,1fr)_16px] items-center gap-2 rounded-[999px] border border-[var(--ptg-outline)] bg-white px-2.5 pr-3 text-left hover:border-[var(--ptg-outline-strong)] hover:bg-[var(--ptg-surface-container)] max-md:grid-cols-[32px_16px]"
       >
         <span className="ptg-admin-avatar h-8 w-8 rounded-full">
           <Icon name="user" className="h-5 w-5" filled />
@@ -580,7 +580,7 @@ function AccountMenu({ state, actions }) {
       {open ? (
         <div
           role="menu"
-          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-64 overflow-hidden rounded-[18px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)] shadow-[0_18px_54px_rgba(10,26,51,0.18)]"
+          className="screen-enter absolute right-0 top-[calc(100%+10px)] z-30 w-64 overflow-hidden rounded-[18px] border border-[var(--ptg-outline)] bg-white p-2 text-[var(--ptg-on-surface)]"
         >
           <div className="flex items-center gap-3 rounded-[14px] bg-[var(--ptg-surface-container-low)] px-3 py-3">
             <span className="ptg-admin-avatar h-10 w-10 rounded-full">
