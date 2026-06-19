@@ -22,7 +22,7 @@ test("windows agent service wrapper runs the dashboard agent in a restart loop",
 
   assert.match(wrapper, /cd \/d "C:\\mb-tile-downloader"/);
   assert.match(wrapper, /chcp 65001 >nul/);
-  assert.match(wrapper, /"C:\\Program Files\\nodejs\\node.exe" --env-file-if-exists=.env src\\agent\\agent.js/);
+  assert.match(wrapper, /"C:\\Program Files\\nodejs\\node.exe" --env-file-if-exists="C:\\mb-tile-downloader\\.tile-state\\dashboard-agent-bootstrap\.env" --env-file-if-exists=.env src\\agent\\agent.js/);
   assert.match(wrapper, /timeout \/t 7 \/nobreak >nul/);
   assert.match(wrapper, /goto loop/);
 });
@@ -78,6 +78,11 @@ test("windows agent service install stops previous task recreates it and starts 
   const result = await installWindowsAgentService({
     projectDir: dir,
     nodePath: "C:\\node\\node.exe",
+    env: {
+      DASHBOARD_URL: "https://dashboard.example",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "server-01",
+    },
     execFileImpl: async (command, args) => {
       calls.push({ command, args });
       return { stdout: "SUCCESS", stderr: "" };
@@ -102,6 +107,28 @@ test("windows agent service install stops previous task recreates it and starts 
   assert.equal(result.started, true);
   assert.equal(result.stoppedStaleAgentProcesses, true);
   assert.match(await readFile(result.wrapperPath, "utf8"), /src\\agent\\agent.js/);
+  assert.equal(
+    await readFile(result.bootstrapEnvPath, "utf8"),
+    "DASHBOARD_URL=https://dashboard.example\r\nAGENT_TOKEN=agent-token\r\nMACHINE_ID=server-01\r\n"
+  );
+});
+
+test("windows agent service install refuses masked bootstrap env values", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-windows-service-mask-"));
+
+  await assert.rejects(
+    () => installWindowsAgentService({
+      projectDir: dir,
+      nodePath: "C:\\node\\node.exe",
+      env: {
+        DASHBOARD_URL: "http....xyz",
+        AGENT_TOKEN: "********",
+        MACHINE_ID: "server-01",
+      },
+      execFileImpl: async () => ({ stdout: "SUCCESS", stderr: "" }),
+    }),
+    /masked DASHBOARD_URL, AGENT_TOKEN/
+  );
 });
 
 test("windows agent service install also stops an old detached agent pid", async () => {
@@ -113,6 +140,11 @@ test("windows agent service install also stops an old detached agent pid", async
   const result = await installWindowsAgentService({
     projectDir: dir,
     nodePath: "C:\\node\\node.exe",
+    env: {
+      DASHBOARD_URL: "https://dashboard.example",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "server-01",
+    },
     execFileImpl: async (command, args) => {
       calls.push({ command, args });
       return { stdout: "SUCCESS", stderr: "" };

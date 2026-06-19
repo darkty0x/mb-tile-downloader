@@ -1323,6 +1323,9 @@ export function createDashboardApp({
         if (req.method === "POST" && commandMatch) {
           const body = await readJson(req);
           const machineId = decodeURIComponent(commandMatch[1]);
+          if (body.commandType === "write_env" && envTextHasMaskedOrAbbreviatedValue(body.payload?.envText)) {
+            throw new Error("refusing to queue masked .env values; update the global env template and sync again");
+          }
           let stoppedJobs = [];
           let canceledCommands = [];
           if (body.commandType === "stop_pipeline") {

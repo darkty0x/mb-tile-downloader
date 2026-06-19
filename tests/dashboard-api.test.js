@@ -1684,6 +1684,33 @@ test("dashboard global env route stores DB template and queues per-machine root 
   assert.equal(store.getSettings().rootEnvTemplate.sourceMachineId, "global");
 });
 
+test("dashboard command route refuses masked root env writes", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({ machineId: "server-01", agentInstanceId: "agent-01" });
+  const server = await withServer(t, { store });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/machines/server-01/commands",
+    body: {
+      commandType: "write_env",
+      payload: {
+        envText: [
+          "MACHINE_ID=server-01",
+          "STORJ_ACCESS=********",
+          "DASHBOARD_URL=http....xyz",
+        ].join("\n"),
+      },
+    },
+  });
+
+  assert.equal(response.status, 400);
+  assert.match(response.body.error, /masked \.env values/);
+  assert.deepEqual(store.claimCommands({ machineId: "server-01" }), []);
+});
+
 test("dashboard exposes a validator route for existing Mapbox and proxy secrets", async (t) => {
   let id = 0;
   const vault = createSecretVault({

@@ -21,10 +21,26 @@ export function servicePaths({ projectDir = process.cwd() } = {}) {
   return {
     projectDir: resolvedProject,
     stateDir: pathImpl.join(resolvedProject, ".tile-state"),
+    bootstrapEnvPath: pathImpl.join(resolvedProject, ".tile-state", "dashboard-agent-bootstrap.env"),
     wrapperPath: pathImpl.join(resolvedProject, ".tile-state", "run-dashboard-agent.cmd"),
     logPath: pathImpl.join(resolvedProject, ".tile-state", "dashboard-agent-service.log"),
     agentLogPath: pathImpl.join(resolvedProject, ".tile-state", "dashboard-agent.log"),
   };
+}
+
+const BOOTSTRAP_ENV_NAMES = ["DASHBOARD_URL", "AGENT_TOKEN", "MACHINE_ID"];
+const MASKED_ENV_VALUE_PATTERN = /\*{3,}|\.{3,}/;
+
+function buildBootstrapEnvText(env = process.env) {
+  const missing = BOOTSTRAP_ENV_NAMES.filter((name) => !String(env[name] || "").trim());
+  if (missing.length) {
+    throw new Error(`cannot install dashboard agent service; missing ${missing.join(", ")} in .env`);
+  }
+  const masked = BOOTSTRAP_ENV_NAMES.filter((name) => MASKED_ENV_VALUE_PATTERN.test(String(env[name] || "")));
+  if (masked.length) {
+    throw new Error(`cannot install dashboard agent service; masked ${masked.join(", ")} in .env`);
+  }
+  return `${BOOTSTRAP_ENV_NAMES.map((name) => `${name}=${env[name]}`).join("\r\n")}\r\n`;
 }
 
 export function buildWindowsAgentWrapper({
@@ -42,7 +58,7 @@ export function buildWindowsAgentWrapper({
     `if not exist ${windowsQuote(paths.stateDir)} mkdir ${windowsQuote(paths.stateDir)}`,
     ":loop",
     `echo [%date% %time%] starting dashboard agent >> ${windowsQuote(paths.logPath)}`,
-    `${windowsQuote(nodePath)} --env-file-if-exists=.env src\\agent\\agent.js >> ${windowsQuote(paths.logPath)} 2>&1`,
+    `${windowsQuote(nodePath)} --env-file-if-exists=${windowsQuote(paths.bootstrapEnvPath)} --env-file-if-exists=.env src\\agent\\agent.js >> ${windowsQuote(paths.logPath)} 2>&1`,
     `echo [%date% %time%] dashboard agent exited code %ERRORLEVEL%; restarting in ${delay}s >> ${windowsQuote(paths.logPath)}`,
     `timeout /t ${delay} /nobreak >nul`,
     "goto loop",
@@ -233,6 +249,7 @@ export async function installWindowsAgentService({
   taskName = DEFAULT_WINDOWS_AGENT_TASK_NAME,
   runAs = "SYSTEM",
   execFileImpl = execFileAsync,
+  env = process.env,
 } = {}) {
   const paths = servicePaths({ projectDir });
   const stopResult = await execSchtasksIgnoreFailure(execFileImpl, ["/End", "/TN", taskName]);
@@ -240,6 +257,7 @@ export async function installWindowsAgentService({
   const staleProcessStopResult = await stopProjectAgentProcesses({ projectDir: paths.projectDir, execFileImpl });
   const deleteResult = await execSchtasksIgnoreFailure(execFileImpl, ["/Delete", "/TN", taskName, "/F"]);
   await mkdir(paths.stateDir, { recursive: true });
+  await writeFile(paths.bootstrapEnvPath, buildBootstrapEnvText(env), "utf8");
   await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath }), "utf8");
   const args = buildSchtasksCreateArgs({ taskName, wrapperPath: paths.wrapperPath, runAs });
   const result = await execFileImpl("schtasks.exe", args, { windowsHide: true });
@@ -248,6 +266,7 @@ export async function installWindowsAgentService({
   return {
     taskName,
     ...paths,
+    bootstrapEnvPath: paths.bootstrapEnvPath,
     stdout: String(result?.stdout || "").trim(),
     stderr: String(result?.stderr || "").trim(),
     stoppedPrevious: stopResult.ok,

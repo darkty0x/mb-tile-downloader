@@ -3,6 +3,7 @@ import path from "node:path";
 
 const PRESERVED_NAMES = new Set(["MAPBOX_ACCESS_TOKENS"]);
 const ENV_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
+const MASKED_VALUE_PATTERN = /\*{3,}|\.{3,}/;
 
 function parseEnvLines(text) {
   const values = new Map();
@@ -19,6 +20,18 @@ function parseEnvLines(text) {
   return values;
 }
 
+function isMaskedOrAbbreviatedValue(value) {
+  return MASKED_VALUE_PATTERN.test(String(value || "").trim());
+}
+
+function assertNoMaskedEnvValues(values) {
+  for (const [name, value] of values.entries()) {
+    if (isMaskedOrAbbreviatedValue(value)) {
+      throw new Error(`refusing to write masked .env value for ${name}`);
+    }
+  }
+}
+
 async function readExistingEnv(filePath) {
   try {
     return await readFile(filePath, "utf8");
@@ -31,10 +44,14 @@ async function readExistingEnv(filePath) {
 export async function writeRootEnvFile({ projectDir = process.cwd(), envText = "" } = {}) {
   const envPath = path.resolve(projectDir, ".env");
   const incoming = parseEnvLines(envText);
+  assertNoMaskedEnvValues(incoming);
   const existing = parseEnvLines(await readExistingEnv(envPath));
   for (const name of PRESERVED_NAMES) {
-    if (!incoming.has(name) && existing.has(name)) incoming.set(name, existing.get(name));
+    if (!incoming.has(name) && existing.has(name) && !isMaskedOrAbbreviatedValue(existing.get(name))) {
+      incoming.set(name, existing.get(name));
+    }
   }
+  assertNoMaskedEnvValues(incoming);
   const lines = [...incoming.entries()].map(([name, value]) => `${name}=${value}`);
   const tmpPath = `${envPath}.tmp-${process.pid}`;
   await writeFile(tmpPath, `${lines.join("\n")}${lines.length ? "\n" : ""}`, "utf8");

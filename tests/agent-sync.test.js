@@ -329,3 +329,69 @@ test("agent write_env command updates root env and preserves mapbox tokens", asy
   assert.match(envText, /MAPBOX_ACCESS_TOKENS=pk\.one,pk\.two/);
   assert.deepEqual(calls.map((call) => call[0]), ["sync", "event", "ack"]);
 });
+
+test("agent write_env command refuses masked env values and leaves root env unchanged", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-write-env-mask-"));
+  const originalEnv = "PORT=3001\nSTORJ_ACCESS=real-access\n";
+  await writeFile(path.join(dir, ".env"), originalEnv);
+  const calls = [];
+  const client = {
+    async postEvent(event) {
+      calls.push(["event", event.type, event.message]);
+    },
+    async ackCommand(commandId, payload) {
+      calls.push(["ack", commandId, payload]);
+    },
+  };
+
+  await runCommand({
+    id: "cmd-write-env-mask",
+    commandType: "write_env",
+    payload: { envText: "PORT=4000\nSTORJ_ACCESS=********\n" },
+    claimedAt: "claim-write-env-mask",
+  }, {
+    client,
+    runner: { stop: () => false, run: async () => ({ code: 0, signal: null }) },
+    machineId: "server-01",
+    projectDir: dir,
+    syncNow: async () => calls.push(["sync"]),
+  });
+
+  assert.equal(await readFile(path.join(dir, ".env"), "utf8"), originalEnv);
+  assert.equal(calls.some((call) => call[0] === "sync"), false);
+  assert.equal(calls.find((call) => call[0] === "event")?.[1], "command.failed");
+  assert.match(calls.find((call) => call[0] === "event")?.[2] || "", /masked \.env value/);
+});
+
+test("agent write_env command does not preserve an already masked mapbox token", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-write-env-masked-preserve-"));
+  await writeFile(path.join(dir, ".env"), "MAPBOX_ACCESS_TOKENS=********\nPORT=3001\n");
+  const calls = [];
+  const client = {
+    async postEvent(event) {
+      calls.push(["event", event.type, event.message]);
+    },
+    async ackCommand(commandId) {
+      calls.push(["ack", commandId]);
+    },
+  };
+
+  await runCommand({
+    id: "cmd-write-env-no-mask-preserve",
+    commandType: "write_env",
+    payload: { envText: "PORT=4000\nDASHBOARD_URL=https://dashboard.example.com\n" },
+    claimedAt: "claim-write-env-no-mask-preserve",
+  }, {
+    client,
+    runner: { stop: () => false, run: async () => ({ code: 0, signal: null }) },
+    machineId: "server-01",
+    projectDir: dir,
+    syncNow: async () => calls.push(["sync"]),
+  });
+
+  const envText = await readFile(path.join(dir, ".env"), "utf8");
+  assert.doesNotMatch(envText, /MAPBOX_ACCESS_TOKENS=\*+/);
+  assert.match(envText, /PORT=4000/);
+  assert.match(envText, /DASHBOARD_URL=https:\/\/dashboard\.example\.com/);
+  assert.deepEqual(calls.map((call) => call[0]), ["sync", "event", "ack"]);
+});
