@@ -102,7 +102,7 @@ Agent job progress is reported through the canonical `/api/agents/jobs` endpoint
 
 Servers are not manually created in the dashboard. To add a server, run the local agent on that machine with a unique `MACHINE_ID`, the Railway `DASHBOARD_URL`, and the shared `AGENT_TOKEN`. The dashboard shows it after the agent registers and heartbeats.
 
-The Servers page can also store a remote connection profile with protocol, IP/host, port, username, and password. Connection passwords are encrypted in the secret vault and are not committed to the repo. The Validate action checks whether the endpoint is reachable from the dashboard and whether the matching `MACHINE_ID` has an online agent. RDP reachability alone does not allow dashboard control; command execution goes through the agent.
+The Servers page can also store connection profiles. Remote RDP/SSH/WinRM profiles keep protocol, IP/host, port, username, and password in the encrypted secret vault. Personal computer profiles use the agent-only protocol and store only the target `MACHINE_ID`, because dashboard control goes through the outbound agent and does not require a public inbound endpoint. Validation checks TCP reachability only for remote endpoint profiles; agent-only profiles validate the matching online agent state.
 
 To remove a server, use the remove action in the Servers table. Removal deletes the machine registry entry, server-scoped configs/env profiles/events/queued commands, and releases assigned Mapbox/proxy secrets back to the global pool.
 

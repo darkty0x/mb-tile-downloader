@@ -64,13 +64,18 @@ function ServerOnboardingForm({ state, actions }) {
     const requiredFields = [
       ["machineId", "Machine ID"],
       ["label", "봉사기이름"],
-      ["host", "IP / Host"],
-      ["username", "사용자이름"],
-      ["password", "암호"],
     ];
+    if (formData.get("protocol") !== "agent") {
+      requiredFields.push(
+        ["host", "IP / Host"],
+        ["username", "사용자이름"],
+        ["password", "암호"],
+      );
+    }
     for (const [name, title] of requiredFields) {
       if (!String(formData.get(name) || "").trim()) return `${title} 이(가) 필요합니다.`;
     }
+    if (formData.get("protocol") === "agent") return null;
     const port = Number(formData.get("port"));
     if (!Number.isInteger(port) || port < 1 || port > 65535) return "포구는 1부터 65535사이여야 합니다.";
     return null;
@@ -172,16 +177,23 @@ function ServerOnboardingForm({ state, actions }) {
         />
         <div className="grid grid-cols-[1fr_96px] gap-2">
           <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
+            <option value="agent">Personal Computer</option>
             <option value="rdp">RDP</option>
             <option value="ssh">SSH</option>
             <option value="winrm">WinRM</option>
             <option value="winrms">WinRM TLS</option>
           </SelectInput>
-          <TextInput label="포구" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+          <TextInput label="포구" name="port" type="number" min="1" max="65535" defaultValue="7777" required={protocol !== "agent"} disabled={protocol === "agent"} />
         </div>
-        <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
-        <TextInput label="사용자이름" name="username" defaultValue="root" autoComplete="username" required />
-        <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
+        {protocol === "agent" ? (
+          <input type="hidden" name="host" value="" />
+        ) : (
+          <>
+            <TextInput label="IP / Host" name="host" placeholder="203.0.113.10" required />
+            <TextInput label="사용자이름" name="username" defaultValue="root" autoComplete="username" required />
+            <TextInput label="암호" name="password" type="password" autoComplete="new-password" required />
+          </>
+        )}
         <AppButton variant="filled" icon="check" type="submit" loading={submitting}>접속 Profile 보관</AppButton>
       </form>
 
@@ -267,7 +279,7 @@ export function EditorDrawer({ state, actions }) {
       </ModalShell>
     );
   }
-  const config = editor.type === "config" ? state.configs.find((item) => item.configId === editor.id) : null;
+  const config = editor.type === "config" ? [...state.configs, ...(state.globalConfigs || [])].find((item) => item.configId === editor.id) : null;
   const localConfig = editor.type === "local-config"
     ? (state.selectedMachine?.agentSnapshot?.configs || []).find((item) => {
         const target = normalizePathKey(editor.path);
@@ -293,6 +305,7 @@ export function EditorDrawer({ state, actions }) {
 }
 
 function editorTitle(type, record, editor = {}) {
+  if (type === "new-config" && editor?.name && editor?.templateIds?.length) return "Config 류형 편집";
   if (type === "new-config") return "Config 화일 추가";
   if (type === "new-env") return ".Env 추가";
   if (type === "new-secret" && (record?.secretType === "credential" || editor.secretType === "credential")) return "계정정보 추가";
@@ -316,14 +329,17 @@ function ConnectionDetail({ connection, state, actions }) {
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
   const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const validation = state.serverValidationResults[connection.secretId];
-  const endpoint = `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const isAgentOnly = connection.credential?.protocol === "agent";
+  const endpoint = isAgentOnly
+    ? "Agent only"
+    : `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
   const copy = (text) => navigator.clipboard?.writeText(String(text || "")).catch(() => {});
   return (
     <section className="grid gap-3">
       <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
         <DetailTile label="Protocol" value={displayProtocol(connection.credential?.protocol)} />
         <DetailTile label="끝점" value={endpoint} />
-        <DetailTile label="사용자이름" value={connection.credential?.username || "N/A"} />
+        <DetailTile label="사용자이름" value={connection.credential?.username || "필요없음"} />
         <DetailTile label="Machine ID" value={displayMachineId(targetMachineId)} />
         <DetailTile label="Agent" value={machine ? `${machine.displayName || displayMachineId(machine.machineId)} (${displayStatus(machine.status)})` : "등록되지 않음"} />
         <DetailTile label="계정정보" value={displayStatus(connection.status)} />
@@ -331,7 +347,7 @@ function ConnectionDetail({ connection, state, actions }) {
 
       {validation ? (
         <div className="rounded-lg border border-[var(--ptg-outline)] bg-[var(--ptg-background)] p-3 text-[12px] font-[650] text-[var(--ptg-on-surface-variant)]">
-          망 {validation.network.ok ? "도달가능" : "차단됨"} | Agent {displayStatus(validation.agent.status)}
+          망 {validation.network.skipped ? "검증생략" : validation.network.ok ? "도달가능" : "차단됨"} | Agent {displayStatus(validation.agent.status)}
         </div>
       ) : null}
 
@@ -606,7 +622,11 @@ function ConfigForm({ record, state, actions, editor }) {
     [editor?.templateId, editor?.templateIds]
   );
   const [selectedTemplateIds, setSelectedTemplateIds] = useState(initialTemplateIds);
-  const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
+  const [selectedMachineIds, setSelectedMachineIds] = useState(() => {
+    if (Array.isArray(editor?.machineIds) && editor.machineIds.length) return editor.machineIds;
+    if (state.selectedMachineId) return [state.selectedMachineId];
+    return state.machines[0]?.machineId ? [state.machines[0].machineId] : [];
+  });
   const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [batchPreview, setBatchPreview] = useState(null);
@@ -659,7 +679,7 @@ function ConfigForm({ record, state, actions, editor }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="이름" name="name" defaultValue={record?.name || ""} onChange={clearBatchPreview} required />
+      <TextInput label="이름" name="name" defaultValue={record?.name || editor?.name || ""} onChange={clearBatchPreview} required />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}
@@ -817,6 +837,7 @@ function SecretForm({ record, editor, state, actions }) {
   const [submitting, setSubmitting] = useState(false);
   const isCredential = ["credential", "server_rdp_credential"].includes(selectedSecretType);
   const isServerCredential = selectedSecretType === "server_rdp_credential";
+  const isAgentCredential = credential.protocol === "agent";
   const isPoolSecret = ["mapbox_token", "proxy_txt"].includes(selectedSecretType);
   const lockSecretType = Boolean(id || editor?.secretType || record?.secretType);
   const machines = state?.machines || [];
@@ -954,7 +975,7 @@ function SecretForm({ record, editor, state, actions }) {
             defaultValue={credential.username || ""}
             placeholder="root"
             autoComplete="username"
-            required
+            required={!isAgentCredential}
           />
           <TextInput
             label="암호"
@@ -964,7 +985,7 @@ function SecretForm({ record, editor, state, actions }) {
             value={credentialPassword}
             onChange={(event) => setCredentialPassword(event.target.value)}
             placeholder={credentialPasswordLoaded ? "암호" : "암호 읽는중"}
-            required={!id}
+            required={!id && !isAgentCredential}
           />
           <div className="grid grid-cols-2 gap-2 max-[460px]:grid-cols-1 sm:flex sm:justify-end">
             <AppButton

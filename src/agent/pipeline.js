@@ -322,25 +322,30 @@ export async function runRangePipeline({
 }
 
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
-  const configPath = process.argv[2];
-  if (!configPath) {
-    console.error("Usage: node src/agent/pipeline.js <configPath>");
+  const configPaths = process.argv.slice(2).filter(Boolean);
+  if (!configPaths.length) {
+    console.error("Usage: node src/agent/pipeline.js <configPath> [configPath...]");
     process.exit(2);
   }
-  const config = await loadConfig(configPath, { env: process.env });
-  runRangePipeline({
-    config,
-    configPath,
-    createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
-    runStage: (stage, context) => runNode(stageArgs(stage, context), {
-      reporter: context.reporter,
-      stage,
-      baseProgress: context.progress,
-    }),
-    shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
-    shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
-  }).catch((err) => {
+
+  try {
+    for (const configPath of configPaths) {
+      const config = await loadConfig(configPath, { env: process.env });
+      await runRangePipeline({
+        config,
+        configPath,
+        createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
+        runStage: (stage, context) => runNode(stageArgs(stage, context), {
+          reporter: context.reporter,
+          stage,
+          baseProgress: context.progress,
+        }),
+        shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
+        shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
+      });
+    }
+  } catch (err) {
     console.error(`Fatal: ${err.message}`);
     process.exit(1);
-  });
+  }
 }

@@ -690,7 +690,7 @@ export function useDashboardState() {
         });
         setEditor({ type: "summary" });
         setNotice({ message: `Config 화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
-        await refreshMachineData();
+        await refreshAll({ showLoading: false });
         return created;
       },
       async saveConfig(formData, id) {
@@ -716,7 +716,7 @@ export function useDashboardState() {
           });
           setEditor({ type: "summary" });
           setNotice({ message: `Config 화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
-          await refreshMachineData();
+          await refreshAll({ showLoading: false });
           return;
         }
         const body = {
@@ -729,7 +729,7 @@ export function useDashboardState() {
           body: JSON.stringify(body),
         });
         setEditor({ type: "summary" });
-        await refreshMachineData();
+        await refreshAll({ showLoading: false });
       },
       async saveEnv(formData, id) {
         const body = {
@@ -764,9 +764,10 @@ export function useDashboardState() {
           const existingMachineId = String(formData.get("existingCredentialMachineId") || "").trim();
           const existingUsername = String(formData.get("existingCredentialUsername") || "").trim();
           const changedCredentialIdentity = protocolUrl !== existingProtocolUrl || machineId !== existingMachineId || username !== existingUsername;
+          const isAgentOnlyCredential = protocolUrl.toLowerCase().startsWith("agent:");
           if (!id || password || changedCredentialIdentity) {
             const changedFields = secretType === "server_rdp_credential" ? "URL, Agent ID 또는 사용자이름" : "URL 또는 사용자이름";
-            if (!password) throw new Error(`${changedFields}을(를) 만들거나 바꿀 때 접속암호가 필요합니다`);
+            if (!password && !isAgentOnlyCredential) throw new Error(`${changedFields}을(를) 만들거나 바꿀 때 접속암호가 필요합니다`);
             body.value = buildCredentialSecretValue({ protocolUrl, machineId, username, password });
           }
         } else if (formData.get("value")) {
@@ -829,7 +830,7 @@ export function useDashboardState() {
         await api(paths[type], { method: "DELETE" });
         setEditor({ type: "summary" });
         if (type === "secret") await refreshSecretPool();
-        await refreshMachineData();
+        await refreshAll({ showLoading: false });
       },
       async deleteSecrets(secretIds) {
         const uniqueIds = [...new Set(secretIds)].filter(Boolean);

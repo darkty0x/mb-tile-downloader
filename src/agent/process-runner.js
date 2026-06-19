@@ -1,10 +1,26 @@
 import { spawn } from "node:child_process";
 
+function normalizeConfigPaths(payload = {}) {
+  const rawValues = Array.isArray(payload.configPaths) ? payload.configPaths : [payload.configPath];
+  return rawValues
+    .map((value) => (typeof value === "string" ? value.trim() : ""))
+    .filter(Boolean);
+}
+
 function requireConfigPath(payload = {}) {
-  if (!payload.configPath || typeof payload.configPath !== "string") {
+  const [configPath] = normalizeConfigPaths(payload);
+  if (!configPath) {
     throw new Error("configPath is required");
   }
-  return payload.configPath;
+  return configPath;
+}
+
+function requireConfigPaths(payload = {}) {
+  const configPaths = normalizeConfigPaths(payload);
+  if (!configPaths.length) {
+    throw new Error("configPath is required");
+  }
+  return configPaths;
 }
 
 export function resolveManagedCommand({ commandType, payload = {} }) {
@@ -13,7 +29,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "resume_pipeline":
       return {
         command: process.execPath,
-        args: ["src/agent/pipeline.js", requireConfigPath(payload)],
+        args: ["src/agent/pipeline.js", ...requireConfigPaths(payload)],
       };
     case "run_preflight":
       return {

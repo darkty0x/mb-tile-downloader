@@ -5,7 +5,7 @@ import { normalizeMachineId } from "../../../src/runtime/machine-id.js";
 const CREDENTIAL_SECRET_TYPES = new Set(["credential", "server_rdp_credential"]);
 const VALID_SECRET_TYPES = new Set(["mapbox_token", "proxy_txt", "storj_access", ...CREDENTIAL_SECRET_TYPES]);
 const VALID_SECRET_STATUSES = new Set(["active", "inactive", "disabled", "error", "invalid", "exhausted"]);
-const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:"]);
+const VALID_CREDENTIAL_PROTOCOLS = new Set(["http:", "https:", "rdp:", "ssh:", "winrm:", "winrms:", "agent:"]);
 const DEFAULT_CREDENTIAL_PORTS = {
   "http:": 80,
   "https:": 443,
@@ -13,6 +13,7 @@ const DEFAULT_CREDENTIAL_PORTS = {
   "ssh:": 22,
   "winrm:": 5985,
   "winrms:": 5986,
+  "agent:": null,
 };
 export const SECRET_POOL_TARGETS = {
   mapbox_token: 1,
@@ -73,12 +74,18 @@ function parseCredentialValue(value, { requireMachineId = false } = {}) {
   const username = String(payload.username || "").trim();
   const password = String(payload.password ?? "");
   const machineId = normalizeMachineId(payload.machineId) || null;
+  const isAgentOnly = protocolUrl.toLowerCase().startsWith("agent:");
   if (!protocolUrl) throw new Error("credential protocol URL is required");
-  if (!username) throw new Error("credential username is required");
-  if (!password.trim()) throw new Error("credential password is required");
   const parsedUrl = new URL(protocolUrl);
   if (!VALID_CREDENTIAL_PROTOCOLS.has(parsedUrl.protocol)) {
-    throw new Error("credential protocol URL must use http, https, rdp, ssh, winrm, or winrms");
+    throw new Error("credential protocol URL must use http, https, rdp, ssh, winrm, winrms, or agent");
+  }
+  if (isAgentOnly && parsedUrl.protocol !== "agent:") {
+    throw new Error("agent-only credentials must use agent protocol URL");
+  }
+  if (!isAgentOnly) {
+    if (!username) throw new Error("credential username is required");
+    if (!password.trim()) throw new Error("credential password is required");
   }
   if (requireMachineId && !machineId) {
     throw new Error("server credential Agent ID is required");

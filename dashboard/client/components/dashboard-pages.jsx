@@ -3,9 +3,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-model";
 import { eventNotificationId } from "../lib/event-identity";
+import { buildConfigGroups } from "../lib/config-groups";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
-import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
+import { AppButton, IconButton, MetricCard, ModalShell, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
 import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, envValueFromText, findMachineById, fleetState, formatBytes, normalizeMachineId, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
@@ -174,6 +175,43 @@ function displayPlatformLabel(value) {
 
 function displayConfigName(value) {
   return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "").replace(/\s+-\s+/g, "-");
+}
+
+function dashboardConfigPath(config) {
+  return config?.configId ? `.tile-state/dashboard/configs/${config.configId}.json` : null;
+}
+
+function configChoiceLabel(config) {
+  return displayConfigName(config?.name || config?.jobName || config?.path || config?.configId);
+}
+
+function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [] } = {}) {
+  const choices = [];
+  const seen = new Set();
+  const add = (config, source) => {
+    const path = source === "dashboard" ? dashboardConfigPath(config) : config?.path;
+    if (!path || seen.has(path)) return;
+    seen.add(path);
+    choices.push({
+      id: path,
+      path,
+      label: configChoiceLabel(config),
+      source,
+      selected: true,
+      meta: source === "dashboard" ? "관리체계 Config" : "Local Config",
+    });
+  };
+  dashboardConfigs.forEach((config) => add(config, "dashboard"));
+  localConfigs.forEach((config) => add(config, "local"));
+  return choices;
+}
+
+function moveConfigChoice(items, index, direction) {
+  const next = [...items];
+  const target = index + direction;
+  if (target < 0 || target >= next.length) return next;
+  [next[index], next[target]] = [next[target], next[index]];
+  return next;
 }
 
 function formatInteger(value) {
@@ -703,7 +741,10 @@ function ServerConnectionsSection({ state, actions }) {
         {connections.length ? connections.map((connection) => {
           const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
           const validation = state.serverValidationResults[connection.secretId];
-          const endpoint = `${displayProtocol(connection.credential.protocol)}://${connection.credential.host}:${connection.credential.port}`;
+          const isAgentOnly = connection.credential?.protocol === "agent";
+          const endpoint = isAgentOnly
+            ? "Agent only"
+            : `${displayProtocol(connection.credential.protocol)}://${connection.credential.host}:${connection.credential.port}`;
           return (
             <div
               key={connection.secretId}
@@ -720,11 +761,11 @@ function ServerConnectionsSection({ state, actions }) {
                   </StatusPill>
                 </div>
                 <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                  {endpoint} | {connection.credential.username} | {machineNameForId(state, targetMachineId)}
+                  {[endpoint, connection.credential.username, machineNameForId(state, targetMachineId)].filter(Boolean).join(" | ")}
                 </p>
                 {validation ? (
                   <p className="mt-1 truncate text-[11px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                    망 {validation.network.ok ? "접속가능" : "접속불가능"} | Agent {displayStatus(validation.agent.status)}
+                    망 {validation.network.skipped ? "검증생략" : validation.network.ok ? "접속가능" : "접속불가능"} | Agent {displayStatus(validation.agent.status)}
                   </p>
                 ) : null}
               </div>
@@ -766,7 +807,9 @@ export function ServerManagementPage({ state, actions }) {
   const snapshot = machine?.agentSnapshot || {};
   const validation = connection ? state.serverValidationResults[connection.secretId] : null;
   const endpoint = connection
-    ? `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`
+    ? connection.credential?.protocol === "agent"
+      ? "Agent only"
+      : `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`
     : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const serverState = {
@@ -1316,38 +1359,87 @@ export function PipelinesDashboard({ state }) {
 
 export function ConfigsDashboard({ state, actions }) {
   const templates = state.configTemplates || [];
+  const configs = state.globalConfigs || [];
+  const groups = buildConfigGroups(configs, templates);
   return (
     <section className="screen-enter mt-4 grid gap-4">
       <Surface className="p-4">
         <SectionTitle
-          title="Config 화일 Library"
-          meta={`배정가능한 Config 화일 Template ${templates.length}개`}
+          title="Config 화일 목록"
+          meta={`배정된 Config 그룹 ${groups.length}개 | Config 화일 ${configs.length}개 | 류형 ${templates.length}개`}
           action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>Config 화일 작성</AppButton>}
         />
-        <div className="grid grid-cols-3 gap-3 max-2xl:grid-cols-2 max-lg:grid-cols-1">
-          {templates.length ? templates.map((template) => {
-            const visual = configPresetVisual(template);
-            return (
+        <div className="grid gap-3">
+          {groups.length ? groups.map((group) => (
+            <ConfigGroupCard key={group.key} group={group} templates={templates} state={state} actions={actions} />
+          )) : (
+            <EmptyLine>아직 배정된 Config 화일이 없습니다</EmptyLine>
+          )}
+        </div>
+      </Surface>
+    </section>
+  );
+}
+
+function ConfigGroupCard({ group, state, actions }) {
+  const machine = group.machineId ? findMachineById(state.machines, group.machineId) : null;
+  const machineName = machine?.displayName || displayMachineId(group.machineId) || "Global";
+  const editGroup = () => actions.setEditor({
+    type: "new-config",
+    name: group.name,
+    machineIds: group.machineId ? [group.machineId] : [],
+    templateIds: group.enabledTemplateIds,
+  });
+
+  return (
+    <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 max-sm:grid-cols-1">
+        <div className="min-w-0">
+          <strong className="block truncate text-[13.5px] font-[850] text-[var(--ptg-on-surface)]">{group.name}</strong>
+          <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
+            {machineName} | 활성 류형 {group.enabledTemplateIds.length}/{group.templates.length} | Config {group.configCount}개
+          </p>
+        </div>
+        <AppButton icon="edit" onClick={editGroup}>류형 편집</AppButton>
+      </div>
+      <div className="mt-3 grid grid-cols-9 gap-2 max-xl:grid-cols-6 max-md:grid-cols-3">
+        {group.templates.map((template) => {
+          const visual = configPresetVisual(template);
+          const enabled = Boolean(template.enabled);
+          const openTemplate = () => {
+            if (enabled && template.config?.configId) {
+              actions.setEditor({ type: "config", id: template.config.configId });
+              return;
+            }
+            actions.setEditor({
+              type: "new-config",
+              name: group.name,
+              machineIds: group.machineId ? [group.machineId] : [],
+              templateIds: [...new Set([...group.enabledTemplateIds, template.id])],
+            });
+          };
+          return (
             <button
               key={template.id}
               type="button"
-              className="state-layer group rounded-xl border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:border-[var(--ptg-primary)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)]"
-              onClick={() => actions.setEditor({ type: "new-config", templateIds: [template.id] })}
+              title={template.label}
+              aria-label={`${template.label} ${enabled ? "enabled" : "disabled"}`}
+              className={`state-layer group grid min-h-[82px] min-w-0 content-center justify-items-center gap-1.5 rounded-lg border p-2 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] ${
+                enabled
+                  ? "border-[rgba(96,64,239,0.32)] bg-[var(--ptg-primary-soft)]"
+                  : "border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] opacity-55 hover:opacity-100"
+              }`}
+              onClick={openTemplate}
             >
-              <span className={`inline-flex h-10 w-10 items-center justify-center rounded-xl border ${visual.shell}`}>
-                <Icon name={visual.icon} className="h-5 w-5" />
+              <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border ${enabled ? visual.badge : visual.shell}`}>
+                <Icon name={visual.icon} className="h-4 w-4" />
               </span>
-              <strong className="mt-3 block truncate text-[13px] font-[850] text-[var(--ptg-on-surface)] group-hover:text-[var(--ptg-primary)]">{template.label}</strong>
-              <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                {template.provider} | {template.layer} | {template.format}
-              </p>
+              <span className="block w-full truncate text-[10.5px] font-[780] text-[var(--ptg-on-surface)]">{template.label}</span>
             </button>
           );
-          }) : <EmptyLine>리용가능한 Config 화일 예비가 없습니다</EmptyLine>}
-        </div>
-      </Surface>
-      <ServersTable state={state} actions={actions} />
-    </section>
+        })}
+      </div>
+    </div>
   );
 }
 

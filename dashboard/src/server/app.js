@@ -49,13 +49,14 @@ const MIME = new Map([
   [".woff", "font/woff"],
   [".woff2", "font/woff2"],
 ]);
-const SERVER_CONNECTION_PROTOCOLS = new Set(["rdp", "ssh", "winrm", "winrms"]);
+const SERVER_CONNECTION_PROTOCOLS = new Set(["rdp", "ssh", "winrm", "winrms", "agent"]);
 const SERVER_CONNECTION_SECRET_TYPE = "server_rdp_credential";
 const SERVER_CONNECTION_DEFAULT_PORTS = {
   rdp: 3389,
   ssh: 22,
   winrm: 5985,
   winrms: 5986,
+  agent: null,
 };
 
 function json(res, status, body) {
@@ -148,7 +149,21 @@ async function handleAgentJobRoute({ req, res, url, store, basePath }) {
 function normalizeServerConnectionInput(body = {}) {
   const protocol = String(body.protocol || "rdp").trim().toLowerCase().replace(/:$/, "");
   if (!SERVER_CONNECTION_PROTOCOLS.has(protocol)) {
-    throw new Error("server protocol must be one of: rdp, ssh, winrm, winrms");
+    throw new Error("server protocol must be one of: rdp, ssh, winrm, winrms, agent");
+  }
+  const machineId = normalizeMachineId(body.machineId) || null;
+  if (!machineId) throw new Error("server Agent ID is required");
+  if (protocol === "agent") {
+    return {
+      machineId,
+      label: String(body.label || machineId).trim(),
+      protocol,
+      host: machineId,
+      port: null,
+      username: "",
+      password: "",
+      protocolUrl: `agent://${machineId}`,
+    };
   }
   const host = String(body.host || "").trim();
   if (!host) throw new Error("server host is required");
@@ -162,8 +177,6 @@ function normalizeServerConnectionInput(body = {}) {
   if (!username) throw new Error("server username is required");
   const password = String(body.password || "");
   if (!password.trim()) throw new Error("server password is required");
-  const machineId = normalizeMachineId(body.machineId) || null;
-  if (!machineId) throw new Error("server Agent ID is required");
   return {
     machineId,
     label: String(body.label || machineId || `${host}:${port}`).trim(),
@@ -993,7 +1006,6 @@ export function createDashboardApp({
           const connection = await secretVault.getSecretForDashboard(secretId);
           if (connection.secretType !== SERVER_CONNECTION_SECRET_TYPE) throw new Error("server connection must be a server credential secret");
           const endpoint = endpointFromCredentialValue(connection.value);
-          const network = await checkTcpEndpoint(endpoint);
           const targetMachineId = endpoint.machineId || normalizeMachineId(connection.machineId);
           const machine = targetMachineId ? await findMachineById(store, targetMachineId) : null;
           const agent = {
@@ -1002,15 +1014,24 @@ export function createDashboardApp({
             status: machine?.status || "missing",
             lastSeenAt: machine?.lastSeenAt || null,
           };
-          const valid = Boolean(network.ok && agent.ok);
+          const network = endpoint.protocol === "agent"
+            ? {
+              skipped: true,
+              protocol: "agent",
+              reason: "agent-only connection profile does not require an inbound public endpoint",
+            }
+            : await checkTcpEndpoint(endpoint);
+          const valid = Boolean((endpoint.protocol === "agent" || network.ok) && agent.ok);
           json(res, 200, {
             valid,
             controlPath: "agent",
             network,
             agent,
             message: valid
-              ? "Endpoint is reachable and the downloader agent is online."
-              : "Endpoint was checked, but dashboard operation requires the downloader agent to be online for this machine id.",
+              ? "Downloader agent is online for this machine id."
+              : endpoint.protocol === "agent"
+                ? "Dashboard operation requires the downloader agent to be online for this machine id."
+                : "Endpoint was checked, but dashboard operation requires the downloader agent to be online for this machine id.",
           });
           return;
         }

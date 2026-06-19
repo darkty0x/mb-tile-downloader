@@ -648,6 +648,53 @@ test("dashboard can add and validate a server connection profile", async (t) => 
   assert.equal(validated.body.controlPath, "agent");
 });
 
+test("dashboard can add and validate an agent-only personal computer profile", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.registerMachine({
+    machineId: "personal-pc",
+    agentInstanceId: "agent-personal",
+    displayName: "Personal PC",
+  });
+  const server = await withServer(t, {
+    store,
+    secretVault: createSecretVault({
+      appSecret: "test-secret",
+      idGenerator: () => "credential-personal",
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+    }),
+  });
+
+  const created = await request(server, {
+    method: "POST",
+    path: "/api/server-connections",
+    body: {
+      label: "Personal PC",
+      machineId: "PERSONAL-PC",
+      protocol: "agent",
+    },
+  });
+  const validated = await request(server, {
+    method: "POST",
+    path: "/api/server-connections/credential-personal/validate",
+  });
+
+  assert.equal(created.status, 200);
+  assert.equal(created.body.connection.secretType, "server_rdp_credential");
+  assert.equal(created.body.connection.targetMachineId, "personal-pc");
+  assert.equal(created.body.connection.credential.machineId, "personal-pc");
+  assert.equal(created.body.connection.credential.protocol, "agent");
+  assert.equal(created.body.connection.credential.protocolUrl, "agent://personal-pc");
+  assert.equal(created.body.connection.credential.username, "");
+  assert.equal(created.body.connection.credential.hasPassword, false);
+  assert.equal(validated.status, 200);
+  assert.equal(validated.body.valid, true);
+  assert.equal(validated.body.network.skipped, true);
+  assert.equal(validated.body.agent.ok, true);
+  assert.equal(validated.body.controlPath, "agent");
+});
+
 test("server connection validation rejects standalone credential records", async (t) => {
   const server = await withServer(t, {
     secretVault: createSecretVault({
