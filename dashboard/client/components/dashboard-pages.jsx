@@ -757,7 +757,7 @@ export function ServerManagementPage({ state, actions }) {
     return (
       <section className="screen-enter mt-4 grid gap-4">
         <Surface className="p-5">
-          <SectionTitle title="봉사기관리" action={<AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>뒤로가기</AppButton>} />
+          <SectionTitle title="봉사기관리" action={<AppButton icon="servers" onClick={() => actions.showServerList()}>뒤로가기</AppButton>} />
           <EmptyLine>봉사기 또는 접속 Profile을 찾을수 없습니다.</EmptyLine>
         </Surface>
       </section>
@@ -826,7 +826,7 @@ export function ServerManagementPage({ state, actions }) {
             {validation ? <StatusPill status={validation.valid ? "success" : "error"}>{validation.valid ? "준비됨" : "준비안됨"}</StatusPill> : null}
             {connection ? <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton> : null}
             {connection ? <AppButton icon="edit" onClick={() => actions.setEditor({ type: "secret", id: connection.secretId })}>계정정보 편집</AppButton> : null}
-            <AppButton icon="servers" onClick={() => actions.setEditor({ type: "summary" })}>뒤로</AppButton>
+            <AppButton icon="servers" onClick={() => actions.showServerList()}>뒤로</AppButton>
           </div>
         </div>
         <div className="mt-4 grid grid-cols-4 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">

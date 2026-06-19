@@ -463,6 +463,14 @@ export function useDashboardState() {
         setEditor({ type: "server-detail" });
         await refreshMachineData(machineId);
       },
+      showServerList() {
+        setSelectedTab("servers");
+        setSelectedMachineId(null);
+        selectedMachineIdRef.current = null;
+        setSelectedServerTab("control");
+        setEditor({ type: "summary" });
+        refreshMachineData(null).catch((err) => setNotice({ message: err.message, kind: "error" }));
+      },
       async manageServerConnection(secretId) {
         const connection = secretPool.find((item) => item.secretId === secretId);
         const targetMachineId = normalizeMachineId(connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId);
