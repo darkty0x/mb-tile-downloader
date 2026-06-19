@@ -353,6 +353,25 @@ async function rootEnvTextForMachine({ templateText, secretVault, machineId, upd
   });
 }
 
+async function queueRootEnvWriteCommand({ store, secretVault, machineId, requestedBy, updates = {} }) {
+  const templateText = await rootEnvTemplateFromSettings({ store });
+  if (!templateText) {
+    throw new Error("global .env template is missing or contains masked values");
+  }
+  const envText = await rootEnvTextForMachine({
+    templateText,
+    secretVault,
+    machineId,
+    updates,
+  });
+  return store.queueCommand({
+    machineId,
+    commandType: "write_env",
+    payload: { envText },
+    requestedBy,
+  });
+}
+
 function quoteEnvValue(value) {
   const text = String(value ?? "");
   if (/^[A-Za-z0-9_./:@+=,-]+$/.test(text)) return text;
@@ -379,11 +398,13 @@ function upsertEnvText(envText, updates) {
 const ENV_SYNC_JOB_STAGES = new Set(["download", "validate"]);
 const ENV_SYNC_JOB_STATUSES = new Set(["queued", "running"]);
 
-async function queueEnvSyncForActiveDownloaders({ store, machineIds = [], requestedBy = "secrets.rebalance" } = {}) {
+async function queueEnvSyncForActiveDownloaders({ store, secretVault, machineIds = [], requestedBy = "secrets.rebalance" } = {}) {
   if (!store?.listJobs || !store?.queueCommand) return { queued: 0, machineIds: [] };
   const targetMachineIds = new Set(uniqueStrings(machineIds).map((machineId) => normalizeMachineId(machineId)));
+  const templateText = await rootEnvTemplateFromSettings({ store });
   const jobs = await store.listJobs();
   const queuedMachineIds = [];
+  const skipped = [];
   const seen = new Set();
   for (const job of jobs) {
     const machineId = normalizeMachineId(job.machineId);
@@ -391,16 +412,26 @@ async function queueEnvSyncForActiveDownloaders({ store, machineIds = [], reques
     if (targetMachineIds.size && !targetMachineIds.has(machineId)) continue;
     if (!ENV_SYNC_JOB_STATUSES.has(job.status)) continue;
     if (!ENV_SYNC_JOB_STAGES.has(job.stage)) continue;
+    if (!templateText) {
+      skipped.push({ machineId, reason: "global .env template missing or masked" });
+      seen.add(machineId);
+      continue;
+    }
+    const envText = await rootEnvTextForMachine({
+      templateText,
+      secretVault,
+      machineId,
+    });
     await store.queueCommand({
       machineId,
-      commandType: "sync_env",
-      payload: { reason: requestedBy },
+      commandType: "write_env",
+      payload: { envText, reason: requestedBy },
       requestedBy,
     });
     queuedMachineIds.push(machineId);
     seen.add(machineId);
   }
-  return { queued: queuedMachineIds.length, machineIds: queuedMachineIds };
+  return { queued: queuedMachineIds.length, machineIds: queuedMachineIds, skipped };
 }
 
 async function rebalanceSecretAssignments({ store, secretVault, machineIds } = {}) {
@@ -1140,6 +1171,7 @@ export function createDashboardApp({
           const syncEnv = validation.changed
             ? await queueEnvSyncForActiveDownloaders({
               store,
+              secretVault,
               machineIds: body.machineIds,
               requestedBy: "secrets.validate",
             })
@@ -1166,6 +1198,7 @@ export function createDashboardApp({
           const result = await rebalanceSecretAssignments({ store, secretVault, machineIds: body.machineIds });
           const syncEnv = await queueEnvSyncForActiveDownloaders({
             store,
+            secretVault,
             machineIds: body.machineIds,
             requestedBy: "secrets.rebalance",
           });
@@ -1214,6 +1247,7 @@ export function createDashboardApp({
             await rebalanceSecretAssignments({ store, secretVault, machineIds: targetMachineIds });
             await queueEnvSyncForActiveDownloaders({
               store,
+              secretVault,
               machineIds: targetMachineIds,
               requestedBy: "secrets.create",
             });
@@ -1325,6 +1359,16 @@ export function createDashboardApp({
           const machineId = decodeURIComponent(commandMatch[1]);
           if (body.commandType === "write_env" && envTextHasMaskedOrAbbreviatedValue(body.payload?.envText)) {
             throw new Error("refusing to queue masked .env values; update the global env template and sync again");
+          }
+          if (body.commandType === "sync_env") {
+            const command = await queueRootEnvWriteCommand({
+              store,
+              secretVault,
+              machineId,
+              requestedBy: body.requestedBy || "dashboard.sync-env",
+            });
+            json(res, 200, { command });
+            return;
           }
           let stoppedJobs = [];
           let canceledCommands = [];

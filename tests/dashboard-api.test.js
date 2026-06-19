@@ -1498,6 +1498,22 @@ test("dashboard rebalance revalidates keys and queues env sync only for download
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),
   });
+  store.updateSettings({
+    rootEnvTemplate: {
+      sourceMachineId: "global",
+      updatedAt: "2026-06-16T00:00:00.000Z",
+      envText: [
+        "STORJ_ACCESS=storj-access",
+        "STORJ_PASSPHRASE=storj passphrase",
+        "STORJ_BUCKET=mapbox",
+        "DASHBOARD_URL=https://dashboard.example",
+        "AGENT_TOKEN=agent-token",
+        "TILE_DOWNLOADER_PROXY_MODE=fallback",
+        "TILE_DOWNLOADER_OUTPUT_MODE=dynamic",
+        "TILE_DOWNLOADER_OUTPUT_FOLDER=mb-tile-downloader/tiles",
+      ].join("\n"),
+    },
+  });
   for (const machineId of ["download-worker", "validate-worker", "zip-worker", "upload-worker"]) {
     store.registerMachine({ machineId, agentInstanceId: `${machineId}-agent` });
   }
@@ -1572,11 +1588,81 @@ test("dashboard rebalance revalidates keys and queues env sync only for download
   assert.equal(rebalance.status, 200);
   assert.equal(rebalance.body.validation.checked, 4);
   assert.equal(rebalance.body.syncEnv.queued, 2);
-  assert.deepEqual(downloadCommands.map((command) => command.commandType), ["sync_env"]);
-  assert.deepEqual(validateCommands.map((command) => command.commandType), ["sync_env"]);
+  assert.deepEqual(downloadCommands.map((command) => command.commandType), ["write_env"]);
+  assert.deepEqual(validateCommands.map((command) => command.commandType), ["write_env"]);
+  assert.match(downloadCommands[0].payload.envText, /MACHINE_ID=download-worker/);
+  assert.match(downloadCommands[0].payload.envText, /MAPBOX_ACCESS_TOKENS=pk\.download-worker/);
+  assert.match(downloadCommands[0].payload.envText, /STORJ_ACCESS=storj-access/);
+  assert.doesNotMatch(downloadCommands[0].payload.envText, /\*{3,}|\.{3,}/);
   assert.deepEqual(zipCommands, []);
   assert.deepEqual(uploadCommands, []);
   assert.equal(listed.body.secrets.find((secret) => secret.label === "zip-worker-token").status, "invalid");
+});
+
+test("dashboard machine env sync writes root env from DB template", async (t) => {
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  store.updateSettings({
+    rootEnvTemplate: {
+      sourceMachineId: "global",
+      updatedAt: "2026-06-16T00:00:00.000Z",
+      envText: [
+        "STORJ_ACCESS=storj-access",
+        "STORJ_PASSPHRASE=storj passphrase",
+        "STORJ_BUCKET=mapbox",
+        "DASHBOARD_URL=https://dashboard.example",
+        "AGENT_TOKEN=agent-token",
+        "TILE_DOWNLOADER_PROXY_MODE=fallback",
+        "TILE_DOWNLOADER_OUTPUT_MODE=dynamic",
+        "TILE_DOWNLOADER_OUTPUT_FOLDER=mb-tile-downloader/tiles",
+      ].join("\n"),
+    },
+  });
+  await store.registerMachine({
+    machineId: "server-05",
+    agentInstanceId: "agent-05",
+    agentSnapshot: {
+      envFiles: [{
+        path: ".env",
+        exists: true,
+        content: "MACHINE_ID=server-05\nSTORJ_ACCESS=********\nDASHBOARD_URL=http....xyz\n",
+      }],
+    },
+  });
+  const secretVault = createSecretVault({
+    appSecret: "test-secret",
+    idGenerator: () => `secret-${++id}`,
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  secretVault.createSecret({
+    machineId: "server-05",
+    secretType: "mapbox_token",
+    label: "server-05-token",
+    value: "pk.server05",
+    status: "active",
+  });
+  const server = await withServer(t, { store, secretVault });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/machines/server-05/commands",
+    body: {
+      commandType: "sync_env",
+      requestedBy: "dashboard",
+    },
+  });
+  const commands = store.claimCommands({ machineId: "server-05" });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.command.commandType, "write_env");
+  assert.deepEqual(commands.map((command) => command.commandType), ["write_env"]);
+  assert.match(commands[0].payload.envText, /MACHINE_ID=server-05/);
+  assert.match(commands[0].payload.envText, /STORJ_ACCESS=storj-access/);
+  assert.match(commands[0].payload.envText, /DASHBOARD_URL=https:\/\/dashboard\.example/);
+  assert.match(commands[0].payload.envText, /MAPBOX_ACCESS_TOKENS=pk\.server05/);
+  assert.doesNotMatch(commands[0].payload.envText, /\*{3,}|\.{3,}/);
 });
 
 test("dashboard telegram env route uses DB global env template, not masked snapshots", async (t) => {
