@@ -209,6 +209,97 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   assert.equal(model.pipelineEta, "10초");
 });
 
+test("overview model aggregates fleet pipeline status across active servers", () => {
+  const model = buildOverviewModel({
+    machines: [
+      { machineId: "server-01", status: "online" },
+      { machineId: "server-02", status: "online" },
+      { machineId: "server-03", status: "offline" },
+    ],
+    jobs: [
+      {
+        jobId: "job-server-01",
+        machineId: "server-01",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-16T00:25:00.000Z",
+        progress: {
+          percent: 40,
+          tilesDone: 400,
+          tilesTotal: 1000,
+          tilesPerSecond: 100,
+          tilesMissing: 2,
+          tilesFailed: 1,
+        },
+      },
+      {
+        jobId: "job-server-02",
+        machineId: "server-02",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-16T00:26:00.000Z",
+        progress: {
+          percent: 20,
+          tilesDone: 100,
+          tilesTotal: 500,
+          tilesPerSecond: 50,
+          tilesMissing: 3,
+          tilesFailed: 0,
+        },
+      },
+    ],
+  });
+
+  assert.equal(model.pipelineSummary.scope, "fleet");
+  assert.equal(model.pipelineSummary.machineLabel, "2 / 3대 진행");
+  assert.equal(model.pipelineSummary.processedTiles, 500);
+  assert.equal(model.pipelineSummary.totalTiles, 1500);
+  assert.equal(model.pipelineSummary.speedTilesPerSecond, 150);
+  assert.equal(model.pipelineSummary.missingTiles, 5);
+  assert.equal(model.pipelineSummary.failedTiles, 1);
+  assert.equal(model.pipeline[0].progress, 33);
+  assert.equal(model.pipelineProgress, "8%");
+  assert.equal(model.kpis.throughput.value, "150 타일/초");
+});
+
+test("overview model exposes per-server process status for the server list", () => {
+  const model = buildOverviewModel({
+    machines: [
+      { machineId: "server-06", status: "online" },
+      { machineId: "server-07", status: "online" },
+    ],
+    jobs: [
+      {
+        jobId: "job-server-06",
+        machineId: "SERVER-06",
+        status: "running",
+        stage: "zip",
+        startedAt: "2026-06-18T02:00:00.000Z",
+        progress: {
+          percent: 47,
+          etaSeconds: 125,
+        },
+      },
+      {
+        jobId: "job-server-07",
+        machineId: "server-07",
+        status: "queued",
+        stage: "upload",
+        startedAt: "2026-06-18T02:01:00.000Z",
+        progress: {},
+      },
+    ],
+  });
+
+  assert.equal(model.machineProcesses["server-06"].processLabel, "압축");
+  assert.equal(model.machineProcesses["server-06"].statusLabel, "진행중");
+  assert.equal(model.machineProcesses["server-06"].progressLabel, "47%");
+  assert.equal(model.machineProcesses["server-06"].etaLabel, "2분 5초");
+  assert.equal(model.machineProcesses["server-07"].processLabel, "올리적재");
+  assert.equal(model.machineProcesses["server-07"].statusLabel, "대기중");
+  assert.equal(model.machineProcesses["server-07"].etaLabel, "대기중");
+});
+
 test("overview model exposes completed upload share link as pipeline proof", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "online" }],

@@ -137,16 +137,31 @@ function averageDownloadThroughput(jobs = [], machineId) {
     .map((job) => Number(job.progress?.tilesPerSecond ?? job.progress?.tileRate ?? job.progress?.rate))
     .filter((rate) => Number.isFinite(rate) && rate > 0);
   if (!downloadingJobs.length) return { average: 0, count: 0 };
+  const total = downloadingJobs.reduce((sum, rate) => sum + rate, 0);
   return {
-    average: downloadingJobs.reduce((sum, rate) => sum + rate, 0) / downloadingJobs.length,
+    average: total / downloadingJobs.length,
+    total,
     count: downloadingJobs.length,
   };
 }
 
+function jobProgressNumber(job, ...names) {
+  const progress = job?.progress || {};
+  for (const name of names) {
+    const value = Number(progress[name]);
+    if (Number.isFinite(value)) return value;
+  }
+  return 0;
+}
+
+function jobTotalWeight(job) {
+  const total = jobProgressNumber(job, "tilesTotal", "total", "totalTiles");
+  return total > 0 ? total : 1;
+}
+
 function failedTileCount(jobs = [], machineId) {
   return scopedJobsForMachine(jobs, machineId).reduce((sum, job) => {
-    const progress = job?.progress || {};
-    const value = Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0);
+    const value = jobProgressNumber(job, "tilesFailed", "failedTiles", "failures", "failed");
     return sum + (Number.isFinite(value) && value > 0 ? value : 0);
   }, 0);
 }
@@ -154,8 +169,7 @@ function failedTileCount(jobs = [], machineId) {
 function failedTileMachines(jobs = [], machineId) {
   const counts = new Map();
   for (const job of scopedJobsForMachine(jobs, machineId)) {
-    const progress = job?.progress || {};
-    const value = Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0);
+    const value = jobProgressNumber(job, "tilesFailed", "failedTiles", "failures", "failed");
     if (!Number.isFinite(value) || value <= 0) continue;
     const key = normalizeMachineId(job.machineId);
     if (!key) continue;
@@ -248,6 +262,11 @@ function numericProgress(progress = {}) {
   return null;
 }
 
+function jobStageProgress(job) {
+  if (job?.status === "completed") return 100;
+  return numericProgress(job?.progress) ?? 0;
+}
+
 function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds < 0) return "계산중";
   const whole = Math.round(seconds);
@@ -259,6 +278,89 @@ function formatDuration(seconds) {
   if (hours > 0) return `${hours}시간 ${minutes}분`;
   if (minutes > 0) return `${minutes}분 ${secs}초`;
   return `${secs}초`;
+}
+
+function buildPipelineSummary(scopedJobs = [], { machineId, machines = [] } = {}) {
+  const runningJobs = scopedJobs.filter((job) => RUNNING_JOB_STATUSES.has(job.status));
+  const summaryJobs = runningJobs.length ? runningJobs : scopedJobs.slice(0, 1);
+  const activeMachineIds = [...new Set(summaryJobs.map((job) => normalizeMachineId(job.machineId)).filter(Boolean))];
+  const processedTiles = summaryJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesDone", "done", "processedTiles")), 0);
+  const totalTiles = summaryJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesTotal", "total", "totalTiles")), 0);
+  const speedTilesPerSecond = summaryJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesPerSecond", "tileRate", "rate", "speedTilesPerSecond")), 0);
+  const missingTiles = summaryJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesMissing", "missing", "missingTiles")), 0);
+  const failedTiles = summaryJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesFailed", "failedTiles", "failures", "failed")), 0);
+  const weightedProgress = summaryJobs.reduce((acc, job) => {
+    const index = stageIndex(job.stage);
+    const progress = jobStageProgress(job);
+    const weight = jobTotalWeight(job);
+    return {
+      total: acc.total + (((index * 100) + progress) / PIPELINE_STEPS.length) * weight,
+      weight: acc.weight + weight,
+    };
+  }, { total: 0, weight: 0 });
+  const runningStageKeys = [...new Set(runningJobs.map((job) => String(job.stage || "download").toLowerCase()).filter(Boolean))];
+  const stageLabel = runningStageKeys.length > 1
+    ? "여러 단계"
+    : (runningStageKeys.length === 1 ? PIPELINE_STEPS[stageIndex(runningStageKeys[0])]?.[1] || runningStageKeys[0] : "대기중");
+  const etaSeconds = totalTiles > processedTiles && speedTilesPerSecond > 0
+    ? (totalTiles - processedTiles) / speedTilesPerSecond
+    : NaN;
+  const isFleet = !normalizeMachineId(machineId);
+  const totalMachines = isFleet ? machines.length : (activeMachineIds.length || 1);
+  return {
+    scope: isFleet ? "fleet" : "machine",
+    activeMachines: activeMachineIds.length,
+    totalMachines,
+    machineLabel: isFleet
+      ? `${activeMachineIds.length} / ${totalMachines}대 진행`
+      : (activeMachineIds[0] || normalizeMachineId(machineId) || "대기중"),
+    stageLabel,
+    processedTiles,
+    totalTiles,
+    speedTilesPerSecond,
+    missingTiles,
+    failedTiles,
+    progressLabel: weightedProgress.weight > 0
+      ? `${Math.max(0, Math.min(100, Math.round(weightedProgress.total / weightedProgress.weight)))}%`
+      : "0%",
+    etaLabel: Number.isFinite(etaSeconds) ? formatDuration(etaSeconds) : "대기중",
+  };
+}
+
+function fallbackPipelineSteps(events = []) {
+  return PIPELINE_STEPS.map(([key, label]) => {
+    const status = pipelineStatus(events, key);
+    return {
+      key,
+      label,
+      status,
+      progress: status === "complete" ? 100 : status === "running" ? 57 : 0,
+    };
+  });
+}
+
+function aggregatePipelineSteps(scopedJobs = [], events = []) {
+  const runningJobs = scopedJobs.filter((job) => RUNNING_JOB_STATUSES.has(job.status));
+  const sourceJobs = runningJobs.length ? runningJobs : scopedJobs.slice(0, 1);
+  if (!sourceJobs.length) return fallbackPipelineSteps(events);
+
+  const totalWeight = sourceJobs.reduce((sum, job) => sum + jobTotalWeight(job), 0) || sourceJobs.length || 1;
+  return PIPELINE_STEPS.map(([key, label], index) => {
+    const sameStageJobs = sourceJobs.filter((job) => stageIndex(job.stage) === index);
+    const completedWeight = sourceJobs.reduce((sum, job) => {
+      if (job.status === "completed" || stageIndex(job.stage) > index) return sum + jobTotalWeight(job);
+      return sum;
+    }, 0);
+    const activeProgressWeight = sameStageJobs.reduce((sum, job) => sum + (jobStageProgress(job) * jobTotalWeight(job)), 0);
+    const progress = Math.max(0, Math.min(100, Math.round((completedWeight * 100 + activeProgressWeight) / totalWeight)));
+    const stageStatuses = new Set(sameStageJobs.map((job) => String(job.status || "").toLowerCase()));
+    let status = "pending";
+    if (stageStatuses.has("failed")) status = "error";
+    else if (stageStatuses.has("stopped")) status = "stopped";
+    else if (sameStageJobs.some((job) => RUNNING_JOB_STATUSES.has(job.status))) status = sameStageJobs.some((job) => job.status === "queued") ? "queued" : "running";
+    else if (progress >= 100) status = "complete";
+    return { key, label, status, progress };
+  });
 }
 
 function jobEtaLabel(job) {
@@ -277,61 +379,95 @@ function jobEtaLabel(job) {
   return "계산중";
 }
 
-function buildPipelineFromJobs(jobs = [], events = [], { machineId } = {}) {
+function jobStatusLabel(job) {
+  const status = String(job?.status || "").toLowerCase();
+  if (status === "running" || status === "claimed") return "진행중";
+  if (status === "queued") return "대기중";
+  if (status === "completed") return "완료";
+  if (status === "failed") return "실패";
+  if (status === "stopped") return "정지됨";
+  return "대기중";
+}
+
+function jobStatusTone(job) {
+  const status = String(job?.status || "").toLowerCase();
+  if (status === "running" || status === "claimed") return "active";
+  if (status === "queued") return "warning";
+  if (status === "completed") return "success";
+  if (status === "failed") return "error";
+  if (status === "stopped") return "disabled";
+  return "neutral";
+}
+
+function jobStageLabel(job) {
+  const stage = String(job?.stage || "").toLowerCase();
+  if (!stage) return "대기중";
+  return PIPELINE_STEPS[stageIndex(stage)]?.[1] || stage;
+}
+
+function buildMachineProcessSummary(jobs = [], machineId) {
+  const scopedJobs = scopedJobsForMachine(jobs, machineId).sort(newestFirst);
+  const job = scopedJobs.find((item) => RUNNING_JOB_STATUSES.has(item.status)) || scopedJobs[0] || null;
+  if (!job) {
+    return {
+      processLabel: "대기중",
+      statusLabel: "작업없음",
+      status: "idle",
+      tone: "neutral",
+      progress: 0,
+      progressLabel: "0%",
+      etaLabel: "대기중",
+    };
+  }
+
+  const progress = jobStageProgress(job);
+  const status = String(job.status || "").toLowerCase();
+  return {
+    jobId: job.jobId || job.id || "",
+    processLabel: jobStageLabel(job),
+    statusLabel: jobStatusLabel(job),
+    status,
+    tone: jobStatusTone(job),
+    progress,
+    progressLabel: `${progress}%`,
+    etaLabel: status === "queued" ? "대기중" : jobEtaLabel(job),
+  };
+}
+
+function buildMachineProcesses(machines = [], jobs = []) {
+  return machines.reduce((acc, machine) => {
+    const machineId = normalizeMachineId(machine.machineId);
+    if (machineId) acc[machineId] = buildMachineProcessSummary(jobs, machineId);
+    return acc;
+  }, {});
+}
+
+function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [] } = {}) {
   const scopedJobs = jobs
     .filter((job) => jobMachineMatches(job, machineId))
     .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
+  const summary = buildPipelineSummary(scopedJobs, { machineId, machines });
   const activeJob = scopedJobs.find((job) => RUNNING_JOB_STATUSES.has(job.status)) || scopedJobs[0] || null;
   if (!activeJob) {
     return {
-      steps: PIPELINE_STEPS.map(([key, label]) => ({
-        key,
-        label,
-        status: pipelineStatus(events, key),
-        progress: pipelineStatus(events, key) === "complete" ? 100 : pipelineStatus(events, key) === "running" ? 57 : 0,
-      })),
+      steps: aggregatePipelineSteps(scopedJobs, events),
       activeJob: null,
-      etaLabel: "대기중",
-      stageLabel: "대기중",
-      progressLabel: "0%",
+      etaLabel: summary.etaLabel,
+      stageLabel: summary.stageLabel,
+      progressLabel: summary.progressLabel,
+      summary,
       storjShareUrl: "",
       storjRawLinkPrefix: "",
     };
   }
 
-  const currentStageIndex = stageIndex(activeJob.stage);
-  const currentStageProgress = activeJob.status === "completed"
-    ? 100
-    : ["failed", "stopped"].includes(activeJob.status)
-      ? numericProgress(activeJob.progress) ?? 0
-      : numericProgress(activeJob.progress) ?? 0;
-  const steps = PIPELINE_STEPS.map(([key, label], index) => {
-    let status = "pending";
-    let progress = 0;
-    if (activeJob.status === "completed" || index < currentStageIndex) {
-      status = "complete";
-      progress = 100;
-    } else if (activeJob.status === "failed" && index === currentStageIndex) {
-      status = "error";
-      progress = currentStageProgress;
-    } else if (activeJob.status === "stopped" && index === currentStageIndex) {
-      status = "stopped";
-      progress = currentStageProgress;
-    } else if (index === currentStageIndex) {
-      status = activeJob.status === "queued" ? "queued" : "running";
-      progress = currentStageProgress;
-    }
-    return { key, label, status, progress };
-  });
-  const overall = activeJob.status === "completed"
-    ? 100
-    : Math.max(0, Math.min(100, Math.round(((currentStageIndex * 100) + currentStageProgress) / PIPELINE_STEPS.length)));
   return {
-    steps,
+    steps: aggregatePipelineSteps(scopedJobs, events),
     activeJob,
-    etaLabel: jobEtaLabel(activeJob),
-    stageLabel: PIPELINE_STEPS[currentStageIndex]?.[1] || activeJob.stage || "대기중",
-    progressLabel: `${overall}%`,
+    etaLabel: normalizeMachineId(machineId) ? jobEtaLabel(activeJob) : summary.etaLabel,
+    stageLabel: normalizeMachineId(machineId) ? PIPELINE_STEPS[stageIndex(activeJob.stage)]?.[1] || activeJob.stage || "대기중" : summary.stageLabel,
+    progressLabel: normalizeMachineId(machineId) ? summary.progressLabel : summary.progressLabel,
+    summary,
     storjShareUrl: activeJob.progress?.storjShareUrl || "",
     storjRawLinkPrefix: activeJob.progress?.storjRawLinkPrefix || "",
   };
@@ -415,7 +551,7 @@ export function buildOverviewModel({
     return acc;
   }, { healthy: 0, warning: 0, critical: 0, offline: 0 });
 
-  const pipelineModel = buildPipelineFromJobs(jobs, dashboardEvents, { machineId });
+  const pipelineModel = buildPipelineFromJobs(jobs, dashboardEvents, { machineId, machines });
 
   return {
     kpis: {
@@ -423,8 +559,8 @@ export function buildOverviewModel({
       activeJobs: { label: "활성화된 작업공정", value: activeJobs, detail: `${queuedJobs}개 대기` },
       throughput: {
         label: "타일 처리속도",
-        value: `${Math.round(throughput.average)} 타일/초`,
-        detail: throughput.count ? `내리적재중인 봉사기 ${throughput.count}대 평균` : "내리적재중인 봉사기 없음",
+        value: `${Math.round(throughput.total || 0)} 타일/초`,
+        detail: throughput.count ? `내리적재중인 봉사기 ${throughput.count}대 합계` : "내리적재중인 봉사기 없음",
       },
       storagePressure: { label: "저장공간 여부", value: `${diskPressure}%`, detail: diskPressure >= 85 ? "높음" : diskPressure >= 70 ? "상승" : "정상" },
       failedJobs: { label: "실패한 타일수", value: failedTiles, detail: failedTiles ? "주의 필요" : "정상" },
@@ -434,6 +570,8 @@ export function buildOverviewModel({
     pipelineEta: pipelineModel.etaLabel,
     pipelineStage: pipelineModel.stageLabel,
     pipelineProgress: pipelineModel.progressLabel,
+    pipelineSummary: pipelineModel.summary,
+    machineProcesses: buildMachineProcesses(machines, jobs),
     storjShareUrl: pipelineModel.storjShareUrl,
     storjRawLinkPrefix: pipelineModel.storjRawLinkPrefix,
     activeJob: pipelineModel.activeJob,

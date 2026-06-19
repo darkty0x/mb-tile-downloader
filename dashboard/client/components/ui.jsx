@@ -64,6 +64,13 @@ export function SectionTitle({ title, meta, action }) {
   );
 }
 
+function metricValueClass(value) {
+  const length = String(value ?? "").length;
+  if (length > 18) return "text-[16px]";
+  if (length > 12) return "text-[19px]";
+  return "text-[24px]";
+}
+
 export function MetricCard({ icon, label, value, palette = "lilac" }) {
   return (
     <Surface className={`ptg-metric-tile grid min-h-[108px] grid-cols-[56px_minmax(0,1fr)] content-center gap-x-3 gap-y-1.5 p-4 ptg-palette-${palette}`}>
@@ -71,7 +78,7 @@ export function MetricCard({ icon, label, value, palette = "lilac" }) {
         <Icon name={icon} className="h-7 w-7" />
       </span>
       <span className="text-[11px] font-[650] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
-      <strong className="min-w-0 overflow-hidden text-ellipsis text-[24px] font-[475] leading-tight">{value}</strong>
+      <strong className={`min-w-0 break-words ${metricValueClass(value)} font-[475] leading-tight`}>{value}</strong>
     </Surface>
   );
 }

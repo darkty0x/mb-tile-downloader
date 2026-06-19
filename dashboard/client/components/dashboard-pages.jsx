@@ -51,7 +51,22 @@ function displayConfigName(value) {
   return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
 }
 
+function formatInteger(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? Math.round(number).toLocaleString() : "0";
+}
+
+function compactValueClass(value) {
+  const length = String(value ?? "").length;
+  if (length > 18) return "text-[16px]";
+  if (length > 12) return "text-[19px]";
+  if (length > 8) return "text-[23px]";
+  return "text-[28px]";
+}
+
 function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac", compactUnit = "" }) {
+  const valueClass = compactValueClass(value);
+  const detailClass = String(detail ?? "").length > 28 ? "text-[10.5px]" : "text-[11.5px]";
   return (
     <Surface className={`ptg-metric-tile min-h-[122px] overflow-hidden p-4 ptg-palette-${palette} ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
       <div className="flex items-start gap-3">
@@ -59,12 +74,12 @@ function InsightCard({ icon, label, value, detail, tone = "primary", palette = "
           <Icon name={icon} className="h-7 w-7" />
         </span>
         <span className="min-w-0">
-          <span className="block truncate text-[11px] font-[650] leading-none text-[var(--ptg-on-surface-variant)]">{label}</span>
-          <strong className="mt-2 flex min-w-0 items-end gap-1 truncate text-[28px] font-[475] leading-none text-[var(--ptg-on-surface)]">
-            <span className="truncate">{value}</span>
+          <span className="block text-[11px] font-[650] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
+          <strong className={`mt-2 flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 break-words ${valueClass} font-[475] leading-none text-[var(--ptg-on-surface)]`}>
+            <span className="min-w-0 break-words">{value}</span>
             {compactUnit ? <span className="shrink-0 pb-[1px] text-[15px] font-[650] leading-none">{compactUnit}</span> : null}
           </strong>
-          <p className={`mt-2 truncate text-[11.5px] font-[500] ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
+          <p className={`mt-2 max-w-full break-words ${detailClass} font-[500] leading-tight ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
         </span>
       </div>
     </Surface>
@@ -94,25 +109,25 @@ function MiniMetric({ label, value }) {
 }
 
 function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
+  const pipelineSummary = overview.pipelineSummary || {};
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
     ["완료예상", overview.pipelineEta || "대기중"],
   ];
   const activeJob = overview.activeJob;
-  const progress = activeJob?.progress || {};
-  const detailRows = activeJob ? [
-    ["봉사기", displayMachineId(activeJob.machineId)],
-    ["작업단계", overview.pipelineStage || activeJob.stage || "대기중"],
-    ["타일", `${Number(progress.tilesDone ?? progress.done ?? 0).toLocaleString()} / ${Number(progress.tilesTotal ?? progress.total ?? 0).toLocaleString()}`],
-    ["처리속도", `${Math.round(Number(progress.tilesPerSecond ?? progress.tileRate ?? progress.rate) || 0).toLocaleString()} 타일/초`],
-    ["빠짐", Number(progress.tilesMissing ?? progress.missing ?? 0).toLocaleString()],
-    ["실패", Number(progress.tilesFailed ?? progress.failedTiles ?? progress.failures ?? progress.failed ?? 0).toLocaleString()],
-  ] : [
-    ["봉사기", "대기중"],
-    ["작업단계", overview.pipelineStage || "대기중"],
-    ["타일", "0 / 0"],
-    ["처리속도", "0 타일/초"],
+  const activeMachineCount = Number(pipelineSummary.activeMachines) || 0;
+  const totalMachineCount = Number(pipelineSummary.totalMachines) || 0;
+  const machineLabel = pipelineSummary.scope === "fleet"
+    ? `${activeMachineCount} / ${totalMachineCount}대 진행`
+    : (pipelineSummary.machineLabel ? displayMachineId(pipelineSummary.machineLabel) : activeJob?.machineId ? displayMachineId(activeJob.machineId) : "대기중");
+  const detailRows = [
+    ["봉사기", machineLabel],
+    ["작업단계", overview.pipelineStage || pipelineSummary.stageLabel || activeJob?.stage || "대기중"],
+    ["타일", `${formatInteger(pipelineSummary.processedTiles)} / ${formatInteger(pipelineSummary.totalTiles)}`],
+    ["처리속도", `${formatInteger(pipelineSummary.speedTilesPerSecond)} 타일/초`],
+    ["빠짐", formatInteger(pipelineSummary.missingTiles)],
+    ["실패", formatInteger(pipelineSummary.failedTiles)],
   ];
   return (
     <Surface className={`p-4 ${onClick ? "state-layer cursor-pointer transition hover:-translate-y-0.5 hover:border-[var(--ptg-primary)] hover:shadow-[0_16px_36px_rgba(38,24,92,0.12)]" : ""}`}>
@@ -166,8 +181,8 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
       <div className="mt-5 grid grid-cols-3 gap-2 max-lg:grid-cols-2 max-sm:grid-cols-1">
         {detailRows.map(([label, value]) => (
           <div key={label} className="rounded-[14px] border border-[var(--ptg-outline)] bg-white/72 px-3 py-2">
-            <span className="block truncate text-[10.5px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</span>
-            <strong className="mt-1 block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{value}</strong>
+            <span className="block text-[10.5px] font-[760] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
+            <strong className="mt-1 block break-words text-[12.5px] font-[850] leading-tight text-[var(--ptg-on-surface)]">{value}</strong>
           </div>
         ))}
       </div>
@@ -1988,8 +2003,19 @@ function SecretPoolsTable({ state, actions }) {
 
 function ServersTable({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
+  const idleProcess = {
+    processLabel: "대기중",
+    statusLabel: "작업없음",
+    tone: "neutral",
+    progress: 0,
+    progressLabel: "0%",
+    etaLabel: "대기중",
+  };
+  const processForMachine = (machine) => (
+    overview.machineProcesses?.[String(machine.machineId || "").trim().toLowerCase()] || idleProcess
+  );
   const filtered = state.machines.filter((machine) =>
-    `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
+    `${machine.machineId} ${machine.displayName} ${machine.status} ${machine.platform} ${processForMachine(machine).processLabel} ${processForMachine(machine).statusLabel}`.toLowerCase().includes(state.machineSearch.trim().toLowerCase())
   );
   const online = state.machines.filter((machine) => machine.status === "online").length;
   return (
@@ -2014,11 +2040,14 @@ function ServersTable({ state, actions }) {
         }
       />
       <div className="ptg-scrollbar max-w-full overflow-auto rounded-lg border border-[var(--ptg-outline)]">
-        <table className="w-full table-fixed border-collapse text-[12.5px] sm:table-auto">
+        <table className="w-full min-w-[1080px] border-collapse text-[12.5px]">
           <thead>
             <tr className="bg-[var(--ptg-background)] text-left text-[10px] font-[760] uppercase text-[var(--ptg-on-surface-variant)]">
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">봉사기</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">상태</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">작업공정</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">진행</th>
+              <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-lg:hidden">완료예상</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">리용된 용량</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">체계</th>
               <th className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">마지막 확인</th>
@@ -2029,6 +2058,7 @@ function ServersTable({ state, actions }) {
             {filtered.length ? filtered.map((machine) => {
               const diskPeak = diskPeakForMachine(machine);
               const failedTiles = failedTileCountForMachine(overview, machine.machineId);
+              const process = processForMachine(machine);
               return (
                 <tr
                   key={machine.machineId}
@@ -2050,6 +2080,21 @@ function ServersTable({ state, actions }) {
                       <StatusPill status={statusKind(machine.status)}>{displayStatus(machine.status)}</StatusPill>
                       {failedTiles ? <StatusPill status="error">타일실패 {failedTiles.toLocaleString()}</StatusPill> : null}
                     </span>
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">
+                    <span className="flex min-w-[118px] flex-col items-start gap-1">
+                      <strong className="max-w-[150px] truncate text-[12.5px] font-[850]">{process.processLabel}</strong>
+                      <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
+                    </span>
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">
+                    <span className="flex min-w-[118px] items-center gap-2">
+                      <UsageBar percent={process.progress} className="w-[72px]" />
+                      <strong className="shrink-0 text-[12px] font-[850]">{process.progressLabel}</strong>
+                    </span>
+                  </td>
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-lg:hidden">
+                    <span className="block max-w-[130px] truncate text-[12px] font-[750] text-[var(--ptg-on-surface)]">{process.etaLabel}</span>
                   </td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:px-1.5">
                     {diskPeak ? <><UsageBar percent={diskPeak} className="mr-2 w-[48px] sm:w-[72px] 2xl:w-[110px]" /><strong>{diskPeak}%</strong></> : "--"}
@@ -2086,7 +2131,7 @@ function ServersTable({ state, actions }) {
                 </tr>
               );
             }) : (
-              <tr><td className="px-3 py-8 text-center text-[var(--ptg-on-surface-variant)]" colSpan={6}>일치한 봉사기가 없습니다</td></tr>
+              <tr><td className="px-3 py-8 text-center text-[var(--ptg-on-surface-variant)]" colSpan={9}>일치한 봉사기가 없습니다</td></tr>
             )}
           </tbody>
         </table>
