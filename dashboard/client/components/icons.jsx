@@ -90,12 +90,13 @@ export function Icon({ name, className = "", decorative = true, title, filled = 
   );
 }
 
-export function LogoMark() {
+export function LogoMark({ variant = "rail" } = {}) {
   return (
     <img
       alt="PTG"
       className="ptg-brand-logo shrink-0"
       decoding="async"
+      data-variant={variant}
       src="/brand/ptg-primary-rail.svg"
     />
   );

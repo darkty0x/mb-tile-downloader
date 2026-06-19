@@ -1,6 +1,6 @@
 import { normalizeMachineId } from "../components/dashboard-core.js";
 
-export const PAGE_NAMES = new Set(["overview", "servers", "configs", "pipelines", "secrets", "credentials", "events", "alerts", "settings", "account"]);
+export const PAGE_NAMES = new Set(["overview", "servers", "configs", "pipelines", "secrets", "credentials", "events", "alerts", "settings", "help", "account"]);
 export const SERVER_TAB_NAMES = new Set(["control", "configs", "env", "secrets", "console"]);
 
 export function editorForRoute(route = {}) {

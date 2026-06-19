@@ -5,7 +5,7 @@ import { useEffect } from "react";
 import { useDashboardState } from "./dashboard-state";
 import { EditorDrawer } from "./dashboard-editor";
 import { AuthCheckingScreen, ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
-import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
+import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, HelpDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 import { buildDashboardDocumentTitle } from "../lib/page-title";
 import { dashboardSurfaceForState } from "../lib/route-state";
 
@@ -34,6 +34,8 @@ export default function DashboardApp() {
           <Notice notice={state.notice} />
           {dashboardSurface === "settings" ? (
             <SettingsDashboard state={state} actions={actions} />
+          ) : dashboardSurface === "help" ? (
+            <HelpDashboard actions={actions} />
           ) : dashboardSurface === "account" ? (
             <AccountDashboard state={state} actions={actions} />
           ) : dashboardSurface === "credentials" ? (

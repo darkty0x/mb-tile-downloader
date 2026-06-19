@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import * as routeState from "../dashboard/client/lib/route-state.js";
+import { TABS } from "../dashboard/client/components/dashboard-core.js";
 
 const { parseDashboardRoute } = routeState;
 
@@ -38,4 +39,15 @@ test("server management surface does not depend on modal editor state", () => {
     editor: { type: "new-config" },
     machines: [{ machineId: "server-03" }],
   }), "server-management");
+});
+
+test("help route is a first-class dashboard page below settings", () => {
+  const route = parseDashboardRoute("https://echopoly.xyz/help");
+
+  assert.equal(route.selectedTab, "help");
+  assert.equal(routeState.dashboardSurfaceForState({ selectedTab: "help" }), "help");
+  assert.deepEqual(
+    TABS.slice(-2).map(([tab, label]) => [tab, label]),
+    [["settings", "설정"], ["help", "도움말"]]
+  );
 });

@@ -124,8 +124,9 @@ export function LoginScreen({ state, actions }) {
           <span className="mx-auto inline-flex h-16 w-16 items-center justify-center rounded-[24px] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
             <Icon name="lock" className="h-9 w-9" filled />
           </span>
-          <span>
-            <h1 className="text-[28px] font-[520] leading-tight text-[var(--ptg-on-surface)]">PTG 관리체계</h1>
+          <span className="grid justify-items-center">
+            <LogoMark variant="login" />
+            <span className="sr-only">PTG 관리체계</span>
             <p className="mt-1 text-[13px] font-[620] text-[var(--ptg-on-surface-variant)]">가입한후에 관리체계를 리용할수 있습니다.</p>
           </span>
         </div>
