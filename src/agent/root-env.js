@@ -1,3 +1,4 @@
+import { readFileSync } from "node:fs";
 import { readFile, rename, writeFile } from "node:fs/promises";
 import path from "node:path";
 
@@ -20,11 +21,11 @@ function parseEnvLines(text) {
   return values;
 }
 
-function isMaskedOrAbbreviatedValue(value) {
+export function isMaskedOrAbbreviatedValue(value) {
   return MASKED_VALUE_PATTERN.test(String(value || "").trim());
 }
 
-function assertNoMaskedEnvValues(values) {
+export function assertNoMaskedEnvValues(values) {
   for (const [name, value] of values.entries()) {
     if (isMaskedOrAbbreviatedValue(value)) {
       throw new Error(`refusing to write masked .env value for ${name}`);
@@ -39,6 +40,26 @@ async function readExistingEnv(filePath) {
     if (err.code === "ENOENT") return "";
     throw err;
   }
+}
+
+function readExistingEnvSync(filePath) {
+  try {
+    return readFileSync(filePath, "utf8");
+  } catch (err) {
+    if (err.code === "ENOENT") return "";
+    throw err;
+  }
+}
+
+export function parseRootEnvText(text = "") {
+  return parseEnvLines(text);
+}
+
+export function mergeRootEnvIntoEnv({ projectDir = process.cwd(), env = process.env } = {}) {
+  const envPath = path.resolve(projectDir, ".env");
+  const rootEnv = parseEnvLines(readExistingEnvSync(envPath));
+  assertNoMaskedEnvValues(rootEnv);
+  return { ...env, ...Object.fromEntries(rootEnv.entries()) };
 }
 
 export async function writeRootEnvFile({ projectDir = process.cwd(), envText = "" } = {}) {

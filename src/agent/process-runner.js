@@ -1,5 +1,19 @@
 import { spawn } from "node:child_process";
 
+import { mergeRootEnvIntoEnv } from "./root-env.js";
+
+const DEFAULT_STALE_OUTPUT_RESTART_MS = 30 * 60 * 1000;
+
+function parseNonNegativeInt(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+function resolveStaleOutputRestartMs(env = process.env) {
+  const configured = parseNonNegativeInt(env.DASHBOARD_AGENT_STALE_OUTPUT_RESTART_MS);
+  return configured ?? DEFAULT_STALE_OUTPUT_RESTART_MS;
+}
+
 function normalizeConfigPaths(payload = {}) {
   const rawValues = Array.isArray(payload.configPaths) ? payload.configPaths : [payload.configPath];
   return rawValues
@@ -53,12 +67,118 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
   }
 }
 
-export function createProcessRunner({ cwd = process.cwd(), env = process.env, onLine = () => {} } = {}) {
+export function createProcessRunner({
+  cwd = process.cwd(),
+  env = process.env,
+  onLine = () => {},
+  onStaleRestart = () => {},
+  now = () => Date.now(),
+  setTimer = setTimeout,
+  clearTimer = clearTimeout,
+} = {}) {
   let active = null;
   let activeSpec = null;
   let activePromise = null;
+  let activeStartedAt = 0;
+  let lastOutputAt = 0;
+  let staleTimer = null;
+  let restartingStaleProcess = false;
 
-  return {
+  function staleOutputRestartMs() {
+    return resolveStaleOutputRestartMs({ ...process.env, ...env });
+  }
+
+  function clearStaleTimer() {
+    if (!staleTimer) return;
+    clearTimer(staleTimer);
+    staleTimer = null;
+  }
+
+  function armStaleTimer() {
+    clearStaleTimer();
+    const timeoutMs = staleOutputRestartMs();
+    if (!active || !activeSpec || timeoutMs <= 0) return;
+    const elapsedMs = now() - Math.max(activeStartedAt, lastOutputAt);
+    const delayMs = Math.max(1, timeoutMs - elapsedMs);
+    staleTimer = setTimer(() => {
+      if (!active || !activeSpec) return;
+      const quietMs = now() - Math.max(activeStartedAt, lastOutputAt);
+      if (quietMs < timeoutMs) {
+        armStaleTimer();
+        return;
+      }
+      const spec = { command: activeSpec.command, args: [...activeSpec.args] };
+      const staleChild = active;
+      restartingStaleProcess = true;
+      Promise.resolve(
+        onStaleRestart({
+          command: spec.command,
+          args: [...spec.args],
+          quietMs,
+          timeoutMs,
+        })
+      ).catch(() => {});
+      staleChild.kill();
+    }, delayMs);
+  }
+
+  function launchProcess({ command, args }, resolve, reject) {
+    const childEnv = mergeRootEnvIntoEnv({
+      projectDir: cwd,
+      env: { ...process.env, ...env },
+    });
+    const child = spawn(command, args, {
+      cwd,
+      env: childEnv,
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    active = child;
+    activeSpec = { command, args: [...args] };
+    activeStartedAt = now();
+    lastOutputAt = activeStartedAt;
+    armStaleTimer();
+    const emitLine = (line, stream) => {
+      lastOutputAt = now();
+      armStaleTimer();
+      try {
+        Promise.resolve(onLine(line, stream)).catch(() => {});
+      } catch {
+        // Process output forwarding must not crash the managed child process.
+      }
+    };
+    child.stdout.on("data", (chunk) => {
+      for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) emitLine(line, "stdout");
+    });
+    child.stderr.on("data", (chunk) => {
+      for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) emitLine(line, "stderr");
+    });
+    child.on("error", (err) => {
+      clearStaleTimer();
+      active = null;
+      activeSpec = null;
+      if (restartingStaleProcess) {
+        restartingStaleProcess = false;
+        launchProcess({ command, args }, resolve, reject);
+        return;
+      }
+      activePromise = null;
+      reject(err);
+    });
+    child.on("close", (code, signal) => {
+      clearStaleTimer();
+      active = null;
+      activeSpec = null;
+      if (restartingStaleProcess) {
+        restartingStaleProcess = false;
+        launchProcess({ command, args }, resolve, reject);
+        return;
+      }
+      activePromise = null;
+      resolve({ code, signal });
+    });
+  }
+
+  const runner = {
     get active() {
       return active;
     },
@@ -72,38 +192,7 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
       if (command === "agent-internal") return { code: 0, signal: null };
 
       const runPromise = new Promise((resolve, reject) => {
-        const child = spawn(command, args, {
-          cwd,
-          env: { ...process.env, ...env },
-          stdio: ["ignore", "pipe", "pipe"],
-        });
-        active = child;
-        activeSpec = { command, args: [...args] };
-        const emitLine = (line, stream) => {
-          try {
-            Promise.resolve(onLine(line, stream)).catch(() => {});
-          } catch {
-            // Process output forwarding must not crash the managed child process.
-          }
-        };
-        child.stdout.on("data", (chunk) => {
-          for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) emitLine(line, "stdout");
-        });
-        child.stderr.on("data", (chunk) => {
-          for (const line of String(chunk).split(/\r?\n/).filter(Boolean)) emitLine(line, "stderr");
-        });
-        child.on("error", (err) => {
-          active = null;
-          activeSpec = null;
-          activePromise = null;
-          reject(err);
-        });
-        child.on("close", (code, signal) => {
-          active = null;
-          activeSpec = null;
-          activePromise = null;
-          resolve({ code, signal });
-        });
+        launchProcess({ command, args }, resolve, reject);
       });
       activePromise = runPromise;
       return runPromise;
@@ -111,6 +200,7 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
 
     stop() {
       if (!active) return false;
+      clearStaleTimer();
       active.kill();
       return true;
     },
@@ -118,6 +208,7 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
     async restartActive() {
       if (!active || !activeSpec) return { restarted: false };
       const spec = { command: activeSpec.command, args: [...activeSpec.args] };
+      clearStaleTimer();
       active.kill();
       if (activePromise) {
         await activePromise.catch(() => {});
@@ -132,6 +223,7 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
         return { restarted: false };
       }
       const spec = { command: activeSpec.command, args: [...activeSpec.args] };
+      clearStaleTimer();
       active.kill();
       if (activePromise) {
         await activePromise.catch(() => {});
@@ -141,4 +233,5 @@ export function createProcessRunner({ cwd = process.cwd(), env = process.env, on
       return { restarted: true };
     },
   };
+  return runner;
 }

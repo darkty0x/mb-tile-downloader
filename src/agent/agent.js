@@ -426,6 +426,20 @@ export async function runAgent({
       await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");
       if (await forwarder.handleLine(line, stream)) return;
     },
+    onStaleRestart: async ({ command, args, quietMs, timeoutMs }) => {
+      await client.postEvent({
+        machineId: identity.machineId,
+        severity: "warn",
+        type: "managed_process.stale_restart",
+        message: "Managed downloader process restarted after stale output.",
+        data: {
+          command,
+          args,
+          quietMs,
+          timeoutMs,
+        },
+      });
+    },
   });
 
   async function syncAndPublishSnapshot({ reason = "heartbeat" } = {}) {

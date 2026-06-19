@@ -25,6 +25,11 @@ const DEFAULT_STORJ_PREFIX = "archives";
 const DEFAULT_SOURCE_CONFIG = path.join(__dirname, "configs", "esri-satellite.config.json");
 const DEFAULT_FILE_NAME_TEMPLATE = "tiles_{layer}_{z}_{xStart}-{xEnd}_y{yStart}-{yEnd}.zip";
 const LEGACY_MANIFEST_NAME = "archives-manifest.json";
+const MASKED_VALUE_PATTERN = /\*{3,}|\.{3,}/;
+
+function isMaskedOrAbbreviatedValue(value) {
+  return MASKED_VALUE_PATTERN.test(String(value || "").trim());
+}
 
 function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
   let raw;
@@ -47,7 +52,9 @@ function loadDotEnvIfPresent(envPath = path.join(__dirname, ".env")) {
     ) {
       value = value.slice(1, -1);
     }
-    if (key && process.env[key] === undefined) process.env[key] = value;
+    if (key && (process.env[key] === undefined || isMaskedOrAbbreviatedValue(process.env[key]))) {
+      process.env[key] = value;
+    }
   }
 }
 
@@ -173,6 +180,16 @@ async function loadJson(filePath) {
 }
 
 function parseStorjCredentials({ access, passphrase }) {
+  if (isMaskedOrAbbreviatedValue(access)) {
+    throw new Error(
+      "STORJ_ACCESS is masked or abbreviated; sync the full Storj access value to .env before upload."
+    );
+  }
+  if (isMaskedOrAbbreviatedValue(passphrase)) {
+    throw new Error(
+      "STORJ_PASSPHRASE is masked or abbreviated; sync the full Storj passphrase to .env before upload."
+    );
+  }
   const rawAccess = String(access || "").trim();
   if (!rawAccess) {
     throw new Error(

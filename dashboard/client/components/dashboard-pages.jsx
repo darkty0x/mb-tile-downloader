@@ -214,6 +214,58 @@ function moveConfigChoice(items, index, direction) {
   return next;
 }
 
+function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
+  const selectedCount = request.items.filter((item) => item.selected).length;
+  const updateItem = (index, patch) => onChange(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+
+  return (
+    <ModalShell title="실행할 Config 순서 선택" subtitle={`${selectedCount}/${request.items.length}개 선택됨`} onClose={onClose}>
+      <div className="space-y-3">
+        <p className="rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3 text-[12px] font-[650] leading-snug text-[var(--ptg-on-surface-variant)]">
+          선택한 순서대로 Config 화일을 차례로 실행합니다. 필요없는 항목은 끄고 화살표로 순서를 바꾸십시오.
+        </p>
+        <div className="ptg-scrollbar max-h-[52vh] space-y-2 overflow-y-auto pr-1">
+          {request.items.map((item, index) => (
+            <div
+              key={item.id}
+              className={`flex items-center gap-3 rounded-[14px] border p-3 transition ${
+                item.selected ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary-container)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-surface)]"
+              }`}
+            >
+              <input
+                type="checkbox"
+                className="h-5 w-5 shrink-0 accent-[var(--ptg-primary)]"
+                checked={item.selected}
+                onChange={(event) => updateItem(index, { selected: event.target.checked })}
+                aria-label={`${item.label} 선택`}
+              />
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[var(--ptg-surface-container-high)] text-[var(--ptg-primary)]">
+                <Icon name={item.source === "dashboard" ? "config" : "folder"} className="h-5 w-5" />
+              </span>
+              <div className="min-w-0 flex-1">
+                <div className="truncate text-[13px] font-[800] text-[var(--ptg-on-surface)]">
+                  {index + 1}. {item.label}
+                </div>
+                <div className="truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                  {item.meta} | {item.path}
+                </div>
+              </div>
+              <div className="flex shrink-0 gap-1">
+                <IconButton label="위로" icon="arrowUp" disabled={index === 0} onClick={() => onChange(moveConfigChoice(request.items, index, -1))} />
+                <IconButton label="아래로" icon="arrowDown" disabled={index === request.items.length - 1} onClick={() => onChange(moveConfigChoice(request.items, index, 1))} />
+              </div>
+            </div>
+          ))}
+        </div>
+        <div className="flex justify-end gap-2 border-t border-[var(--ptg-outline)] pt-3">
+          <AppButton variant="outlined" icon="close" onClick={onClose}>취소</AppButton>
+          <AppButton variant="filled" icon="play" disabled={!selectedCount} onClick={onSubmit}>{selectedCount}개 시작</AppButton>
+        </div>
+      </div>
+    </ModalShell>
+  );
+}
+
 function formatInteger(value) {
   const number = Number(value);
   return Number.isFinite(number) ? Math.round(number).toLocaleString() : "0";
@@ -790,6 +842,7 @@ function ServerConnectionsSection({ state, actions }) {
 }
 
 export function ServerManagementPage({ state, actions }) {
+  const [startOrderRequest, setStartOrderRequest] = useState(null);
   const connection = state.secretPool.find((item) => item.secretId === state.editor.id);
   const requestedMachineId = state.editor.machineId || state.selectedMachineId;
   const targetMachineId = connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId || requestedMachineId;
@@ -839,6 +892,34 @@ export function ServerManagementPage({ state, actions }) {
   });
   const selectedProcess = serverOverview.machineProcesses?.[normalizeMachineId(targetMachineId)] || null;
   const canDeleteTask = Boolean(selectedProcess?.jobId);
+  const startConfigChoices = buildStartConfigChoices({
+    dashboardConfigs: serverState.configs || [],
+    localConfigs: snapshot.configs || [],
+  });
+  const handleCommand = (type) => {
+    if (type === "start_pipeline" || type === "resume_pipeline") {
+      if (!targetMachineId) return;
+      if (!startConfigChoices.length) {
+        actions.setNotice({ message: "실행할 Config 화일이 필요합니다", kind: "error" });
+        return;
+      }
+      setStartOrderRequest({ commandType: type, items: startConfigChoices });
+      return;
+    }
+    actions.sendCommand(type).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+  };
+  const submitOrderedStart = () => {
+    if (!startOrderRequest) return;
+    const configPaths = startOrderRequest.items.filter((item) => item.selected).map((item) => item.path);
+    if (!configPaths.length) {
+      actions.setNotice({ message: "실행할 Config 화일을 선택하십시오", kind: "error" });
+      return;
+    }
+    actions
+      .sendCommand(startOrderRequest.commandType, { configPaths })
+      .then(() => setStartOrderRequest(null))
+      .catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+  };
   const envVariableCount = snapshot.envFiles?.reduce((sum, file) => sum + (Number(file.variableCount) || 0), 0) || 0;
   const localProxyCount = Number(snapshot.secrets?.proxy?.availableCount) || 0;
   const localMapboxCount = Number(snapshot.secrets?.mapboxTokenCount) || 0;
@@ -888,7 +969,7 @@ export function ServerManagementPage({ state, actions }) {
             icon={icon}
             className={type === "stop_pipeline" ? "danger-button" : ""}
             disabled={!targetMachineId}
-            onClick={() => actions.sendCommand(type).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+            onClick={() => handleCommand(type)}
           >
             {label}
           </AppButton>
@@ -936,6 +1017,14 @@ export function ServerManagementPage({ state, actions }) {
         {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={serverState} actions={actions} /> : null}
         {state.selectedServerTab === "console" ? <ServerPageConsole state={serverState} actions={actions} /> : null}
       </Surface>
+      {startOrderRequest ? (
+        <StartConfigOrderModal
+          request={startOrderRequest}
+          onChange={(items) => setStartOrderRequest((current) => (current ? { ...current, items } : current))}
+          onClose={() => setStartOrderRequest(null)}
+          onSubmit={submitOrderedStart}
+        />
+      ) : null}
     </section>
   );
 }

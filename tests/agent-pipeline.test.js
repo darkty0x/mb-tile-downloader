@@ -6,7 +6,7 @@ import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { runCommand } from "../src/agent/agent.js";
-import { resolveManagedCommand } from "../src/agent/process-runner.js";
+import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
@@ -84,6 +84,80 @@ test("process runner preserves ordered config paths for pipeline commands", () =
 
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/second.json", "configs/first.json"]);
   assert.deepEqual(resume.args, ["src/agent/pipeline.js", "configs/b.json", "configs/a.json"]);
+});
+
+test("process runner uses root env over stale service env for managed child commands", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-runner-env-"));
+  await writeFile(
+    path.join(dir, ".env"),
+    [
+      "STORJ_PASSPHRASE=real passphrase",
+      "DASHBOARD_URL=https://correct.example",
+    ].join("\n") + "\n",
+    "utf8"
+  );
+  const scriptPath = path.join(dir, "print-env.mjs");
+  await writeFile(
+    scriptPath,
+    [
+      "console.log(process.env.STORJ_PASSPHRASE);",
+      "console.log(process.env.DASHBOARD_URL);",
+      "console.log(process.env.EXTRA_VALUE);",
+    ].join("\n"),
+    "utf8"
+  );
+  const lines = [];
+  const runner = createProcessRunner({
+    cwd: dir,
+    env: {
+      STORJ_PASSPHRASE: "********",
+      DASHBOARD_URL: "https://stale.example",
+      EXTRA_VALUE: "kept",
+    },
+    onLine: (line) => lines.push(line),
+  });
+
+  const result = await runner.run({ command: process.execPath, args: [scriptPath] });
+
+  assert.deepEqual(result, { code: 0, signal: null });
+  assert.deepEqual(lines, ["real passphrase", "https://correct.example", "kept"]);
+});
+
+test("process runner restarts a managed process when output goes stale", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-stale-restart-"));
+  const countPath = path.join(dir, "runs.txt");
+  const scriptPath = path.join(dir, "child.mjs");
+  await writeFile(
+    scriptPath,
+    [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      'const countPath = process.argv[2];',
+      'let count = 0;',
+      'try { count = Number(readFileSync(countPath, "utf8")) || 0; } catch {}',
+      'count += 1;',
+      'writeFileSync(countPath, String(count));',
+      'console.log(`run:${count}`);',
+      'if (count === 1) setInterval(() => {}, 1000);',
+      'else process.exit(0);',
+    ].join("\n"),
+    "utf8"
+  );
+  const lines = [];
+  const staleRestarts = [];
+  const runner = createProcessRunner({
+    cwd: dir,
+    env: { DASHBOARD_AGENT_STALE_OUTPUT_RESTART_MS: "50" },
+    onLine: (line) => lines.push(line),
+    onStaleRestart: (event) => staleRestarts.push(event),
+  });
+
+  const result = await runner.run({ command: process.execPath, args: [scriptPath, countPath] });
+
+  assert.deepEqual(result, { code: 0, signal: null });
+  assert.deepEqual(lines, ["run:1", "run:2"]);
+  assert.equal(staleRestarts.length, 1);
+  assert.equal(staleRestarts[0].timeoutMs, 50);
+  assert.equal(await readFile(countPath, "utf8"), "2");
 });
 
 test("agent clear_agent_log command truncates the local downloader console log", async () => {

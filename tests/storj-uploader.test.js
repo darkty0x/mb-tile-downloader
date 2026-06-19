@@ -41,6 +41,40 @@ test("storj uploader defaults uploads into archives folder", async () => {
   );
 });
 
+test("storj uploader rejects masked Storj access before invoking uplink", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-masked-"));
+  const archivesDir = path.join(dir, "archives");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    path.join(archivesDir, "tiles_vector_1_000000-000000_y000000-000000.zip"),
+    "zip"
+  );
+
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        [
+          "storj-uploader.js",
+          `--archive-dir=${archivesDir}`,
+          "--bucket=mapbox",
+          "--access=********",
+        ],
+        {
+          cwd: path.resolve("."),
+          env: { ...process.env },
+        }
+      ),
+    (err) => {
+      assert.match(
+        `${err.stdout || ""}${err.stderr || ""}${err.message || ""}`,
+        /STORJ_ACCESS is masked or abbreviated/
+      );
+      return true;
+    }
+  );
+});
+
 test("storj uploader prints parseable archive result diagnostics", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");
