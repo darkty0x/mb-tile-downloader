@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { buildConfigGroups } from "../dashboard/client/lib/config-groups.js";
+import { buildConfigGroups, planConfigGroupUpdate } from "../dashboard/client/lib/config-groups.js";
 
 const templates = [
   { id: "esri-satellite", label: "esri-satellite", provider: "esri", layer: "esri-satellite", format: "jpg" },
@@ -39,5 +39,30 @@ test("config page groups matching server configs by base name and exposes enable
   assert.deepEqual(
     groups[0].templates.filter((template) => template.enabled).map((template) => template.id),
     ["esri-satellite", "mapbox-pbf"]
+  );
+});
+
+test("config group update plan adds missing selected types and removes unchecked existing configs", () => {
+  const [group] = buildConfigGroups([
+    {
+      configId: "cfg-1",
+      machineId: "server-01",
+      name: "1-pyongyang-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-2",
+      machineId: "server-01",
+      name: "1-pyongyang-mapbox-pbf",
+      config: { provider: "mapbox", layer: "vector", format: "pbf", ranges: [] },
+    },
+  ], templates);
+
+  assert.deepEqual(
+    planConfigGroupUpdate(group, ["esri-satellite", "mapbox-dem"]),
+    {
+      addTemplateIds: ["mapbox-dem"],
+      removeConfigIds: ["cfg-2"],
+    }
   );
 });

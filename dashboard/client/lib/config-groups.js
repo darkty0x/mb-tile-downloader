@@ -83,3 +83,16 @@ export function buildConfigGroups(configs = [], templates = []) {
     || a.name.localeCompare(b.name)
   ));
 }
+
+export function planConfigGroupUpdate(group = {}, selectedTemplateIds = []) {
+  const selected = new Set(selectedTemplateIds.map((id) => String(id || "").trim()).filter(Boolean));
+  const existingTemplates = (group.templates || []).filter((template) => template.enabled && template.config?.configId);
+  const existingIds = new Set(existingTemplates.map((template) => template.id));
+
+  return {
+    addTemplateIds: [...selected].filter((id) => !existingIds.has(id)),
+    removeConfigIds: existingTemplates
+      .filter((template) => !selected.has(template.id))
+      .map((template) => template.config.configId),
+  };
+}

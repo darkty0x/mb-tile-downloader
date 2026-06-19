@@ -1389,6 +1389,7 @@ function ConfigGroupCard({ group, state, actions }) {
     name: group.name,
     machineIds: group.machineId ? [group.machineId] : [],
     templateIds: group.enabledTemplateIds,
+    configGroup: group,
   });
 
   return (
@@ -1416,6 +1417,7 @@ function ConfigGroupCard({ group, state, actions }) {
               name: group.name,
               machineIds: group.machineId ? [group.machineId] : [],
               templateIds: [...new Set([...group.enabledTemplateIds, template.id])],
+              configGroup: group,
             });
           };
           return (

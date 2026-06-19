@@ -617,6 +617,7 @@ function ConfigForm({ record, state, actions, editor }) {
   const config = record?.config || SAMPLE_CONFIG;
   const id = record?.configId || "";
   const canUseTemplates = !id && !record?.config;
+  const groupEditing = canUseTemplates && Boolean(editor?.configGroup);
   const initialTemplateIds = useMemo(
     () => (Array.isArray(editor?.templateIds) ? editor.templateIds : editor?.templateId ? [editor.templateId] : []),
     [editor?.templateId, editor?.templateIds]
@@ -632,7 +633,7 @@ function ConfigForm({ record, state, actions, editor }) {
   const [batchPreview, setBatchPreview] = useState(null);
   const [draftTexts, setDraftTexts] = useState([]);
   const templates = state.configTemplates || [];
-  const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
+  const templateMode = canUseTemplates && (selectedTemplateIds.length > 0 || groupEditing);
   const effectiveMachineIds = id ? [record?.machineId || state.selectedMachineId].filter(Boolean) : selectedMachineIds;
   const effectiveMachines = effectiveMachineIds.map((machineId) => findMachineById(state.machines, machineId)).filter(Boolean);
   const missingMachineCount = effectiveMachineIds.length - effectiveMachines.length;
@@ -658,6 +659,10 @@ function ConfigForm({ record, state, actions, editor }) {
       }
       try {
         setSubmitting(true);
+        if (groupEditing) {
+          await actions.saveConfigGroup(new FormData(event.currentTarget), editor.configGroup);
+          return;
+        }
         if (templateMode) {
           if (!batchPreview) {
             const preview = await actions.previewConfigBatch(new FormData(event.currentTarget));
@@ -712,9 +717,11 @@ function ConfigForm({ record, state, actions, editor }) {
       ) : null}
       {templateMode ? (
         <>
-          <ConfigRangeBuilder actions={actions} onDirty={clearBatchPreview} />
+          {groupEditing ? null : <ConfigRangeBuilder actions={actions} onDirty={clearBatchPreview} />}
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
-            선택된 Template {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 Config 화일로 작성됩니다.
+            {groupEditing
+              ? `선택된 류형 ${selectedTemplateIds.length}개가 이 Config 그룹의 실제 배정상태로 보관됩니다.`
+              : `선택된 Template ${selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 Config 화일로 작성됩니다.`}
           </div>
           {batchPreview ? (
             <ConfigBatchPreview
@@ -733,7 +740,7 @@ function ConfigForm({ record, state, actions, editor }) {
       )}
       <div className="flex flex-wrap gap-2">
         <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>
-          {templateMode ? (batchPreview ? `${batchPreview.drafts?.length || selectedTemplateIds.length}개 확정작성` : `${selectedTemplateIds.length}개 미리보기`) : "Config 화일 보관"}
+          {groupEditing ? "류형 보관" : templateMode ? (batchPreview ? `${batchPreview.drafts?.length || selectedTemplateIds.length}개 확정작성` : `${selectedTemplateIds.length}개 미리보기`) : "Config 화일 보관"}
         </AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>

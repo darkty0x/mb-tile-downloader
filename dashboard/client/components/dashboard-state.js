@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
+import { planConfigGroupUpdate } from "../lib/config-groups";
 import { dashboardPathForState, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
@@ -493,7 +494,7 @@ export function useDashboardState() {
         setEditor({ type: "server-management", machineId: selectedId });
         await refreshMachineData(selectedId);
       },
-      async sendCommand(commandType) {
+      async sendCommand(commandType, payloadOverrides = {}) {
         const targetMachineId = normalizeMachineId(selectedMachineId);
         if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
         const commandLabel = {
@@ -516,11 +517,18 @@ export function useDashboardState() {
           });
           if (!confirmed) return;
         }
-        const payload = {};
-        if (["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType)) {
+        const payload = { ...payloadOverrides };
+        if (
+          ["start_pipeline", "resume_pipeline", "run_preflight"].includes(commandType) &&
+          !payload.configPath &&
+          !Array.isArray(payload.configPaths)
+        ) {
           const configPath = runnableConfigPath();
           if (!configPath) throw new Error("실행할 Config 화일이 필요합니다");
           payload.configPath = configPath;
+        }
+        if (Array.isArray(payload.configPaths) && !payload.configPath) {
+          payload.configPath = payload.configPaths[0];
         }
         await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
           method: "POST",
@@ -692,6 +700,39 @@ export function useDashboardState() {
         setNotice({ message: `Config 화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
         await refreshAll({ showLoading: false });
         return created;
+      },
+      async saveConfigGroup(formData, configGroup) {
+        const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const plan = planConfigGroupUpdate(configGroup, templateIds);
+        if (plan.removeConfigIds.length) {
+          const confirmed = await confirmDanger({
+            title: "Config 류형 삭제 확인",
+            message: `선택해제한 Config 화일 ${plan.removeConfigIds.length}개를 삭제하겠습니까? 진행중인 해당 작업은 정지됩니다.`,
+            confirmLabel: "삭제",
+            storageKey: "delete",
+          });
+          if (!confirmed) return;
+        }
+        if (plan.addTemplateIds.length) {
+          const sourceConfig = (configGroup.configs || [])[0]?.config || {};
+          const ranges = sourceConfig.ranges || [];
+          if (!ranges.length) throw new Error("새 류형을 만들 기존 Config 범위가 없습니다");
+          await api("/api/configs/batch", {
+            method: "POST",
+            body: JSON.stringify({
+              machineId: configGroup.machineId || null,
+              name: formData.get("name") || configGroup.name,
+              templateIds: plan.addTemplateIds,
+              rangeInput: JSON.stringify(ranges),
+            }),
+          });
+        }
+        for (const configId of plan.removeConfigIds) {
+          await api(`/api/configs/${encodeURIComponent(configId)}`, { method: "DELETE" });
+        }
+        setEditor({ type: "summary" });
+        setNotice({ message: "Config 류형이 보관되였습니다", kind: "success" });
+        await refreshAll({ showLoading: false });
       },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
