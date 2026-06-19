@@ -5,7 +5,7 @@ import { buildGlobalSearchResults } from "../lib/global-search";
 import { eventNotificationId, eventRecordId } from "../lib/event-identity";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
-import { AppButton, IconButton, StatusPill, SwitchField, TextInput } from "./ui";
+import { AppButton, IconButton, StatusPill, TextInput } from "./ui";
 import { PAGE_META, TABS, fleetState, shortDate } from "./dashboard-core";
 
 export function Notice({ notice }) {
@@ -125,8 +125,13 @@ export function LoginScreen({ state, actions }) {
             <Icon name="lock" className="h-9 w-9" filled />
           </span>
           <span className="grid justify-items-center">
-            <LogoMark variant="login" />
-            <span className="sr-only">PTG 관리체계</span>
+            <h1 className="flex items-center justify-center gap-2 text-[28px] font-[520] leading-tight text-[var(--ptg-on-surface)]">
+              <span className="sr-only">PTG </span>
+              <span className="ptg-login-logo-clip" aria-hidden="true" style={{ width: 34, height: 28 }}>
+                <LogoMark variant="login" style={{ maxWidth: "none", transform: "translate(-5px, -36px)" }} />
+              </span>
+              <span>관리체계</span>
+            </h1>
             <p className="mt-1 text-[13px] font-[620] text-[var(--ptg-on-surface-variant)]">가입한후에 관리체계를 리용할수 있습니다.</p>
           </span>
         </div>
@@ -495,12 +500,6 @@ function NotificationsMenu({ notifications, actions, state }) {
 }
 
 export function ConfirmDialog({ request, actions }) {
-  const [askAgain, setAskAgain] = useState(true);
-
-  useEffect(() => {
-    setAskAgain(true);
-  }, [request]);
-
   if (!request) return null;
 
   return (
@@ -516,15 +515,9 @@ export function ConfirmDialog({ request, actions }) {
           </span>
         </header>
         <div className="grid gap-4 p-5">
-          <SwitchField
-            checked={askAgain}
-            label="다음에도 다시 묻기"
-            description="앞으로의 중요동작에도 보호를 켜둡니다"
-            onChange={(event) => setAskAgain(event.target.checked)}
-          />
           <div className="flex flex-wrap justify-end gap-2">
-            <AppButton type="button" onClick={() => actions.resolveConfirm(false, true)}>취소</AppButton>
-            <AppButton type="button" variant="danger" icon="trash" onClick={() => actions.resolveConfirm(true, askAgain)}>{request.confirmLabel || "확인"}</AppButton>
+            <AppButton type="button" onClick={() => actions.resolveConfirm(false)}>취소</AppButton>
+            <AppButton type="button" variant="danger" icon="trash" onClick={() => actions.resolveConfirm(true)}>{request.confirmLabel || "확인"}</AppButton>
           </div>
         </div>
       </section>

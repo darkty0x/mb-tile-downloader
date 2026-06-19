@@ -423,7 +423,9 @@ function ActiveRangesCard({ overview }) {
             </span>
             <div className="min-w-0">
               <strong className="block truncate text-[12.5px] font-[820]">{range.name}</strong>
-              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">z={range.z} | 타일 {range.tiles.toLocaleString()}개</small>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">
+                z={range.z} | 범위 {Number(range.rangeCount || 0).toLocaleString()}개 | 타일 {range.tiles.toLocaleString()}개
+              </small>
             </div>
             <StatusPill status={range.status === "queued" ? "busy" : "neutral"}>{displayStatus(range.status)}</StatusPill>
           </div>
@@ -1612,6 +1614,9 @@ export function AccountDashboard({ state, actions }) {
 }
 
 export function HelpDashboard({ actions }) {
+  const [selectedGuideId, setSelectedGuideId] = useState(HELP_GUIDES[0]?.id || "overview");
+  const activeGuide = HELP_GUIDES.find((guide) => guide.id === selectedGuideId) || HELP_GUIDES[0];
+
   return (
     <section className="screen-enter mt-4 grid gap-4">
       <Surface className="overflow-hidden p-0">
@@ -1630,16 +1635,23 @@ export function HelpDashboard({ actions }) {
 
         <div className="grid grid-cols-[240px_minmax(0,1fr)] gap-0 max-lg:grid-cols-1">
           <aside className="border-r border-[var(--ptg-outline)] bg-white/70 p-3 max-lg:border-b max-lg:border-r-0">
-            <nav className="ptg-scrollbar sticky top-[104px] grid max-h-[calc(100vh-132px)] gap-1 overflow-auto pr-1 max-lg:static max-lg:max-h-none max-lg:grid-cols-3 max-md:grid-cols-2 max-sm:grid-cols-1" aria-label="도움말 목차">
+            <nav className="ptg-scrollbar sticky top-[104px] grid max-h-[calc(100vh-132px)] gap-1 overflow-auto pr-1 max-lg:static max-lg:max-h-none max-lg:grid-cols-3 max-md:grid-cols-2 max-sm:grid-cols-1" aria-label="도움말 목차" role="tablist">
               {HELP_GUIDES.map((guide) => (
-                <a
+                <button
                   key={guide.id}
-                  className="state-layer flex min-h-10 items-center gap-2 rounded-[10px] px-3 text-[12px] font-[760] text-[var(--ptg-on-surface-variant)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]"
-                  href={`#help-${guide.id}`}
+                  aria-controls="help-guide-panel"
+                  aria-selected={activeGuide?.id === guide.id}
+                  className={`state-layer flex min-h-10 items-center gap-2 rounded-[10px] border px-3 text-left text-[12px] font-[760] transition ${activeGuide?.id === guide.id
+                    ? "border-[rgba(103,80,164,0.28)] bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]"
+                    : "border-transparent text-[var(--ptg-on-surface-variant)] hover:bg-[var(--ptg-primary-soft)] hover:text-[var(--ptg-primary)]"
+                  }`}
+                  onClick={() => setSelectedGuideId(guide.id)}
+                  role="tab"
+                  type="button"
                 >
                   <Icon name={guide.icon} className="h-4 w-4 shrink-0" />
                   <span className="min-w-0 truncate">{guide.title}</span>
-                </a>
+                </button>
               ))}
             </nav>
           </aside>
@@ -1647,9 +1659,9 @@ export function HelpDashboard({ actions }) {
           <div className="grid gap-4 p-4">
             <Surface className="border-[rgba(96,64,239,0.20)] bg-[linear-gradient(135deg,#ffffff_0%,#f8f5ff_58%,#eefaf5_100%)]">
               <SectionTitle
-                title="운영 가이드"
-                meta="왼쪽 목차에서 페지를 고르면 해당 화면의 목적, 확인 순서, 첨부할 참고이미지 슬롯을 바로 볼수 있습니다."
-                action={<AppButton icon="settings" onClick={() => actions?.setSelectedTab("settings")}>설정 열기</AppButton>}
+                title={`${activeGuide?.title || "도움말"} 가이드`}
+                meta="왼쪽 탭에서 페지를 선택하면 해당 화면의 목적, 확인 순서, 첨부할 참고이미지 슬롯만 표시됩니다."
+                action={<AppButton icon={activeGuide?.icon || "help"} onClick={() => actions?.setSelectedTab(activeGuide?.id || "overview")}>페지 열기</AppButton>}
               />
               <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
                 {[
@@ -1666,24 +1678,24 @@ export function HelpDashboard({ actions }) {
               </div>
             </Surface>
 
-            {HELP_GUIDES.map((guide) => (
-              <article key={guide.id} id={`help-${guide.id}`} className="scroll-mt-28 rounded-[18px] border border-[var(--ptg-outline)] bg-white">
+            {activeGuide ? (
+              <article id="help-guide-panel" className="rounded-[18px] border border-[var(--ptg-outline)] bg-white" role="tabpanel">
                 <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-4 py-4 max-sm:grid-cols-1">
                   <div className="flex min-w-0 gap-3">
                     <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]">
-                      <Icon name={guide.icon} className="h-5 w-5" />
+                      <Icon name={activeGuide.icon} className="h-5 w-5" />
                     </span>
                     <div className="min-w-0">
-                      <h4 className="text-[16px] font-[850] leading-tight text-[var(--ptg-on-surface)]">{guide.title}</h4>
-                      <p className="mt-1 text-[12px] font-[560] leading-snug text-[var(--ptg-on-surface-variant)]">{guide.summary}</p>
+                      <h4 className="text-[16px] font-[850] leading-tight text-[var(--ptg-on-surface)]">{activeGuide.title}</h4>
+                      <p className="mt-1 text-[12px] font-[560] leading-snug text-[var(--ptg-on-surface-variant)]">{activeGuide.summary}</p>
                     </div>
                   </div>
-                  <AppButton icon={guide.icon} onClick={() => actions?.setSelectedTab(guide.id)}>페지 열기</AppButton>
+                  <AppButton icon={activeGuide.icon} onClick={() => actions?.setSelectedTab(activeGuide.id)}>페지 열기</AppButton>
                 </header>
 
                 <div className="grid grid-cols-[minmax(0,1.15fr)_minmax(260px,0.85fr)] gap-4 p-4 max-xl:grid-cols-1">
                   <div className="grid gap-3">
-                    {guide.sections.map(([title, text], index) => (
+                    {activeGuide.sections.map(([title, text], index) => (
                       <section key={title} className="rounded-[14px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface)] p-3">
                         <div className="flex items-start gap-3">
                           <span className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--ptg-primary-soft)] text-[12px] font-[850] text-[var(--ptg-primary)]">{index + 1}</span>
@@ -1702,7 +1714,7 @@ export function HelpDashboard({ actions }) {
                       <strong className="text-[13px] font-[850] text-[var(--ptg-on-surface)]">참고이미지 / Screenshot</strong>
                     </div>
                     <div className="grid gap-2">
-                      {guide.screenshots.map((label) => (
+                      {activeGuide.screenshots.map((label) => (
                         <div key={label} className="grid min-h-[74px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border border-[var(--ptg-outline)] bg-white px-3 py-2">
                           <span className="grid h-11 w-11 place-items-center rounded-[10px] bg-[var(--ptg-surface-container)] text-[var(--ptg-primary)]">
                             <Icon name="image" className="h-5 w-5" />
@@ -1717,7 +1729,7 @@ export function HelpDashboard({ actions }) {
                   </section>
                 </div>
               </article>
-            ))}
+            ) : null}
           </div>
         </div>
       </Surface>
@@ -2387,8 +2399,6 @@ function ServersTable({ state, actions }) {
                         className="text-[var(--ptg-error)] hover:text-[var(--ptg-error)]"
                         onClick={(event) => {
                           event.stopPropagation();
-                          const ok = globalThis.confirm?.(`봉사기 《${machine.displayName || machine.machineId}》을(를) 관리체계에서 제거하겠습니까? 배정된 API Key가 풀리고 봉사기범위 Config 화일/.Env기록이 삭제됩니다.`);
-                          if (!ok) return;
                           return actions.deleteMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
                       />

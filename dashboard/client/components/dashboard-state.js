@@ -267,21 +267,15 @@ export function useDashboardState() {
     }
   }, [events, globalEvents, settings.notifications?.webConsoleEnabled, settings.notifications?.minSeverity]);
 
-  function confirmDanger({ title = "동작 확인", message = "이 동작은 되돌릴수 없습니다.", confirmLabel = "확인", storageKey = "delete" } = {}) {
-    if (typeof window !== "undefined" && window.localStorage?.getItem(`ptg.confirm.${storageKey}.skip`) === "true") {
-      return Promise.resolve(true);
-    }
+  function confirmDanger({ title = "동작 확인", message = "이 동작은 되돌릴수 없습니다.", confirmLabel = "확인" } = {}) {
     return new Promise((resolve) => {
-      setConfirmRequest({ title, message, confirmLabel, storageKey, resolve });
+      setConfirmRequest({ title, message, confirmLabel, resolve });
     });
   }
 
-  function resolveConfirm(confirmed, askAgain = true) {
+  function resolveConfirm(confirmed) {
     const request = confirmRequest;
     if (!request) return;
-    if (confirmed && !askAgain && typeof window !== "undefined") {
-      window.localStorage?.setItem(`ptg.confirm.${request.storageKey}.skip`, "true");
-    }
     setConfirmRequest(null);
     request.resolve(Boolean(confirmed));
   }
@@ -613,13 +607,23 @@ export function useDashboardState() {
         return result;
       },
       async deleteMachine(machineId) {
-        await api(`/api/machines/${encodeURIComponent(machineId)}`, { method: "DELETE" });
-        if (sameMachineId(selectedMachineId, machineId)) {
+        const targetMachineId = normalizeMachineId(machineId);
+        if (!targetMachineId) throw new Error("봉사기 ID가 없습니다");
+        const machine = findMachineById(machines, targetMachineId);
+        const label = machine?.displayName || displayMachineId(targetMachineId);
+        const confirmed = await confirmDanger({
+          title: "봉사기 삭제 확인",
+          message: `봉사기 《${label}》을(를) 관리체계에서 제거하겠습니까? 배정된 API Key가 풀리고 봉사기범위 Config 화일/.Env기록이 삭제됩니다.`,
+          confirmLabel: "봉사기 삭제",
+        });
+        if (!confirmed) return;
+        await api(`/api/machines/${encodeURIComponent(targetMachineId)}`, { method: "DELETE" });
+        if (sameMachineId(selectedMachineId, targetMachineId)) {
           setSelectedMachineId(null);
           setSelectedServerTab("control");
           setEditor({ type: "summary" });
         }
-        setNotice({ message: `${machineId.toUpperCase()} 이(가) 제거되였습니다`, kind: "success" });
+        setNotice({ message: `${targetMachineId.toUpperCase()} 이(가) 제거되였습니다`, kind: "success" });
         await refreshAll();
       },
       async saveServerConnection(formData) {

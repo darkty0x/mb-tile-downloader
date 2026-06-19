@@ -429,9 +429,22 @@ button:disabled {
 }
 
 .ptg-brand-logo[data-variant="login"] {
-  width: min(252px, 100%);
-  height: 80px;
+  width: 96px;
+  height: 96px;
   object-position: center;
+}
+
+.ptg-login-logo-clip {
+  display: inline-flex;
+  width: 34px;
+  height: 28px;
+  overflow: hidden;
+  align-items: flex-start;
+}
+
+.ptg-login-logo-clip .ptg-brand-logo[data-variant="login"] {
+  max-width: none;
+  transform: translate(-5px, -36px);
 }
 
 .ptg-picker-list {

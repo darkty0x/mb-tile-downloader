@@ -571,29 +571,51 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
 function rangeTileCount(range = {}) {
   const width = Math.max(0, Number(range.xEnd) - Number(range.xStart) + 1);
   const height = Math.max(0, Number(range.yEnd) - Number(range.yStart) + 1);
-  return width * height;
+  const start = Number(range.zoom ?? range.z ?? range.zoomStart);
+  const end = Number(range.zoom ?? range.z ?? range.zoomEnd ?? start);
+  const zooms = Number.isFinite(start) && Number.isFinite(end) ? Math.max(0, end - start + 1) : 1;
+  return width * height * zooms;
 }
 
-function rangeZoomLabel(range = {}) {
-  const start = range.zoom ?? range.z ?? range.zoomStart;
-  const end = range.zoomEnd ?? start;
-  if (start === undefined || start === null || start === "") return "-";
-  if (end === undefined || end === null || end === "" || String(end) === String(start)) return String(start);
-  return `${start}-${end}`;
+function rangeZoomSegments(ranges = []) {
+  const segments = ranges
+    .map((range) => {
+      const start = Number(range.zoom ?? range.z ?? range.zoomStart);
+      const end = Number(range.zoom ?? range.z ?? range.zoomEnd ?? start);
+      if (!Number.isFinite(start)) return null;
+      return { start, end: Number.isFinite(end) ? end : start };
+    })
+    .filter(Boolean)
+    .sort((a, b) => a.start - b.start || a.end - b.end);
+  const merged = [];
+  for (const segment of segments) {
+    const last = merged[merged.length - 1];
+    if (last && segment.start <= last.end + 1) {
+      last.end = Math.max(last.end, segment.end);
+    } else {
+      merged.push({ ...segment });
+    }
+  }
+  return merged.map((segment) => (
+    segment.start === segment.end ? String(segment.start) : `${segment.start}-${segment.end}`
+  )).join(", ") || "-";
 }
 
 function buildActiveRanges(configs) {
   return configs
     .filter((config) => config.active || configs.length === 1)
-    .flatMap((config) => (config.config?.ranges || []).slice(0, 3).map((range, index) => ({
-      name: config.name || `range-${index + 1}`,
-      z: rangeZoomLabel(range),
-      tiles: rangeTileCount(range),
-      progress: 0,
-      throughput: 0,
-      status: config.active ? "queued" : "available",
-    })))
-    .slice(0, 5);
+    .map((config, index) => {
+      const ranges = config.config?.ranges || [];
+      return {
+        name: config.name || `config-${index + 1}`,
+        z: rangeZoomSegments(ranges),
+        rangeCount: ranges.length,
+        tiles: ranges.reduce((sum, range) => sum + rangeTileCount(range), 0),
+        progress: 0,
+        throughput: 0,
+        status: config.active ? "queued" : "available",
+      };
+    });
 }
 
 function healthBucket(machine) {

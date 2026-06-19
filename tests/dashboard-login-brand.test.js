@@ -9,7 +9,11 @@ test("login screen renders the shared PTG logo instead of a literal PTG heading"
     shellSource.indexOf("export function LoginScreen"),
     shellSource.indexOf("export function AuthCheckingScreen"),
   );
+  const iconsSource = readFileSync(new URL("../dashboard/client/components/icons.jsx", import.meta.url), "utf8");
 
   assert.match(loginScreenSource, /<LogoMark\s+[^>]*variant="login"/);
+  assert.match(loginScreenSource, /<h1[^>]*>\s*<span className="sr-only">PTG <\/span>/);
+  assert.match(loginScreenSource, /<span>관리체계<\/span>/);
   assert.doesNotMatch(loginScreenSource, />PTG 관리체계<\/h1>/);
+  assert.match(iconsSource, /variant === "login"\s+\?\s+"\/brand\/ptg-primary-dark\.svg"/);
 });

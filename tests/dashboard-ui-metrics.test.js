@@ -91,9 +91,69 @@ test("overview model displays dashboard-created zoom ranges", () => {
     ],
   });
 
-  assert.equal(model.activeRanges[0].z, "19");
-  assert.equal(model.activeRanges[0].tiles, 61915609);
-  assert.equal(model.activeRanges[1].z, "18-19");
+  assert.equal(model.activeRanges.length, 1);
+  assert.equal(model.activeRanges[0].z, "18-19");
+  assert.equal(model.activeRanges[0].rangeCount, 2);
+  assert.equal(model.activeRanges[0].tiles, 61915617);
+});
+
+test("overview model summarizes each active config once with full range and tile totals", () => {
+  const model = buildOverviewModel({
+    configs: [
+      {
+        name: "1-pyongyang-mapbox-satellite",
+        active: true,
+        config: {
+          ranges: [
+            { zoomStart: 7, zoomEnd: 7, xStart: 1, xEnd: 2, yStart: 1, yEnd: 1 },
+            { zoomStart: 8, zoomEnd: 8, xStart: 1, xEnd: 2, yStart: 1, yEnd: 1 },
+            { zoomStart: 9, zoomEnd: 9, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1 },
+          ],
+        },
+      },
+      {
+        name: "2-chiba-narita-esri-satellite",
+        active: true,
+        config: {
+          ranges: [
+            { zoomStart: 7, zoomEnd: 8, xStart: 1, xEnd: 2, yStart: 1, yEnd: 1 },
+          ],
+        },
+      },
+      ...Array.from({ length: 5 }, (_, index) => ({
+        name: `extra-config-${index + 1}`,
+        active: true,
+        config: {
+          ranges: [{ zoom: 10 + index, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1 }],
+        },
+      })),
+    ],
+  });
+
+  assert.equal(model.activeRanges.length, 7);
+  assert.deepEqual(
+    model.activeRanges.map((range) => range.name),
+    [
+      "1-pyongyang-mapbox-satellite",
+      "2-chiba-narita-esri-satellite",
+      "extra-config-1",
+      "extra-config-2",
+      "extra-config-3",
+      "extra-config-4",
+      "extra-config-5",
+    ],
+  );
+  assert.deepEqual(model.activeRanges[0], {
+    name: "1-pyongyang-mapbox-satellite",
+    z: "7-9",
+    rangeCount: 3,
+    tiles: 5,
+    progress: 0,
+    throughput: 0,
+    status: "queued",
+  });
+  assert.equal(model.activeRanges[1].z, "7-8");
+  assert.equal(model.activeRanges[1].rangeCount, 1);
   assert.equal(model.activeRanges[1].tiles, 4);
 });
 
