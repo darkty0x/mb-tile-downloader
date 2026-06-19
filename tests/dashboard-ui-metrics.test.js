@@ -5,7 +5,7 @@ import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.
 import { eventNotificationId, eventRecordId } from "../dashboard/client/lib/event-identity.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 import { buildDashboardDocumentTitle } from "../dashboard/client/lib/page-title.js";
-import { diskPeakForMachine } from "../dashboard/client/components/dashboard-core.js";
+import { diskPeakForMachine, envValueFromText, mergeDashboardSettings } from "../dashboard/client/components/dashboard-core.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -63,6 +63,32 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
   assert.equal(model.pipeline[1].status, "complete");
   assert.equal(model.resourceAlerts.length, 2);
   assert.equal(model.activeRanges[0].name, "ukraine-range-01");
+});
+
+test("client settings preserve global env template values", () => {
+  const settings = mergeDashboardSettings({
+    rootEnvTemplate: {
+      envText: "DASHBOARD_URL=https://dashboard.example\nTELEGRAM_CHAT_ID=-100123\n",
+      sourceMachineId: "global",
+      updatedAt: "2026-06-16T00:00:00.000Z",
+    },
+  });
+
+  assert.equal(settings.rootEnvTemplate.envText.includes("TELEGRAM_CHAT_ID=-100123"), true);
+  assert.equal(settings.rootEnvTemplate.sourceMachineId, "global");
+  assert.equal(envValueFromText(settings.rootEnvTemplate.envText, "TELEGRAM_CHAT_ID"), "-100123");
+});
+
+test("client settings preserve runtime telegram chat id fallback", () => {
+  const settings = mergeDashboardSettings({
+    telegramEnv: {
+      botTokenConfigured: true,
+      chatId: "-100456",
+    },
+  });
+
+  assert.equal(settings.telegramEnv.botTokenConfigured, true);
+  assert.equal(settings.telegramEnv.chatId, "-100456");
 });
 
 test("event notification identity uses the durable event id field", () => {

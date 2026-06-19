@@ -27,10 +27,25 @@ export function parseDashboardRoute(href) {
   const queryPage = url.searchParams.get("page");
   const selectedTab = PAGE_NAMES.has(pathPage) ? pathPage : PAGE_NAMES.has(queryPage) ? queryPage : "overview";
   const serverTab = url.searchParams.get("serverTab") || url.searchParams.get("tab");
+  const selectedMachineId = selectedTab === "servers" ? normalizeMachineId(url.searchParams.get("machineId")) || null : null;
   const route = {
     selectedTab,
     selectedServerTab: SERVER_TAB_NAMES.has(serverTab) ? serverTab : "control",
-    selectedMachineId: normalizeMachineId(url.searchParams.get("machineId")) || null,
+    selectedMachineId,
   };
   return { ...route, editor: editorForRoute(route) };
+}
+
+export function dashboardPathForState(state = {}) {
+  const page = PAGE_NAMES.has(state.selectedTab) ? state.selectedTab : "overview";
+  const url = new URL("http://localhost");
+  url.pathname = page === "overview" ? "/" : `/${page}`;
+  if (page === "servers") {
+    const machineId = normalizeMachineId(state.selectedMachineId);
+    if (machineId) url.searchParams.set("machineId", machineId);
+    if (state.selectedServerTab && state.selectedServerTab !== "control" && SERVER_TAB_NAMES.has(state.selectedServerTab)) {
+      url.searchParams.set("serverTab", state.selectedServerTab);
+    }
+  }
+  return `${url.pathname}${url.search}`;
 }

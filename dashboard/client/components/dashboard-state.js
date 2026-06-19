@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
-import { PAGE_NAMES, parseDashboardRoute } from "../lib/route-state";
+import { dashboardPathForState, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
 function initialRouteState() {
@@ -49,13 +49,7 @@ export function useDashboardState() {
 
   useEffect(() => {
     if (typeof window === "undefined" || authStatus !== "authenticated") return;
-    const page = PAGE_NAMES.has(selectedTab) ? selectedTab : "overview";
-    const url = new URL(window.location.href);
-    url.pathname = page === "overview" ? "/" : `/${page}`;
-    url.search = "";
-    if (selectedMachineId) url.searchParams.set("machineId", selectedMachineId);
-    if (page === "servers" && selectedServerTab !== "control") url.searchParams.set("serverTab", selectedServerTab);
-    const next = `${url.pathname}${url.search}`;
+    const next = dashboardPathForState({ selectedTab, selectedMachineId, selectedServerTab });
     const current = `${window.location.pathname}${window.location.search}`;
     if (next !== current) window.history.replaceState({}, "", next);
   }, [authStatus, selectedTab, selectedMachineId, selectedServerTab]);

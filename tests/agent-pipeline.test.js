@@ -72,6 +72,20 @@ test("process runner resolves only whitelisted commands", () => {
   );
 });
 
+test("process runner preserves ordered config paths for pipeline commands", () => {
+  const start = resolveManagedCommand({
+    commandType: "start_pipeline",
+    payload: { configPaths: ["configs/second.json", "configs/first.json"] },
+  });
+  const resume = resolveManagedCommand({
+    commandType: "resume_pipeline",
+    payload: { configPaths: ["configs/b.json", "configs/a.json"] },
+  });
+
+  assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/second.json", "configs/first.json"]);
+  assert.deepEqual(resume.args, ["src/agent/pipeline.js", "configs/b.json", "configs/a.json"]);
+});
+
 test("agent clear_agent_log command truncates the local downloader console log", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-clear-log-"));
   const agentLogPath = path.join(dir, ".tile-state", "dashboard-agent.log");

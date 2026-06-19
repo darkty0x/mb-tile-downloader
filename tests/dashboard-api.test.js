@@ -1147,6 +1147,34 @@ test("dashboard settings expose and persist sync polling", async (t) => {
   assert.equal(listed.body.settings.sync.dashboardPollMs, 2500);
 });
 
+test("dashboard settings expose existing telegram chat id without leaking bot token", async (t) => {
+  const previousBotToken = process.env.TELEGRAM_BOT_TOKEN;
+  const previousChatId = process.env.TELEGRAM_CHAT_ID;
+  process.env.TELEGRAM_BOT_TOKEN = "123456:ABC-def";
+  process.env.TELEGRAM_CHAT_ID = "-100123";
+  t.after(() => {
+    if (previousBotToken === undefined) delete process.env.TELEGRAM_BOT_TOKEN;
+    else process.env.TELEGRAM_BOT_TOKEN = previousBotToken;
+    if (previousChatId === undefined) delete process.env.TELEGRAM_CHAT_ID;
+    else process.env.TELEGRAM_CHAT_ID = previousChatId;
+  });
+  const server = await withServer(t);
+
+  const settings = await request(server, { path: "/api/settings" });
+  const snapshot = await request(server, { path: "/api/snapshot" });
+
+  assert.equal(settings.status, 200);
+  assert.deepEqual(settings.body.settings.telegramEnv, {
+    botTokenConfigured: true,
+    chatId: "-100123",
+  });
+  assert.equal(settings.body.settings.telegramEnv.botToken, undefined);
+  assert.deepEqual(snapshot.body.snapshot.settings.telegramEnv, {
+    botTokenConfigured: true,
+    chatId: "-100123",
+  });
+});
+
 test("dashboard settings expose and persist workflow notification and retry policy", async (t) => {
   const server = await withServer(t);
 
@@ -1756,6 +1784,8 @@ test("dashboard telegram env route uses DB global env template, not masked snaps
   assert.equal(updated.status, 200);
   assert.deepEqual(updated.body.queued.map((item) => item.machineId), ["server-04", "server-05"]);
   assert.deepEqual(updated.body.skipped, []);
+  assert.match(store.getSettings().rootEnvTemplate.envText, /TELEGRAM_BOT_TOKEN=123456:ABC-def/);
+  assert.match(store.getSettings().rootEnvTemplate.envText, /TELEGRAM_CHAT_ID=-100123/);
   assert.equal(server04Commands[0].commandType, "write_env");
   assert.match(server04Commands[0].payload.envText, /MACHINE_ID=server-04/);
   assert.match(server04Commands[0].payload.envText, /DASHBOARD_URL=https:\/\/dashboard\.example/);

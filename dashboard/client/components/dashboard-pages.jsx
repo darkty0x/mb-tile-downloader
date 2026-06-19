@@ -6,7 +6,7 @@ import { eventNotificationId } from "../lib/event-identity";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
-import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, normalizeMachineId, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, envValueFromText, findMachineById, fleetState, formatBytes, normalizeMachineId, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers", "sky"],
@@ -1747,6 +1747,8 @@ export function SettingsDashboard({ state, actions }) {
   const workflow = state.settings.workflow || {};
   const notifications = state.settings.notifications || {};
   const retry = state.settings.retry || {};
+  const rootEnvTemplateText = state.settings.rootEnvTemplate?.envText || "";
+  const telegramChatId = envValueFromText(rootEnvTemplateText, "TELEGRAM_CHAT_ID") || state.settings.telegramEnv?.chatId || "";
   const mapboxAlertAt = mapboxPerServer * serverCount;
   const proxyAlertAt = proxiesPerServer * serverCount;
 
@@ -1780,6 +1782,7 @@ export function SettingsDashboard({ state, actions }) {
             notifications.webConsoleEnabled,
             notifications.dedupeWindowMs,
             notifications.minSeverity,
+            telegramChatId,
             retry.commandRetryLimit,
             retry.reportBackoffMs,
           ].join("-")}
@@ -1867,7 +1870,7 @@ export function SettingsDashboard({ state, actions }) {
                 <SwitchField name="telegramEnabled" label="Telegram 켜기" defaultChecked={Boolean(notifications.telegramEnabled)} />
                 <SwitchField name="webConsoleEnabled" label="Web Console 켜기" defaultChecked={notifications.webConsoleEnabled !== false} />
                 <TextInput label="Telegram Bot Token" name="telegramBotToken" placeholder="123456:ABC..." autoComplete="off" />
-                <TextInput label="Telegram Chat ID" name="telegramChatId" placeholder="비워두면 Token만 갱신" autoComplete="off" />
+                <TextInput label="Telegram Chat ID" name="telegramChatId" defaultValue={telegramChatId} placeholder="비워두면 Token만 갱신" autoComplete="off" />
                 <AppButton
                   icon="sync"
                   type="button"
@@ -2379,8 +2382,8 @@ function ServersTable({ state, actions }) {
                   </td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{displayPlatformLabel(machine.platform)}</td>
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 max-sm:hidden">{shortDate(machine.lastSeenAt)}</td>
-                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 text-right max-sm:px-1.5">
-                    <div className="flex justify-end gap-1.5">
+                  <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5 text-right align-middle max-sm:px-1.5">
+                    <div className="flex items-center justify-end gap-1.5">
                       <button
                         type="button"
                         aria-label={`${machine.displayName || machine.machineId} 관리`}
@@ -2388,7 +2391,7 @@ function ServersTable({ state, actions }) {
                           event.stopPropagation();
                           return actions.manageMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
-                        className="state-layer inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] text-white disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
+                        className="state-layer inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] leading-none text-white disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >
                         <Icon name="tool" className="h-3.5 w-3.5 sm:hidden" />
                         <span className="hidden sm:inline">관리</span>

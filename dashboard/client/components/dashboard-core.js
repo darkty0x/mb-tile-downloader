@@ -62,6 +62,15 @@ export const DEFAULT_DASHBOARD_SETTINGS = {
     commandRetryLimit: 3,
     reportBackoffMs: 5000,
   },
+  rootEnvTemplate: {
+    envText: "",
+    sourceMachineId: "",
+    updatedAt: "",
+  },
+  telegramEnv: {
+    botTokenConfigured: false,
+    chatId: "",
+  },
 };
 
 export const SECRET_STATUSES = ["active", "disabled", "inactive", "error", "invalid", "exhausted"];
@@ -93,7 +102,30 @@ export function mergeDashboardSettings(settings = {}) {
       ...DEFAULT_DASHBOARD_SETTINGS.retry,
       ...(settings.retry || {}),
     },
+    rootEnvTemplate: {
+      ...DEFAULT_DASHBOARD_SETTINGS.rootEnvTemplate,
+      ...(settings.rootEnvTemplate || {}),
+    },
+    telegramEnv: {
+      ...DEFAULT_DASHBOARD_SETTINGS.telegramEnv,
+      ...(settings.telegramEnv || {}),
+    },
   };
+}
+
+export function envValueFromText(envText, name) {
+  const target = String(name || "").trim();
+  if (!target) return "";
+  for (const line of String(envText || "").split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const separator = trimmed.indexOf("=");
+    if (separator === -1) continue;
+    if (trimmed.slice(0, separator).trim() === target) {
+      return trimmed.slice(separator + 1).trim();
+    }
+  }
+  return "";
 }
 
 export function thresholdValue(settings, name) {

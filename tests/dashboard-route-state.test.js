@@ -4,7 +4,7 @@ import test from "node:test";
 import * as routeState from "../dashboard/client/lib/route-state.js";
 import { TABS } from "../dashboard/client/components/dashboard-core.js";
 
-const { parseDashboardRoute } = routeState;
+const { dashboardPathForState, parseDashboardRoute } = routeState;
 
 test("servers route with machineId opens the selected server management view", () => {
   const route = parseDashboardRoute("https://echopoly.xyz/servers?machineId=server-01");
@@ -28,6 +28,28 @@ test("selected server route keeps the requested server tab", () => {
   assert.equal(route.selectedMachineId, "server-01");
   assert.equal(route.selectedServerTab, "console");
   assert.deepEqual(route.editor, { type: "server-management", machineId: "server-01" });
+});
+
+test("non-server routes ignore stale machineId query params", () => {
+  const route = parseDashboardRoute("https://echopoly.xyz/events?machineId=SERVER-01");
+
+  assert.equal(route.selectedTab, "events");
+  assert.equal(route.selectedMachineId, null);
+  assert.deepEqual(route.editor, { type: "summary" });
+});
+
+test("dashboard path only serializes machineId for server management routes", () => {
+  assert.equal(dashboardPathForState({
+    selectedTab: "events",
+    selectedMachineId: "server-06",
+    selectedServerTab: "console",
+  }), "/events");
+
+  assert.equal(dashboardPathForState({
+    selectedTab: "servers",
+    selectedMachineId: "SERVER-06",
+    selectedServerTab: "console",
+  }), "/servers?machineId=server-06&serverTab=console");
 });
 
 test("server management surface does not depend on modal editor state", () => {

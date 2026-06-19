@@ -67,6 +67,20 @@ function json(res, status, body) {
   res.end(payload);
 }
 
+function telegramEnvForBrowser() {
+  return {
+    botTokenConfigured: Boolean(String(process.env.TELEGRAM_BOT_TOKEN || "").trim()),
+    chatId: String(process.env.TELEGRAM_CHAT_ID || "").trim(),
+  };
+}
+
+function settingsForBrowser(settings) {
+  return {
+    ...settings,
+    telegramEnv: telegramEnvForBrowser(),
+  };
+}
+
 function tokenFrom(req) {
   const header = req.headers.authorization || "";
   const match = /^Bearer\s+(.+)$/i.exec(header);
@@ -847,6 +861,7 @@ export function createDashboardApp({
           json(res, 200, {
             snapshot: {
               ...snapshot,
+              settings: settingsForBrowser(snapshot.settings),
               secretPool: secretVault ? await secretVault.listSecretsForBrowser() : [],
             },
           });
@@ -854,7 +869,7 @@ export function createDashboardApp({
         }
 
         if (req.method === "GET" && url.pathname === "/api/settings") {
-          json(res, 200, { settings: await store.getSettings() });
+          json(res, 200, { settings: settingsForBrowser(await store.getSettings()) });
           return;
         }
 
@@ -868,7 +883,7 @@ export function createDashboardApp({
 
         if (req.method === "PUT" && url.pathname === "/api/settings") {
           const body = await readJson(req);
-          json(res, 200, { settings: await store.updateSettings(body) });
+          json(res, 200, { settings: settingsForBrowser(await store.updateSettings(body)) });
           return;
         }
 
@@ -878,7 +893,23 @@ export function createDashboardApp({
           const chatId = String(body.chatId || "").trim();
           if (!botToken) throw new Error("TELEGRAM_BOT_TOKEN is required");
           const machines = await store.listMachines();
-          const templateText = await rootEnvTemplateFromSettings({ store });
+          const currentSettings = await store.getSettings();
+          const templateUpdates = {
+            TELEGRAM_BOT_TOKEN: botToken,
+            ...(chatId ? { TELEGRAM_CHAT_ID: chatId } : {}),
+          };
+          const templateText = isUsableRootEnvTemplate(currentSettings.rootEnvTemplate?.envText)
+            ? parseRootEnvTemplate(upsertEnvText(currentSettings.rootEnvTemplate.envText, templateUpdates))
+            : null;
+          if (templateText) {
+            await store.updateSettings({
+              rootEnvTemplate: {
+                ...currentSettings.rootEnvTemplate,
+                envText: templateText,
+                updatedAt: new Date().toISOString(),
+              },
+            });
+          }
           const queued = [];
           const skipped = [];
           for (const machine of machines) {
@@ -890,10 +921,7 @@ export function createDashboardApp({
               templateText,
               secretVault,
               machineId: machine.machineId,
-              updates: {
-                TELEGRAM_BOT_TOKEN: botToken,
-                ...(chatId ? { TELEGRAM_CHAT_ID: chatId } : {}),
-              },
+              updates: templateUpdates,
             });
             const command = await store.queueCommand({
               machineId: machine.machineId,
