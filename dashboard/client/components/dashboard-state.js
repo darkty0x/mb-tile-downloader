@@ -637,14 +637,16 @@ export function useDashboardState() {
         await refreshAll();
       },
       async saveServerConnection(formData) {
+        const protocol = String(formData.get("protocol") || "rdp");
+        const isAgentProfile = protocol === "agent";
         const payload = {
           label: formData.get("label"),
           machineId: formData.get("machineId"),
-          protocol: formData.get("protocol"),
-          host: formData.get("host"),
-          port: Number(formData.get("port")),
-          username: formData.get("username"),
-          password: formData.get("password"),
+          protocol,
+          host: isAgentProfile ? "" : formData.get("host"),
+          port: isAgentProfile ? "" : Number(formData.get("port")),
+          username: isAgentProfile ? "" : formData.get("username"),
+          password: isAgentProfile ? "" : formData.get("password"),
         };
         const { connection } = await api("/api/server-connections", {
           method: "POST",

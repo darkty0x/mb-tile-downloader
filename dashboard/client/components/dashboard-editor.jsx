@@ -175,7 +175,7 @@ function ServerOnboardingForm({ state, actions }) {
           }}
           required
         />
-        <div className="grid grid-cols-[1fr_96px] gap-2">
+        <div className={protocol === "agent" ? "grid gap-2" : "grid grid-cols-[1fr_96px] gap-2"}>
           <SelectInput label="Protocol" name="protocol" value={protocol} onChange={(event) => setProtocol(event.target.value)}>
             <option value="agent">Personal Computer</option>
             <option value="rdp">RDP</option>
@@ -183,7 +183,9 @@ function ServerOnboardingForm({ state, actions }) {
             <option value="winrm">WinRM</option>
             <option value="winrms">WinRM TLS</option>
           </SelectInput>
-          <TextInput label="포구" name="port" type="number" min="1" max="65535" defaultValue="7777" required={protocol !== "agent"} disabled={protocol === "agent"} />
+          {protocol === "agent" ? null : (
+            <TextInput label="포구" name="port" type="number" min="1" max="65535" defaultValue="7777" required />
+          )}
         </div>
         {protocol === "agent" ? (
           <input type="hidden" name="host" value="" />
