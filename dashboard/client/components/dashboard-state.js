@@ -649,6 +649,40 @@ export function useDashboardState() {
         setNotice({ message: result.message, kind: result.valid ? "success" : "error" });
         return result;
       },
+      async previewConfigBatch(formData) {
+        const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const targetMachineIds = machineIds.length ? machineIds : selectedMachineId ? [selectedMachineId] : [];
+        if (targetMachineIds.length === 0) throw new Error("봉사기를 먼저 선택하십시오");
+        if (!templateIds.length) throw new Error("Config 화일 류형을 먼저 선택하십시오");
+        const targetMachines = targetMachineIds.map((machineId) => findMachineById(machines, machineId)).filter(Boolean);
+        if (targetMachines.length !== targetMachineIds.length) throw new Error("선택한 봉사기를 찾을수 없습니다");
+        if (targetMachines.some((machine) => machine.status !== "online")) throw new Error("련결된 봉사기만 선택할수 있습니다");
+        return api("/api/configs/batch", {
+          method: "POST",
+          body: JSON.stringify({
+            preview: true,
+            machineIds: targetMachineIds,
+            name: formData.get("name"),
+            active: formData.get("active") === "on",
+            splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
+            templateIds,
+            rangeInput: formData.get("rangeInput"),
+            zoomStart: formData.get("zoomStart"),
+            zoomEnd: formData.get("zoomEnd"),
+          }),
+        });
+      },
+      async createConfigDrafts(drafts) {
+        const { configs: created } = await api("/api/configs/batch", {
+          method: "POST",
+          body: JSON.stringify({ drafts }),
+        });
+        setEditor({ type: "summary" });
+        setNotice({ message: `Config 화일 ${created.length}개가 만들어졌습니다`, kind: "success" });
+        await refreshMachineData();
+        return created;
+      },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
         const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);

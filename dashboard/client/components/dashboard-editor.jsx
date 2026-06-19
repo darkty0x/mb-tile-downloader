@@ -421,7 +421,7 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
   );
 }
 
-function ConfigRangeBuilder({ actions }) {
+function ConfigRangeBuilder({ actions, onDirty }) {
   const [rangeInput, setRangeInput] = useState("");
   const [zoomStart, setZoomStart] = useState("");
   const [zoomEnd, setZoomEnd] = useState("");
@@ -468,6 +468,7 @@ function ConfigRangeBuilder({ actions }) {
             setRangeInput(event.target.value);
             setPreview(null);
             setError("");
+            onDirty?.();
           }}
           placeholder={'LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\n또는 19/312824/339498 - 19/321475/351754\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
           spellCheck="false"
@@ -483,6 +484,46 @@ function ConfigRangeBuilder({ actions }) {
       {error ? (
         <div className="rounded-lg border border-[rgba(210,55,55,0.28)] bg-[#fff1f1] p-3 text-[12px] font-[650] text-[#b42318]">{error}</div>
       ) : null}
+    </section>
+  );
+}
+
+function ConfigBatchPreview({ drafts, draftTexts, rangeSummary, onDraftTextChange, onDiscard }) {
+  const area = rangeSummary?.area;
+  return (
+    <section className="grid gap-3 rounded-lg border border-[rgba(96,64,239,0.22)] bg-[var(--ptg-primary-soft)] p-3">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div>
+          <h4 className="text-[13px] font-[850] text-[var(--ptg-on-surface)]">Config 화일 미리보기</h4>
+          <p className="mt-1 text-[11.5px] font-[600] text-[var(--ptg-on-surface-variant)]">
+            {drafts.length}개 Config 화일이 작성됩니다. 아래 JSON을 직접 고친 다음 확정하십시오.
+          </p>
+          {rangeSummary ? (
+            <p className="mt-1 text-[11.5px] font-[650] text-[var(--ptg-primary-dark)]">
+              범위 {rangeSummary.rangeCount}개 | 타일 {Number(rangeSummary.tiles || 0).toLocaleString()}개
+              {area ? ` | 추정지역 ${area.label}` : ""}
+            </p>
+          ) : null}
+        </div>
+        <AppButton type="button" icon="close" onClick={onDiscard}>미리보기 버리기</AppButton>
+      </div>
+      <div className="ptg-scrollbar grid max-h-[52vh] gap-3 overflow-auto pr-1">
+        {drafts.map((draft, index) => (
+          <label key={`${draft.machineId || "global"}-${draft.templateId || "config"}-${index}`} className="grid gap-1.5">
+            <span className="flex flex-wrap items-center gap-2 text-[11.5px] font-[760] text-[var(--ptg-on-surface-variant)]">
+              <strong className="text-[var(--ptg-on-surface)]">{draft.name}</strong>
+              <span>{draft.machineLabel || draft.machineId || "Global"}</span>
+              <span>{draft.templateLabel || draft.templateId || "Config"}</span>
+            </span>
+            <textarea
+              className="min-h-72 resize-y rounded-[10px] border border-[var(--ptg-outline)] bg-white p-3 font-mono text-[12px] leading-relaxed text-[var(--ptg-on-surface)] transition focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
+              spellCheck="false"
+              value={draftTexts[index] || ""}
+              onChange={(event) => onDraftTextChange(index, event.target.value)}
+            />
+          </label>
+        ))}
+      </div>
     </section>
   );
 }
@@ -561,6 +602,8 @@ function ConfigForm({ record, state, actions, editor }) {
   const [selectedMachineIds, setSelectedMachineIds] = useState(() => state.selectedMachineId ? [state.selectedMachineId] : state.machines[0]?.machineId ? [state.machines[0].machineId] : []);
   const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [batchPreview, setBatchPreview] = useState(null);
+  const [draftTexts, setDraftTexts] = useState([]);
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && selectedTemplateIds.length > 0;
   const defaultActive = record?.active ?? !id;
@@ -576,6 +619,10 @@ function ConfigForm({ record, state, actions, editor }) {
         ? "련결된 봉사기만 선택할수 있습니다"
         : "";
   const canSubmit = !submitting && !machineSelectionError;
+  const clearBatchPreview = () => {
+    setBatchPreview(null);
+    setDraftTexts([]);
+  };
   return (
     <form className="grid gap-3" onSubmit={async (event) => {
       event.preventDefault();
@@ -585,6 +632,20 @@ function ConfigForm({ record, state, actions, editor }) {
       }
       try {
         setSubmitting(true);
+        if (templateMode) {
+          if (!batchPreview) {
+            const preview = await actions.previewConfigBatch(new FormData(event.currentTarget));
+            setBatchPreview(preview);
+            setDraftTexts((preview.drafts || []).map((draft) => JSON.stringify(draft.config, null, 2)));
+            return;
+          }
+          const drafts = (batchPreview.drafts || []).map((draft, index) => ({
+            ...draft,
+            config: JSON.parse(draftTexts[index] || "{}"),
+          }));
+          await actions.createConfigDrafts(drafts);
+          return;
+        }
         await actions.saveConfig(new FormData(event.currentTarget), id);
       } catch (err) {
         actions.setNotice({ message: err.message, kind: "error" });
@@ -592,22 +653,31 @@ function ConfigForm({ record, state, actions, editor }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="이름" name="name" defaultValue={record?.name || ""} required />
-      <SwitchField name="active" label="상태" defaultChecked={defaultActive} />
+      <TextInput label="이름" name="name" defaultValue={record?.name || ""} onChange={clearBatchPreview} required />
+      <SwitchField name="active" label="상태" defaultChecked={defaultActive} onChange={clearBatchPreview} />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}
           selectedMachineIds={selectedMachineIds}
           splitAcrossMachines={splitAcrossMachines}
-          onServerChange={setSelectedMachineIds}
-          onSplitChange={setSplitAcrossMachines}
+          onServerChange={(machineIds) => {
+            clearBatchPreview();
+            setSelectedMachineIds(machineIds);
+          }}
+          onSplitChange={(value) => {
+            clearBatchPreview();
+            setSplitAcrossMachines(value);
+          }}
         />
       ) : null}
       {canUseTemplates && templates.length ? (
         <ConfigTemplatePicker
           templates={templates}
           selectedTemplateIds={selectedTemplateIds}
-          onChange={setSelectedTemplateIds}
+          onChange={(templateIds) => {
+            clearBatchPreview();
+            setSelectedTemplateIds(templateIds);
+          }}
         />
       ) : null}
       {machineSelectionError ? (
@@ -617,16 +687,29 @@ function ConfigForm({ record, state, actions, editor }) {
       ) : null}
       {templateMode ? (
         <>
-          <ConfigRangeBuilder actions={actions} />
+          <ConfigRangeBuilder actions={actions} onDirty={clearBatchPreview} />
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
             선택된 Template {selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 Config 화일로 작성됩니다.
           </div>
+          {batchPreview ? (
+            <ConfigBatchPreview
+              drafts={batchPreview.drafts || []}
+              draftTexts={draftTexts}
+              rangeSummary={batchPreview.rangeSummary}
+              onDiscard={clearBatchPreview}
+              onDraftTextChange={(index, value) => {
+                setDraftTexts((current) => current.map((item, itemIndex) => itemIndex === index ? value : item));
+              }}
+            />
+          ) : null}
         </>
       ) : (
         <TextArea label="Config 화일 JSON" name="config" spellCheck="false" defaultValue={JSON.stringify(config, null, 2)} />
       )}
       <div className="flex flex-wrap gap-2">
-        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>{templateMode ? `${selectedTemplateIds.length}개 작성` : "Config 화일 보관"}</AppButton>
+        <AppButton variant="filled" icon="check" type="submit" loading={submitting} disabled={!canSubmit}>
+          {templateMode ? (batchPreview ? `${batchPreview.drafts?.length || selectedTemplateIds.length}개 확정작성` : `${selectedTemplateIds.length}개 미리보기`) : "Config 화일 보관"}
+        </AppButton>
         {id ? <AppButton className="danger-button" icon="trash" type="button" onClick={() => actions.deleteRecord("config", id).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>삭제</AppButton> : null}
       </div>
     </form>

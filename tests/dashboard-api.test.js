@@ -868,6 +868,76 @@ test("dashboard batch config creation creates one runnable config per selected t
   );
 });
 
+test("dashboard batch config preview returns editable drafts without creating configs", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
+    layer: "satellite",
+    format: "jpg",
+  });
+  let id = 0;
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+    idGenerator: () => `cfg-${++id}`,
+  });
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store,
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+
+  const preview = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      preview: true,
+      machineId: "worker-a",
+      name: "Ukraine Range 01",
+      active: true,
+      templateIds: ["mapbox-pbf", "mapbox-satellite"],
+      rangeInput: "19/312824/339498 - 19/321475/351754",
+    },
+  });
+  const beforeConfirm = await request(server, { path: "/api/configs?machineId=worker-a" });
+
+  assert.equal(preview.status, 200);
+  assert.deepEqual(
+    preview.body.drafts.map((draft) => draft.name),
+    ["Ukraine Range 01 - mapbox-pbf", "Ukraine Range 01 - mapbox-satellite"]
+  );
+  assert.deepEqual(
+    preview.body.drafts.map((draft) => draft.config.jobName),
+    ["ukraine-range-01-mapbox-pbf", "ukraine-range-01-mapbox-satellite"]
+  );
+  assert.equal(preview.body.rangeSummary.tiles, 106047564);
+  assert.equal(preview.body.rangeSummary.area.bounds.west, 34.799194);
+  assert.equal(preview.body.rangeSummary.area.bounds.east, 40.740051);
+  assert.equal(beforeConfirm.body.configs.length, 0);
+
+  const editedDraft = structuredClone(preview.body.drafts[0]);
+  editedDraft.name = "Edited Ukraine";
+  editedDraft.config.jobName = "edited-ukraine";
+  editedDraft.config.ranges[0].label = "edited range";
+  const confirm = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: { drafts: [editedDraft] },
+  });
+  const afterConfirm = await request(server, { path: "/api/configs?machineId=worker-a" });
+
+  assert.equal(confirm.status, 200);
+  assert.equal(confirm.body.configs.length, 1);
+  assert.equal(confirm.body.configs[0].name, "Edited Ukraine");
+  assert.equal(confirm.body.configs[0].config.jobName, "edited-ukraine");
+  assert.equal(confirm.body.configs[0].config.ranges[0].label, "edited range");
+  assert.equal(afterConfirm.body.configs.length, 1);
+});
+
 test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {
   const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
   await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");

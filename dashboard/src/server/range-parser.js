@@ -16,6 +16,19 @@ function latitudeToTileY(latitude, zoom) {
   return Math.max(0, Math.min(n - 1, Math.floor(y)));
 }
 
+function tileXToLongitude(tileX, zoom) {
+  return (tileX / (2 ** zoom)) * 360 - 180;
+}
+
+function tileYToLatitude(tileY, zoom) {
+  const n = Math.PI - (2 * Math.PI * tileY) / (2 ** zoom);
+  return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+}
+
+function roundCoordinate(value) {
+  return Math.round(value * 1_000_000) / 1_000_000;
+}
+
 function parseNumber(value, name) {
   if (value === undefined || value === null || value === "") throw new Error(`${name} must be a number`);
   const number = Number(value);
@@ -137,9 +150,38 @@ export function summarizeRanges(ranges) {
     (sum, range) => sum + (range.zoomEnd - range.zoomStart + 1) * (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
     0
   );
+  const bounds = normalized.reduce((acc, range) => {
+    const zoom = range.zoomStart;
+    const west = tileXToLongitude(range.xStart, zoom);
+    const east = tileXToLongitude(range.xEnd + 1, zoom);
+    const north = tileYToLatitude(range.yStart, zoom);
+    const south = tileYToLatitude(range.yEnd + 1, zoom);
+    return {
+      west: Math.min(acc.west, west),
+      south: Math.min(acc.south, south),
+      east: Math.max(acc.east, east),
+      north: Math.max(acc.north, north),
+    };
+  }, { west: Infinity, south: Infinity, east: -Infinity, north: -Infinity });
+  const area = normalized.length
+    ? {
+        label: `lon ${roundCoordinate(bounds.west)}-${roundCoordinate(bounds.east)}, lat ${roundCoordinate(bounds.south)}-${roundCoordinate(bounds.north)}`,
+        bounds: {
+          west: roundCoordinate(bounds.west),
+          south: roundCoordinate(bounds.south),
+          east: roundCoordinate(bounds.east),
+          north: roundCoordinate(bounds.north),
+        },
+        center: {
+          longitude: roundCoordinate((bounds.west + bounds.east) / 2),
+          latitude: roundCoordinate((bounds.south + bounds.north) / 2),
+        },
+      }
+    : null;
   return {
     ranges: normalized,
     rangeCount: normalized.length,
     tiles,
+    area,
   };
 }

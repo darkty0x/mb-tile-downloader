@@ -511,6 +511,103 @@ function jobNameForTarget({ baseJobName, target, multipleTargets }) {
   return `${baseJobName}-${target.splitName}`;
 }
 
+async function buildConfigDrafts({ store, body, configTemplatesDir }) {
+  const parsedRanges = parseConfigRanges({
+    input: body.rangeInput || body.ranges,
+    zoom: body.zoom,
+    zoomStart: body.zoomStart,
+    zoomEnd: body.zoomEnd,
+  });
+  const templates = await selectConfigTemplates(body.templateIds, {
+    templatesDir: configTemplatesDir,
+  });
+  const targets = await resolveMachineTargets(store, body);
+  if (body.splitAcrossMachines && targets.length < 2) {
+    throw new Error("splitAcrossMachines requires at least two machineIds");
+  }
+
+  const multipleTemplates = templates.length > 1;
+  const multipleTargets = targets.length > 1;
+  const splitAcrossMachines = Boolean(body.splitAcrossMachines) && multipleTargets;
+  const rangeSummary = summarizeRanges(parsedRanges);
+  const drafts = [];
+
+  for (const [index, template] of templates.entries()) {
+    const sourceName = configNameForTemplate({
+      baseName: body.name,
+      template,
+      multiple: multipleTemplates,
+    });
+    const sourceConfig = {
+      ...stripTemplateRanges(template.config),
+      ranges: structuredClone(parsedRanges),
+    };
+    sourceConfig.jobName = configJobNameForTemplate({ name: sourceName, template });
+
+    if (splitAcrossMachines) {
+      const split = splitConfigByRows(sourceConfig, {
+        names: targets.map((target) => target.splitName),
+      });
+      for (const [targetIndex, target] of targets.entries()) {
+        const name = displayNameForTarget({ baseName: sourceName, target, multipleTargets });
+        drafts.push({
+          machineId: target.machineId,
+          machineLabel: target.label,
+          templateId: template.id,
+          templateLabel: template.label,
+          name,
+          active: Boolean(body.active) && index === 0,
+          config: split[targetIndex].config,
+        });
+      }
+      continue;
+    }
+
+    const baseJobName = sourceConfig.jobName;
+    for (const target of targets) {
+      const name = displayNameForTarget({ baseName: sourceName, target, multipleTargets });
+      const config = structuredClone(sourceConfig);
+      config.jobName = jobNameForTarget({ baseJobName, target, multipleTargets });
+      drafts.push({
+        machineId: target.machineId,
+        machineLabel: target.label,
+        templateId: template.id,
+        templateLabel: template.label,
+        name,
+        active: Boolean(body.active) && index === 0,
+        config,
+      });
+    }
+  }
+
+  return { drafts, rangeSummary };
+}
+
+async function createConfigsFromDrafts({ store, drafts }) {
+  if (!Array.isArray(drafts) || drafts.length === 0) {
+    throw new Error("drafts must include at least one config");
+  }
+  const machines = await store.listMachines();
+  const machineIds = new Set(machines.map((machine) => machine.machineId));
+  const configs = [];
+  for (const [index, draft] of drafts.entries()) {
+    const machineId = draft.machineId || null;
+    if (machineId && !machineIds.has(machineId)) throw new Error(`unknown machine id: ${machineId}`);
+    if (!draft.config || typeof draft.config !== "object" || Array.isArray(draft.config)) {
+      throw new Error(`draft ${index + 1}: config must be an object`);
+    }
+    configs.push(
+      await store.createConfig({
+        machineId,
+        name: String(draft.name || draft.config.jobName || `dashboard-config-${index + 1}`).trim(),
+        active: Boolean(draft.active),
+        config: draft.config,
+      })
+    );
+  }
+  return configs;
+}
+
 export function createDashboardApp({
   store = createDashboardStore(),
   authStore = null,
@@ -933,66 +1030,18 @@ export function createDashboardApp({
 
         if (req.method === "POST" && url.pathname === "/api/configs/batch") {
           const body = await readJson(req);
-          const parsedRanges = parseConfigRanges({
-            input: body.rangeInput || body.ranges,
-            zoom: body.zoom,
-            zoomStart: body.zoomStart,
-            zoomEnd: body.zoomEnd,
-          });
-          const templates = await selectConfigTemplates(body.templateIds, {
-            templatesDir: configTemplatesDir,
-          });
-          const targets = await resolveMachineTargets(store, body);
-          if (body.splitAcrossMachines && targets.length < 2) {
-            throw new Error("splitAcrossMachines requires at least two machineIds");
+          if (Array.isArray(body.drafts)) {
+            const configs = await createConfigsFromDrafts({ store, drafts: body.drafts });
+            json(res, 200, { configs });
+            return;
           }
-          const multipleTemplates = templates.length > 1;
-          const multipleTargets = targets.length > 1;
-          const splitAcrossMachines = Boolean(body.splitAcrossMachines) && multipleTargets;
-          const configs = [];
-          for (const [index, template] of templates.entries()) {
-            const sourceName = configNameForTemplate({
-              baseName: body.name,
-              template,
-              multiple: multipleTemplates,
-            });
-            const sourceConfig = {
-              ...stripTemplateRanges(template.config),
-              ranges: structuredClone(parsedRanges),
-            };
-            sourceConfig.jobName = configJobNameForTemplate({ name: sourceName, template });
-            if (splitAcrossMachines) {
-              const split = splitConfigByRows(sourceConfig, {
-                names: targets.map((target) => target.splitName),
-              });
-              for (const [targetIndex, target] of targets.entries()) {
-                configs.push(
-                  await store.createConfig({
-                    machineId: target.machineId,
-                    name: displayNameForTarget({ baseName: sourceName, target, multipleTargets }),
-                    active: Boolean(body.active) && index === 0,
-                    config: split[targetIndex].config,
-                  })
-                );
-              }
-              continue;
-            }
 
-            const baseJobName = sourceConfig.jobName;
-            for (const target of targets) {
-              const name = displayNameForTarget({ baseName: sourceName, target, multipleTargets });
-              const config = structuredClone(sourceConfig);
-              config.jobName = jobNameForTarget({ baseJobName, target, multipleTargets });
-              configs.push(
-                await store.createConfig({
-                  machineId: target.machineId,
-                  name,
-                  active: Boolean(body.active) && index === 0,
-                  config,
-                })
-              );
-            }
+          const { drafts, rangeSummary } = await buildConfigDrafts({ store, body, configTemplatesDir });
+          if (body.preview) {
+            json(res, 200, { drafts, rangeSummary });
+            return;
           }
+          const configs = await createConfigsFromDrafts({ store, drafts });
           json(res, 200, { configs });
           return;
         }
