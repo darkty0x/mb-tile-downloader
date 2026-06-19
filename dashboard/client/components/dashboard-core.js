@@ -8,6 +8,7 @@ export const TABS = [
   ["events", "Event 기록", "console"],
   ["alerts", "경보", "alerts"],
   ["settings", "설정", "settings"],
+  ["help", "도움말", "help"],
 ];
 
 export const PAGE_META = {
@@ -20,6 +21,7 @@ export const PAGE_META = {
   configs: ["Config 화일", "내리적재설정을 만들고 배정합니다"],
   events: ["Event 기록", "관리체계 및 Agent Event목록을 실시간으로 확인합니다"],
   alerts: ["경보", "용량 및 실패상태를 검토합니다"],
+  help: ["도움말", "페지별 사용안내와 참고이미지를 확인합니다"],
 };
 
 export const SERVER_TABS = [

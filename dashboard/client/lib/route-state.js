@@ -11,6 +11,13 @@ export function editorForRoute(route = {}) {
   return { type: "summary" };
 }
 
+export function dashboardSurfaceForState(state = {}) {
+  if (state.selectedTab === "servers" && normalizeMachineId(state.selectedMachineId)) {
+    return "server-management";
+  }
+  return PAGE_NAMES.has(state.selectedTab) ? state.selectedTab : "overview";
+}
+
 export function parseDashboardRoute(href) {
   const fallback = { selectedTab: "overview", selectedServerTab: "control", selectedMachineId: null };
   if (!href) return { ...fallback, editor: editorForRoute(fallback) };

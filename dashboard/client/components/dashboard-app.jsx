@@ -7,9 +7,11 @@ import { EditorDrawer } from "./dashboard-editor";
 import { AuthCheckingScreen, ConfirmDialog, LoginScreen, Notice, Rail, Header } from "./dashboard-shell";
 import { AccountDashboard, AlertsDashboard, ConfigsDashboard, CredentialsDashboard, EventsDashboard, OverviewDashboard, PipelinesDashboard, SecretsDashboard, ServerManagementPage, ServersDashboard, SettingsDashboard } from "./dashboard-pages";
 import { buildDashboardDocumentTitle } from "../lib/page-title";
+import { dashboardSurfaceForState } from "../lib/route-state";
 
 export default function DashboardApp() {
   const { state, actions } = useDashboardState();
+  const dashboardSurface = dashboardSurfaceForState(state);
 
   useEffect(() => {
     document.title = buildDashboardDocumentTitle(state);
@@ -30,25 +32,25 @@ export default function DashboardApp() {
         <Header state={state} actions={actions} />
         <div className="px-6 pb-8 pt-5 max-md:px-4">
           <Notice notice={state.notice} />
-          {state.selectedTab === "settings" ? (
+          {dashboardSurface === "settings" ? (
             <SettingsDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "account" ? (
+          ) : dashboardSurface === "account" ? (
             <AccountDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "credentials" ? (
+          ) : dashboardSurface === "credentials" ? (
             <CredentialsDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "secrets" ? (
+          ) : dashboardSurface === "secrets" ? (
             <SecretsDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "servers" && state.editor.type === "server-management" ? (
+          ) : dashboardSurface === "server-management" ? (
             <ServerManagementPage state={state} actions={actions} />
-          ) : state.selectedTab === "servers" ? (
+          ) : dashboardSurface === "servers" ? (
             <ServersDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "pipelines" ? (
+          ) : dashboardSurface === "pipelines" ? (
             <PipelinesDashboard state={state} />
-          ) : state.selectedTab === "configs" ? (
+          ) : dashboardSurface === "configs" ? (
             <ConfigsDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "events" ? (
+          ) : dashboardSurface === "events" ? (
             <EventsDashboard state={state} actions={actions} />
-          ) : state.selectedTab === "alerts" ? (
+          ) : dashboardSurface === "alerts" ? (
             <AlertsDashboard state={state} actions={actions} />
           ) : (
             <OverviewDashboard state={state} actions={actions} />
