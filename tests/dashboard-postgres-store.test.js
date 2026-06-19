@@ -262,11 +262,46 @@ function createFakePgDb() {
         }
         return rows(stopped);
       }
+      if (/DELETE FROM machine_jobs WHERE machine_id=\$1 AND job_id=\$2 RETURNING \*/.test(sql)) {
+        const [machineId, jobId] = params;
+        const row = tables.machine_jobs.get(jobId);
+        if (!row || row.machine_id !== machineId) return rows([]);
+        tables.machine_jobs.delete(jobId);
+        return rows([{ ...row }]);
+      }
+      if (/DELETE FROM machine_jobs WHERE machine_id=\$1 RETURNING \*/.test(sql)) {
+        const [machineId] = params;
+        const deleted = [];
+        for (const [storedJobId, row] of tables.machine_jobs.entries()) {
+          if (row.machine_id !== machineId) continue;
+          deleted.push({ ...row });
+          tables.machine_jobs.delete(storedJobId);
+        }
+        return rows(deleted);
+      }
       if (/UPDATE machines SET current_job_id=\$1/.test(sql)) {
         const [current_job_id, updated_at, machine_id] = params;
         const row = tables.machines.get(machine_id);
         if (row) {
           row.current_job_id = current_job_id;
+          row.updated_at = updated_at;
+        }
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/UPDATE machines SET current_job_id=NULL, updated_at=\$1 WHERE machine_id=\$2 AND current_job_id=\$3/.test(sql)) {
+        const [updated_at, machine_id, current_job_id] = params;
+        const row = tables.machines.get(machine_id);
+        if (row && row.current_job_id === current_job_id) {
+          row.current_job_id = null;
+          row.updated_at = updated_at;
+        }
+        return rows(row ? [{ ...row }] : []);
+      }
+      if (/UPDATE machines SET current_job_id=NULL, updated_at=\$1 WHERE machine_id=\$2$/.test(sql.trim())) {
+        const [updated_at, machine_id] = params;
+        const row = tables.machines.get(machine_id);
+        if (row) {
+          row.current_job_id = null;
           row.updated_at = updated_at;
         }
         return rows(row ? [{ ...row }] : []);

@@ -1341,6 +1341,17 @@ export function createDashboardApp({
           json(res, 200, { machine });
           return;
         }
+
+        const machineJobsMatch = /^\/api\/machines\/([^/]+)\/jobs(?:\/([^/]+))?$/.exec(url.pathname);
+        if (req.method === "DELETE" && machineJobsMatch) {
+          if (!store.deleteMachineJobs) throw new Error("job deletion is not supported");
+          const machineId = decodeURIComponent(machineJobsMatch[1]);
+          const jobId = machineJobsMatch[2] ? decodeURIComponent(machineJobsMatch[2]) : null;
+          const jobs = await store.deleteMachineJobs({ machineId, jobId });
+          json(res, 200, { jobs, count: jobs.length });
+          return;
+        }
+
         if (req.method === "DELETE" && machineMatch) {
           const machineId = decodeURIComponent(machineMatch[1]);
           if (secretVault) {

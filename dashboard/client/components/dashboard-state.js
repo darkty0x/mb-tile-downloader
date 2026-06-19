@@ -546,6 +546,24 @@ export function useDashboardState() {
         setNotice({ message: `${commandLabel} 명령이 대기에 들어갔습니다`, kind: "success" });
         await refreshMachineData(targetMachineId);
       },
+      async deleteMachineTask(machineId = selectedMachineId, jobId = null) {
+        const targetMachineId = normalizeMachineId(machineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
+        const confirmed = await confirmDanger({
+          title: "작업 삭제 확인",
+          message: `${displayMachineId(targetMachineId)}의 저장된 작업상태를 삭제하겠습니까? 실행중인 작업은 먼저 정지되여야 합니다.`,
+          confirmLabel: "작업 삭제",
+          storageKey: "delete-machine-task",
+        });
+        if (!confirmed) return;
+        const suffix = jobId ? `/${encodeURIComponent(jobId)}` : "";
+        const result = await api(`/api/machines/${encodeURIComponent(targetMachineId)}/jobs${suffix}`, {
+          method: "DELETE",
+        });
+        const count = result.count ?? result.jobs?.length ?? 0;
+        setNotice({ message: `작업 ${count}개가 삭제되였습니다`, kind: "success" });
+        await refreshMachineData(targetMachineId);
+      },
       async pauseAllMachines() {
         const targets = machines.filter((machine) => machine.status !== "offline").map((machine) => machine.machineId);
         if (!targets.length) throw new Error("일시중지할 련결된 봉사기가 없습니다");
@@ -590,7 +608,7 @@ export function useDashboardState() {
           }),
         });
         setNotice({ message: "Config 화일 보관 명령이 대기에 들어갔습니다", kind: "success" });
-        setEditor({ type: "summary" });
+        setEditor({ type: "server-management", machineId: targetMachineId });
         await refreshMachineData(targetMachineId);
       },
       async updateTelegramEnv(formData) {

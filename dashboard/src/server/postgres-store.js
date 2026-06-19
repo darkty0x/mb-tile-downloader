@@ -751,6 +751,34 @@ export function createPostgresDashboardStore({
       return result.rows.map(jobFromRow);
     },
 
+    async deleteMachineJobs({ machineId, jobId = null } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const targetJobId = jobId === null || jobId === undefined || jobId === "" ? null : String(jobId);
+      const at = now().toISOString();
+      const result = targetJobId
+        ? await db.query(
+          "DELETE FROM machine_jobs WHERE machine_id=$1 AND job_id=$2 RETURNING *",
+          [normalizedMachineId, targetJobId]
+        )
+        : await db.query(
+          "DELETE FROM machine_jobs WHERE machine_id=$1 RETURNING *",
+          [normalizedMachineId]
+        );
+
+      if (targetJobId) {
+        await db.query(
+          "UPDATE machines SET current_job_id=NULL, updated_at=$1 WHERE machine_id=$2 AND current_job_id=$3",
+          [at, normalizedMachineId, targetJobId]
+        );
+      } else {
+        await db.query(
+          "UPDATE machines SET current_job_id=NULL, updated_at=$1 WHERE machine_id=$2",
+          [at, normalizedMachineId]
+        );
+      }
+      return result.rows.map(jobFromRow);
+    },
+
     async listJobs({ machineId } = {}) {
       const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       const result = machineId === undefined

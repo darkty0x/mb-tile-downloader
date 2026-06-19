@@ -655,6 +655,26 @@ export function createDashboardStore({
       return stopped;
     },
 
+    deleteMachineJobs({ machineId, jobId = null } = {}) {
+      const normalizedMachineId = requireStoredMachineId(machineId);
+      const targetJobId = jobId === null || jobId === undefined || jobId === "" ? null : String(jobId);
+      const at = iso(now());
+      const deleted = [];
+      for (const [id, record] of jobs.entries()) {
+        if (record.machineId !== normalizedMachineId) continue;
+        if (targetJobId && id !== targetJobId) continue;
+        deleted.push(normalizeJob(record));
+        jobs.delete(id);
+      }
+
+      const machine = machines.get(normalizedMachineId);
+      if (machine && (!targetJobId || machine.currentJobId === targetJobId || deleted.some((job) => job.jobId === machine.currentJobId))) {
+        machine.currentJobId = null;
+        machine.updatedAt = at;
+      }
+      return deleted;
+    },
+
     listJobs({ machineId } = {}) {
       const normalizedMachineId = machineId === undefined ? undefined : optionalStoredMachineId(machineId);
       return [...jobs.values()]

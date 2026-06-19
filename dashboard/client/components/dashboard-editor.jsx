@@ -233,6 +233,13 @@ function ServerOnboardingForm({ state, actions }) {
 
 export function EditorDrawer({ state, actions }) {
   const { editor } = state;
+  const closeToCurrentContext = () => {
+    if (state.selectedTab === "servers" && state.selectedMachineId) {
+      actions.setEditor({ type: "server-management", machineId: state.selectedMachineId });
+      return;
+    }
+    actions.setEditor({ type: "summary" });
+  };
   if (editor.type === "summary" || editor.type === "server-detail" || editor.type === "server-management") return null;
   if (editor.type === "connection-detail") {
     const connection = state.secretPool.find((item) => item.secretId === editor.id);
@@ -275,7 +282,7 @@ export function EditorDrawer({ state, actions }) {
       title={editorTitle(editor.type, record, editor)}
       subtitle={""}
       width="w-[min(620px,calc(100vw-32px))]"
-      onClose={() => actions.setEditor({ type: "summary" })}
+      onClose={closeToCurrentContext}
     >
       {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} editor={editor} /> : null}
       {editor.type === "local-config" ? <LocalConfigForm record={localConfig} actions={actions} /> : null}

@@ -6,7 +6,7 @@ import { eventNotificationId } from "../lib/event-identity";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
-import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
+import { SECRET_LABELS, SERVER_TABS, diskPeakForMachine, displayMachineId, displayProtocol, displayStatus, findMachineById, fleetState, formatBytes, normalizeMachineId, sameMachineId, shortDate, statusKind, thresholdValue } from "./dashboard-core";
 
 const KPI_CARDS = [
   ["serversOnline", "servers", "sky"],
@@ -57,27 +57,37 @@ function formatInteger(value) {
 }
 
 function compactValueClass(value) {
-  const length = String(value ?? "").length;
-  if (length > 18) return "text-[16px]";
-  if (length > 12) return "text-[19px]";
-  if (length > 8) return "text-[23px]";
-  return "text-[28px]";
+  const length = String(value ?? "").replace(/\s+/g, "").length;
+  if (length > 24) return "text-[clamp(12px,1vw,15px)]";
+  if (length > 18) return "text-[clamp(14px,1.1vw,17px)]";
+  if (length > 12) return "text-[clamp(16px,1.35vw,20px)]";
+  if (length > 8) return "text-[clamp(19px,1.6vw,24px)]";
+  return "text-[clamp(24px,2vw,28px)]";
+}
+
+function miniValueClass(value) {
+  const length = String(value ?? "").replace(/\s+/g, "").length;
+  if (length > 24) return "text-[clamp(11px,0.9vw,13px)]";
+  if (length > 16) return "text-[clamp(12px,1vw,14px)]";
+  if (length > 10) return "text-[clamp(13px,1.1vw,15px)]";
+  return "text-[16px]";
 }
 
 function InsightCard({ icon, label, value, detail, tone = "primary", palette = "lilac", compactUnit = "" }) {
   const valueClass = compactValueClass(value);
-  const detailClass = String(detail ?? "").length > 28 ? "text-[10.5px]" : "text-[11.5px]";
+  const detailLength = String(detail ?? "").length;
+  const detailClass = detailLength > 42 ? "text-[9.5px]" : detailLength > 32 ? "text-[10px]" : detailLength > 24 ? "text-[10.5px]" : "text-[11.5px]";
   return (
-    <Surface className={`ptg-metric-tile min-h-[122px] overflow-hidden p-4 ptg-palette-${palette} ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
+    <Surface className={`ptg-metric-tile min-h-[122px] p-4 ptg-palette-${palette} ${tone === "danger" ? "ptg-tone-danger" : tone === "warn" ? "ptg-tone-warn" : tone === "muted" ? "ptg-tone-muted" : ""}`}>
       <div className="flex items-start gap-3">
         <span className={`ptg-icon-well inline-flex h-14 w-14 shrink-0 items-center justify-center rounded-[20px] ${tone === "danger" ? "red" : tone === "warn" ? "amber" : tone === "primary" ? "" : ""}`}>
           <Icon name={icon} className="h-7 w-7" />
         </span>
-        <span className="min-w-0">
-          <span className="block text-[11px] font-[650] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
-          <strong className={`mt-2 flex min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 break-words ${valueClass} font-[475] leading-none text-[var(--ptg-on-surface)]`}>
-            <span className="min-w-0 break-words">{value}</span>
-            {compactUnit ? <span className="shrink-0 pb-[1px] text-[15px] font-[650] leading-none">{compactUnit}</span> : null}
+        <span className="min-w-0 flex-1">
+          <span className="block break-words text-[11px] font-[650] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</span>
+          <strong className={`mt-2 flex max-w-full min-w-0 flex-wrap items-baseline gap-x-1 gap-y-0.5 break-words ${valueClass} font-[475] leading-none text-[var(--ptg-on-surface)]`}>
+            <span className="min-w-0 max-w-full break-words">{value}</span>
+            {compactUnit ? <span className="shrink-0 break-keep pb-[1px] text-[clamp(11px,1vw,14px)] font-[650] leading-none">{compactUnit}</span> : null}
           </strong>
           <p className={`mt-2 max-w-full break-words ${detailClass} font-[500] leading-tight ${tone === "danger" ? "text-[var(--ptg-error)]" : tone === "warn" ? "text-[var(--ptg-warning)]" : "text-[var(--ptg-on-surface-variant)]"}`}>{detail}</p>
         </span>
@@ -92,7 +102,7 @@ function ClickableInsightCard({ onClick, ...props }) {
     <button
       type="button"
       onClick={onClick}
-      className="group block min-w-0 rounded-[22px] text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] focus-visible:ring-offset-2"
+      className="group block w-full min-w-0 rounded-[22px] text-left transition hover:-translate-y-0.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] focus-visible:ring-offset-2"
     >
       <InsightCard {...props} />
     </button>
@@ -102,8 +112,8 @@ function ClickableInsightCard({ onClick, ...props }) {
 function MiniMetric({ label, value }) {
   return (
     <span className="rounded-[10px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2">
-      <small className="block truncate text-[10.5px] font-[760] text-[var(--ptg-on-surface-variant)]">{label}</small>
-      <strong className="mt-1 block truncate text-[16px] font-[850] leading-none">{value}</strong>
+      <small className="block break-words text-[10.5px] font-[760] leading-tight text-[var(--ptg-on-surface-variant)]">{label}</small>
+      <strong className={`mt-1 block break-words ${miniValueClass(value)} font-[850] leading-tight`}>{value}</strong>
     </span>
   );
 }
@@ -657,6 +667,8 @@ export function ServerManagementPage({ state, actions }) {
     events: state.events,
     machineId: targetMachineId,
   });
+  const selectedProcess = serverOverview.machineProcesses?.[normalizeMachineId(targetMachineId)] || null;
+  const canDeleteTask = Boolean(selectedProcess?.jobId);
   const envVariableCount = snapshot.envFiles?.reduce((sum, file) => sum + (Number(file.variableCount) || 0), 0) || 0;
   const localProxyCount = Number(snapshot.secrets?.proxy?.availableCount) || 0;
   const localMapboxCount = Number(snapshot.secrets?.mapboxTokenCount) || 0;
@@ -718,6 +730,16 @@ export function ServerManagementPage({ state, actions }) {
         >
           Git Pull 및 재시작
         </AppButton>
+        {canDeleteTask ? (
+          <AppButton
+            icon="trash"
+            className="danger-button"
+            disabled={!targetMachineId}
+            onClick={() => actions.deleteMachineTask(targetMachineId, selectedProcess.jobId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+          >
+            작업 삭제
+          </AppButton>
+        ) : null}
       </section>
 
       <nav className="grid grid-cols-5 gap-1 rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-1" aria-label="봉사기관리 구역">

@@ -212,8 +212,8 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
 test("overview model aggregates fleet pipeline status across active servers", () => {
   const model = buildOverviewModel({
     machines: [
-      { machineId: "server-01", status: "online" },
-      { machineId: "server-02", status: "online" },
+      { machineId: "server-01", status: "online", currentJobId: "job-server-01" },
+      { machineId: "server-02", status: "online", currentJobId: "job-server-02" },
       { machineId: "server-03", status: "offline" },
     ],
     jobs: [
@@ -262,11 +262,69 @@ test("overview model aggregates fleet pipeline status across active servers", ()
   assert.equal(model.kpis.throughput.value, "150 타일/초");
 });
 
+test("overview active process KPI counts live machines, not stale job rows", () => {
+  const model = buildOverviewModel({
+    machines: [
+      { machineId: "server-01", status: "online", currentJobId: "server-01-new" },
+      { machineId: "server-02", status: "online", currentJobId: "server-02" },
+      { machineId: "server-03", status: "online" },
+      { machineId: "server-04", status: "online", currentJobId: "server-04" },
+      { machineId: "server-05", status: "online", currentJobId: "server-05" },
+    ],
+    jobs: [
+      { jobId: "server-01-new", machineId: "server-01", status: "running", stage: "download", startedAt: "2026-06-19T00:05:00.000Z" },
+      { jobId: "server-01-old", machineId: "server-01", status: "running", stage: "download", startedAt: "2026-06-19T00:01:00.000Z" },
+      { jobId: "server-02", machineId: "server-02", status: "running", stage: "download", startedAt: "2026-06-19T00:02:00.000Z" },
+      { jobId: "server-03-stale", machineId: "server-03", status: "running", stage: "download", startedAt: "2026-06-19T00:03:00.000Z" },
+      { jobId: "server-04", machineId: "server-04", status: "claimed", stage: "validate", startedAt: "2026-06-19T00:04:00.000Z" },
+      { jobId: "server-05", machineId: "server-05", status: "running", stage: "zip", startedAt: "2026-06-19T00:06:00.000Z" },
+      { jobId: "server-03-queued", machineId: "server-03", status: "queued", stage: "download", startedAt: "2026-06-19T00:07:00.000Z" },
+    ],
+  });
+
+  assert.equal(model.kpis.activeJobs.value, 4);
+  assert.equal(model.kpis.activeJobs.detail, "0개 대기");
+  assert.equal(model.pipelineSummary.machineLabel, "4 / 5대 진행");
+});
+
+test("overview fleet pipeline ignores stale jobs without a live current job", () => {
+  const model = buildOverviewModel({
+    machines: [
+      { machineId: "server-01", status: "online" },
+      { machineId: "server-02", status: "online" },
+    ],
+    jobs: [
+      {
+        jobId: "stale-server-01",
+        machineId: "server-01",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-19T00:01:00.000Z",
+        progress: {
+          percent: 50,
+          tilesDone: 1000,
+          tilesTotal: 2000,
+          tilesPerSecond: 40,
+        },
+      },
+    ],
+  });
+
+  assert.equal(model.pipelineSummary.scope, "fleet");
+  assert.equal(model.pipelineSummary.machineLabel, "0 / 2대 진행");
+  assert.equal(model.pipelineSummary.processedTiles, 0);
+  assert.equal(model.pipelineSummary.totalTiles, 0);
+  assert.equal(model.pipelineSummary.speedTilesPerSecond, 0);
+  assert.equal(model.pipelineProgress, "0%");
+  assert.equal(model.pipelineStage, "대기중");
+  assert.equal(model.kpis.throughput.value, "0 타일/초");
+});
+
 test("overview model exposes per-server process status for the server list", () => {
   const model = buildOverviewModel({
     machines: [
-      { machineId: "server-06", status: "online" },
-      { machineId: "server-07", status: "online" },
+      { machineId: "server-06", status: "online", currentJobId: "job-server-06" },
+      { machineId: "server-07", status: "online", currentJobId: "job-server-07" },
     ],
     jobs: [
       {
@@ -298,6 +356,32 @@ test("overview model exposes per-server process status for the server list", () 
   assert.equal(model.machineProcesses["server-07"].processLabel, "올리적재");
   assert.equal(model.machineProcesses["server-07"].statusLabel, "대기중");
   assert.equal(model.machineProcesses["server-07"].etaLabel, "대기중");
+});
+
+test("overview model does not show stale ETA for stopped machine tasks", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-09", status: "online", currentJobId: "job-stopped" }],
+    jobs: [
+      {
+        jobId: "job-stopped",
+        machineId: "server-09",
+        status: "stopped",
+        stage: "download",
+        startedAt: "2026-06-18T02:00:00.000Z",
+        progress: {
+          percent: 1,
+          etaSeconds: 108000,
+        },
+      },
+    ],
+    machineId: "server-09",
+  });
+
+  assert.equal(model.machineProcesses["server-09"].processLabel, "내리적재");
+  assert.equal(model.machineProcesses["server-09"].statusLabel, "정지됨");
+  assert.equal(model.machineProcesses["server-09"].progressLabel, "1%");
+  assert.equal(model.machineProcesses["server-09"].etaLabel, "대기중");
+  assert.equal(model.pipelineEta, "대기중");
 });
 
 test("overview model exposes completed upload share link as pipeline proof", () => {
