@@ -445,6 +445,50 @@ test("overview model exposes per-server process status for the server list", () 
   assert.equal(model.machineProcesses["server-07"].etaLabel, "대기중");
 });
 
+test("overview model marks online running jobs stale when progress stops updating", () => {
+  const model = buildOverviewModel({
+    now: new Date("2026-06-19T12:00:00.000Z"),
+    machines: [
+      { machineId: "server-08", status: "online", currentJobId: "job-server-08" },
+      { machineId: "server-09", status: "online", currentJobId: "job-server-09" },
+    ],
+    jobs: [
+      {
+        jobId: "job-server-08",
+        machineId: "server-08",
+        status: "running",
+        stage: "download",
+        updatedAt: "2026-06-19T11:55:00.000Z",
+        progress: {
+          percent: 52,
+          tilesDone: 520,
+          tilesTotal: 1000,
+          tilesPerSecond: 0,
+        },
+      },
+      {
+        jobId: "job-server-09",
+        machineId: "server-09",
+        status: "running",
+        stage: "download",
+        updatedAt: "2026-06-19T11:55:01.000Z",
+        progress: {
+          percent: 53,
+          tilesDone: 530,
+          tilesTotal: 1000,
+          tilesPerSecond: 300,
+        },
+      },
+    ],
+  });
+
+  assert.equal(model.machineProcesses["server-08"].statusLabel, "멈춤");
+  assert.equal(model.machineProcesses["server-08"].etaLabel, "진행 멈춤");
+  assert.equal(model.machineProcesses["server-08"].tone, "error");
+  assert.equal(model.machineProcesses["server-09"].statusLabel, "진행중");
+  assert.equal(model.machineProcesses["server-09"].stale, false);
+});
+
 test("server management document title shows server number step and active job percent", () => {
   const title = buildDashboardDocumentTitle({
     authStatus: "authenticated",

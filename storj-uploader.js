@@ -153,6 +153,15 @@ function remoteUrl(bucket, prefix, name) {
     : `sj://${bucket}/${encodedName}`;
 }
 
+function bucketUrl(bucket) {
+  return `sj://${bucket}`;
+}
+
+function isBucketNotFoundOutput(output) {
+  const text = String(output || "").toLowerCase();
+  return text.includes("bucket not found") || text.includes("bucket does not exist");
+}
+
 function pad(value, width) {
   return String(value).padStart(width, "0");
 }
@@ -330,6 +339,27 @@ async function remoteExists(url, name, configDir) {
   const result = await runUplink(["ls", url], { allowFailure: true, configDir });
   if (result.code !== 0) return false;
   return uplinkListContainsObject(result.stdout, name);
+}
+
+async function ensureBucketReady(bucket, configDir) {
+  const url = bucketUrl(bucket);
+  const result = await runUplink(["ls", url], { allowFailure: true, configDir });
+  if (result.code === 0) {
+    console.log(`Storj bucket ready: ${url}`);
+    return { bucket, url, status: "exists" };
+  }
+
+  const output = `${result.stderr || ""}\n${result.stdout || ""}`.trim();
+  if (!isBucketNotFoundOutput(output)) {
+    throw new Error(
+      `Storj bucket check failed for ${url}: ${output || `uplink exited with code ${result.code}`}`
+    );
+  }
+
+  console.log(`Storj bucket missing, creating: ${url}`);
+  await runUplink(["mb", url], { configDir });
+  console.log(`Storj bucket ready: ${url}`);
+  return { bucket, url, status: "created" };
 }
 
 async function listCompletedArchives(archiveDir) {
@@ -543,6 +573,7 @@ async function main() {
       passphrase: opts.passphrase,
     });
     await ensureAccessConfigured(credentials, opts.uplinkConfigDir);
+    await ensureBucketReady(opts.bucket, opts.uplinkConfigDir);
     await removeLegacyManifest(
       { bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun },
       opts.uplinkConfigDir

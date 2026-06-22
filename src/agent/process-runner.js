@@ -2,7 +2,7 @@ import { spawn } from "node:child_process";
 
 import { mergeRootEnvIntoEnv } from "./root-env.js";
 
-const DEFAULT_STALE_OUTPUT_RESTART_MS = 30 * 60 * 1000;
+const DEFAULT_STALE_OUTPUT_RESTART_MS = 5 * 60 * 1000;
 
 function parseNonNegativeInt(value) {
   const parsed = Number(value);

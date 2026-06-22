@@ -170,6 +170,7 @@ function normalizeJob(record) {
     progress: structuredClone(record.progress || {}),
     startedAt: record.startedAt,
     finishedAt: record.finishedAt,
+    updatedAt: record.updatedAt,
     error: record.error,
   };
 }
@@ -610,6 +611,7 @@ export function createDashboardStore({
           : {},
         startedAt: existing?.startedAt || input.startedAt || at,
         finishedAt,
+        updatedAt: at,
         error: input.error || null,
       };
       jobs.set(jobId, record);
@@ -632,6 +634,7 @@ export function createDashboardStore({
         record.stage = stage || record.stage;
         if (progress && typeof progress === "object") record.progress = structuredClone(progress);
         record.finishedAt = at;
+        record.updatedAt = at;
         record.error = error;
         stopped.push(normalizeJob(record));
       }

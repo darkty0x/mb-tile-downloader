@@ -7,6 +7,7 @@ const PIPELINE_STEPS = [
 const SERVER_CREDENTIAL_SECRET_TYPES = new Set(["server_rdp_credential"]);
 const RUNNING_JOB_STATUSES = new Set(["running", "queued", "claimed"]);
 const ACTIVE_PROCESS_STATUSES = new Set(["running", "claimed"]);
+const STALE_PROGRESS_MS = 5 * 60 * 1000;
 const CONTROL_UTILITY_COMMANDS = [
   ["sync_config", "Config 화일 동기화", "sync"],
   ["sync_env", ".Env 동기화", "sync"],
@@ -230,6 +231,20 @@ function jobProgressNumber(job, ...names) {
   return 0;
 }
 
+function jobUpdatedTime(job = {}) {
+  const value = Date.parse(job.updatedAt || "");
+  return Number.isFinite(value) ? value : null;
+}
+
+function jobProgressIsStale(job, machine, nowMs, staleMs = STALE_PROGRESS_MS) {
+  if (!job || !machineIsOnline(machine)) return false;
+  const status = jobStatus(job);
+  if (status !== "running" && status !== "claimed") return false;
+  const updatedAt = jobUpdatedTime(job);
+  if (updatedAt === null || !Number.isFinite(nowMs)) return false;
+  return nowMs - updatedAt >= staleMs;
+}
+
 function jobTotalWeight(job) {
   const total = jobProgressNumber(job, "tilesTotal", "total", "totalTiles");
   return total > 0 ? total : 1;
@@ -448,7 +463,8 @@ function aggregatePipelineSteps(scopedJobs = [], events = [], { allowStaleFallba
   });
 }
 
-function jobEtaLabel(job) {
+function jobEtaLabel(job, { stale = false } = {}) {
+  if (stale) return "진행 멈춤";
   const status = String(job?.status || "").toLowerCase();
   if (status === "queued" || status === "stopped") return "대기중";
   if (status === "completed") return "완료";
@@ -466,7 +482,8 @@ function jobEtaLabel(job) {
   return "계산중";
 }
 
-function jobStatusLabel(job) {
+function jobStatusLabel(job, { stale = false } = {}) {
+  if (stale) return "멈춤";
   const status = String(job?.status || "").toLowerCase();
   if (status === "running" || status === "claimed") return "진행중";
   if (status === "queued") return "대기중";
@@ -476,7 +493,8 @@ function jobStatusLabel(job) {
   return "대기중";
 }
 
-function jobStatusTone(job) {
+function jobStatusTone(job, { stale = false } = {}) {
+  if (stale) return "error";
   const status = String(job?.status || "").toLowerCase();
   if (status === "running" || status === "claimed") return "active";
   if (status === "queued") return "warning";
@@ -492,7 +510,7 @@ function jobStageLabel(job) {
   return PIPELINE_STEPS[stageIndex(stage)]?.[1] || stage;
 }
 
-function buildMachineProcessSummary(jobs = [], machineId) {
+function buildMachineProcessSummary(jobs = [], machineId, { machine = null, nowMs = Date.now() } = {}) {
   const scopedJobs = scopedJobsForMachine(jobs, machineId).sort(newestFirst);
   const job = scopedJobs.find((item) => RUNNING_JOB_STATUSES.has(jobStatus(item))) || scopedJobs[0] || null;
   if (!job) {
@@ -509,19 +527,21 @@ function buildMachineProcessSummary(jobs = [], machineId) {
 
   const progress = jobStageProgress(job);
   const status = String(job.status || "").toLowerCase();
+  const stale = jobProgressIsStale(job, machine, nowMs);
   return {
     jobId: job.jobId || job.id || "",
     processLabel: jobStageLabel(job),
-    statusLabel: jobStatusLabel(job),
+    statusLabel: jobStatusLabel(job, { stale }),
     status,
-    tone: jobStatusTone(job),
+    tone: jobStatusTone(job, { stale }),
+    stale,
     progress,
     progressLabel: `${progress}%`,
-    etaLabel: jobEtaLabel(job),
+    etaLabel: jobEtaLabel(job, { stale }),
   };
 }
 
-function buildMachineProcesses(machines = [], jobs = []) {
+function buildMachineProcesses(machines = [], jobs = [], { nowMs = Date.now() } = {}) {
   const byId = jobsById(jobs);
   return machines.reduce((acc, machine) => {
     const machineId = normalizeMachineId(machine.machineId);
@@ -529,12 +549,14 @@ function buildMachineProcesses(machines = [], jobs = []) {
 
     const currentJobId = String(machine.currentJobId || "").trim();
     const currentJob = currentJobId ? byId.get(currentJobId) : null;
-    acc[machineId] = currentJob ? buildMachineProcessSummary([currentJob], machineId) : buildMachineProcessSummary([], machineId);
+    acc[machineId] = currentJob
+      ? buildMachineProcessSummary([currentJob], machineId, { machine, nowMs })
+      : buildMachineProcessSummary([], machineId, { machine, nowMs });
     return acc;
   }, {});
 }
 
-function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [] } = {}) {
+function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [], nowMs = Date.now() } = {}) {
   const isFleet = !normalizeMachineId(machineId);
   const scopedJobs = jobs
     .filter((job) => jobMachineMatches(job, machineId))
@@ -559,7 +581,15 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
   return {
     steps: aggregatePipelineSteps(stepJobs, events, { allowStaleFallback: !isFleet }),
     activeJob,
-    etaLabel: normalizeMachineId(machineId) ? jobEtaLabel(activeJob) : summary.etaLabel,
+    etaLabel: normalizeMachineId(machineId)
+      ? jobEtaLabel(activeJob, {
+          stale: jobProgressIsStale(
+            activeJob,
+            machines.find((machine) => normalizeMachineId(machine.machineId) === normalizeMachineId(machineId)),
+            nowMs
+          ),
+        })
+      : summary.etaLabel,
     stageLabel: normalizeMachineId(machineId) ? PIPELINE_STEPS[stageIndex(activeJob.stage)]?.[1] || activeJob.stage || "대기중" : summary.stageLabel,
     progressLabel: normalizeMachineId(machineId) ? summary.progressLabel : summary.progressLabel,
     summary,
@@ -633,7 +663,9 @@ export function buildOverviewModel({
   secretPool = [],
   settings = {},
   machineId,
+  now = new Date(),
 } = {}) {
+  const nowMs = now instanceof Date ? now.getTime() : Date.parse(String(now));
   const online = machines.filter((machine) => machine.status === "online").length;
   const dashboardEvents = events.filter((event) => !isConsoleOutputEvent(event));
   const failedTiles = failedTileCount(jobs, machineId);
@@ -667,7 +699,7 @@ export function buildOverviewModel({
     return acc;
   }, { healthy: 0, warning: 0, critical: 0, offline: 0 });
 
-  const pipelineModel = buildPipelineFromJobs(jobs, dashboardEvents, { machineId, machines });
+  const pipelineModel = buildPipelineFromJobs(jobs, dashboardEvents, { machineId, machines, nowMs });
 
   return {
     kpis: {
@@ -687,7 +719,7 @@ export function buildOverviewModel({
     pipelineStage: pipelineModel.stageLabel,
     pipelineProgress: pipelineModel.progressLabel,
     pipelineSummary: pipelineModel.summary,
-    machineProcesses: buildMachineProcesses(machines, jobs),
+    machineProcesses: buildMachineProcesses(machines, jobs, { nowMs }),
     storjShareUrl: pipelineModel.storjShareUrl,
     storjRawLinkPrefix: pipelineModel.storjRawLinkPrefix,
     activeJob: pipelineModel.activeJob,

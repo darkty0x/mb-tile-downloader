@@ -6,17 +6,37 @@ function normalizeValue(value) {
   return String(value || "").trim().toLowerCase();
 }
 
-function configFormat(config = {}) {
-  return config.format || config.tile?.extension || "default";
+function parseConfigContent(content) {
+  if (!content || typeof content !== "string") return null;
+  try {
+    const parsed = JSON.parse(content);
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function configFromRecord(configRecord = {}) {
+  if (configRecord.config && typeof configRecord.config === "object") return configRecord.config;
+  return parseConfigContent(configRecord.content) || {};
+}
+
+function configRecordName(configRecord = {}) {
+  const config = configFromRecord(configRecord);
+  return cleanName(configRecord.name || config.jobName || configRecord.fileName || configRecord.path || configRecord.absolutePath);
+}
+
+function configFormat(config = {}, configRecord = {}) {
+  return config.format || configRecord.format || config.tile?.extension || configRecord.extension || "default";
 }
 
 export function inferConfigTemplateId(configRecord = {}, templates = []) {
-  const name = cleanName(configRecord.name || configRecord.config?.jobName);
-  const config = configRecord.config || {};
-  const provider = normalizeValue(config.provider);
-  const layer = normalizeValue(config.layer);
-  const format = normalizeValue(configFormat(config));
-  const extension = normalizeValue(config.tile?.extension || format);
+  const name = configRecordName(configRecord);
+  const config = configFromRecord(configRecord);
+  const provider = normalizeValue(config.provider || configRecord.provider);
+  const layer = normalizeValue(config.layer || configRecord.layer);
+  const format = normalizeValue(configFormat(config, configRecord));
+  const extension = normalizeValue(config.tile?.extension || configRecord.extension || format);
 
   const suffixMatch = templates.find((template) => name.toLowerCase().endsWith(`-${normalizeValue(template.id)}`));
   if (suffixMatch) return suffixMatch.id;
@@ -33,7 +53,7 @@ export function inferConfigTemplateId(configRecord = {}, templates = []) {
 }
 
 export function configGroupName(configRecord = {}, templateId = "") {
-  const name = cleanName(configRecord.name || configRecord.config?.jobName);
+  const name = configRecordName(configRecord);
   const suffix = normalizeValue(templateId);
   if (suffix && name.toLowerCase().endsWith(`-${suffix}`)) {
     return name.slice(0, -(suffix.length + 1));
@@ -41,14 +61,42 @@ export function configGroupName(configRecord = {}, templateId = "") {
   return name;
 }
 
-export function buildConfigGroups(configs = [], templates = []) {
+function collectMachineLocalConfigs(machines = []) {
+  return (machines || []).flatMap((machine) => {
+    const machineId = machine?.machineId || machine?.agentId || "";
+    return (machine?.agentSnapshot?.configs || []).map((item) => {
+      const config = configFromRecord(item);
+      return {
+        ...item,
+        source: "local",
+        machineId,
+        name: configRecordName({ ...item, config }),
+        provider: config.provider || item.provider,
+        layer: config.layer || item.layer,
+        format: configFormat(config, item),
+        ranges: config.ranges || item.ranges || [],
+        config,
+      };
+    });
+  });
+}
+
+export function buildConfigGroups(configs = [], templates = [], machines = []) {
   const templateIds = templates.map((template) => template.id);
   const byKey = new Map();
+  const allConfigs = [
+    ...(configs || []).map((config) => ({ ...config, source: config.source || "dashboard" })),
+    ...collectMachineLocalConfigs(machines),
+  ];
+  const seenConfigs = new Set();
 
-  for (const config of configs) {
+  for (const config of allConfigs) {
     const templateId = inferConfigTemplateId(config, templates);
     const groupName = configGroupName(config, templateId);
     const machineId = config.machineId || "";
+    const configIdentity = `${machineId}\u0000${groupName}\u0000${templateId || configRecordName(config)}`;
+    if (seenConfigs.has(configIdentity)) continue;
+    seenConfigs.add(configIdentity);
     const key = `${machineId}\u0000${groupName}`;
     if (!byKey.has(key)) {
       byKey.set(key, {

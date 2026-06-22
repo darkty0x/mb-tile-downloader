@@ -29,8 +29,9 @@ async function withServer(t, store = createDashboardStore()) {
 }
 
 test("dashboard store persists job lifecycle updates", async () => {
+  let currentTime = "2026-06-16T00:00:00.000Z";
   const store = createDashboardStore({
-    now: () => new Date("2026-06-16T00:00:00.000Z"),
+    now: () => new Date(currentTime),
   });
   await store.registerMachine({
     machineId: "server-01",
@@ -46,6 +47,7 @@ test("dashboard store persists job lifecycle updates", async () => {
     stage: "download",
     progress: { rangeIndex: 0, tilesDone: 25, tilesTotal: 100 },
   });
+  currentTime = "2026-06-16T00:01:00.000Z";
 
   await store.upsertJob({
     jobId: "job-1",
@@ -62,6 +64,7 @@ test("dashboard store persists job lifecycle updates", async () => {
   assert.equal(jobs[0].jobId, "job-1");
   assert.equal(jobs[0].stage, "validate");
   assert.equal(jobs[0].progress.tilesDone, 100);
+  assert.equal(jobs[0].updatedAt, "2026-06-16T00:01:00.000Z");
 });
 
 test("dashboard store stops active jobs and clears machine active job state", async () => {

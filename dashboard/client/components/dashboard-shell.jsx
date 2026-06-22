@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildGlobalSearchResults } from "../lib/global-search";
 import { eventNotificationId, eventRecordId } from "../lib/event-identity";
+import { buildConfigGroups } from "../lib/config-groups";
 import { buildOverviewModel } from "../lib/overview-model";
 import { Icon, LogoMark } from "./icons";
 import { AppButton, IconButton, StatusPill, TextInput } from "./ui";
@@ -16,6 +17,7 @@ export function Notice({ notice }) {
 
 export function Rail({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
+  const configGroupCount = buildConfigGroups(state.globalConfigs || [], state.configTemplates || []).length;
   const isProtocolCredential = (secret) => secret.secretType === "credential"
     && secret.secretType !== "server_rdp_credential"
     && !secret.credential?.machineId;
@@ -25,7 +27,7 @@ export function Rail({ state, actions }) {
     if (tab === "credentials") return state.secretPool.filter(isProtocolCredential).length;
     if (tab === "alerts") return overview.resourceAlerts.length + Number(overview.kpis.failedJobs.value || 0);
     if (tab === "events") return state.globalEvents.length || state.events.length;
-    if (tab === "configs") return state.configTemplates.length || state.globalConfigs.length || state.configs.length;
+    if (tab === "configs") return configGroupCount;
     return null;
   };
   return (

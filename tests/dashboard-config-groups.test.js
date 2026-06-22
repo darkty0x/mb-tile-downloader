@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 
 import { buildConfigGroups, planConfigGroupUpdate } from "../dashboard/client/lib/config-groups.js";
 
@@ -40,6 +41,60 @@ test("config page groups matching server configs by base name and exposes enable
     groups[0].templates.filter((template) => template.enabled).map((template) => template.id),
     ["esri-satellite", "mapbox-pbf"]
   );
+});
+
+test("sidebar config badge should count assigned config groups, not available template types", () => {
+  const configs = [
+    {
+      configId: "cfg-1",
+      machineId: "server-02",
+      name: "1-pyongyang-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-2",
+      machineId: "server-02",
+      name: "1-pyongyang-mapbox-pbf",
+      config: { provider: "mapbox", layer: "vector", format: "pbf", ranges: [] },
+    },
+    {
+      configId: "cfg-3",
+      machineId: "server-02",
+      name: "1-pyongyang-mapbox-satellite",
+      config: { provider: "mapbox", layer: "satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-4",
+      machineId: "server-03",
+      name: "2-chiba-narita-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-5",
+      machineId: "server-03",
+      name: "2-chiba-narita-mapbox-pbf",
+      config: { provider: "mapbox", layer: "vector", format: "pbf", ranges: [] },
+    },
+    {
+      configId: "cfg-6",
+      machineId: "server-03",
+      name: "2-chiba-narita-mapbox-satellite",
+      config: { provider: "mapbox", layer: "satellite", format: "jpg", ranges: [] },
+    },
+  ];
+
+  assert.equal(templates.length, 9);
+  assert.equal(configs.length, 6);
+  assert.equal(buildConfigGroups(configs, templates).length, 2);
+});
+
+test("rail config nav count uses assigned config groups instead of template count", () => {
+  const shellSource = readFileSync(new URL("../dashboard/client/components/dashboard-shell.jsx", import.meta.url), "utf8");
+
+  assert.match(shellSource, /import \{ buildConfigGroups \} from "\.\.\/lib\/config-groups";/);
+  assert.match(shellSource, /const configGroupCount = buildConfigGroups\(state\.globalConfigs \|\| \[\], state\.configTemplates \|\| \[\]\)\.length;/);
+  assert.match(shellSource, /if \(tab === "configs"\) return configGroupCount;/);
+  assert.doesNotMatch(shellSource, /if \(tab === "configs"\) return state\.configTemplates\.length/);
 });
 
 test("config group update plan adds missing selected types and removes unchecked existing configs", () => {

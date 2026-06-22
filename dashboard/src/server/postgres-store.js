@@ -180,6 +180,7 @@ function jobFromRow(row) {
     progress: jsonValue(row.progress_json, {}),
     startedAt: iso(row.started_at),
     finishedAt: iso(row.finished_at),
+    updatedAt: iso(row.updated_at),
     error: row.error,
   };
 }
@@ -670,9 +671,9 @@ export function createPostgresDashboardStore({
         db,
         `INSERT INTO machine_jobs (
           job_id, machine_id, config_id, range_id, status, stage, progress_json,
-          started_at, finished_at, error
+          started_at, finished_at, error, updated_at
         )
-        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
         ON CONFLICT (job_id) DO UPDATE SET
           machine_id=excluded.machine_id,
           config_id=excluded.config_id,
@@ -681,7 +682,8 @@ export function createPostgresDashboardStore({
           stage=excluded.stage,
           progress_json=excluded.progress_json,
           finished_at=excluded.finished_at,
-          error=excluded.error
+          error=excluded.error,
+          updated_at=excluded.updated_at
         RETURNING *`,
         [
           jobId,
@@ -694,6 +696,7 @@ export function createPostgresDashboardStore({
           input.startedAt || iso(existing?.started_at) || at,
           finishedAt,
           input.error || null,
+          at,
         ]
       );
       await db.query(
@@ -713,7 +716,8 @@ export function createPostgresDashboardStore({
              stage=COALESCE($2, stage),
              progress_json=CASE WHEN $3::jsonb IS NULL THEN progress_json ELSE $3::jsonb END,
              finished_at=$4,
-             error=$5
+             error=$5,
+             updated_at=$4
          WHERE machine_id=$1
            AND status = ANY($6::text[])
            AND ($7::text IS NULL OR config_id=$7)

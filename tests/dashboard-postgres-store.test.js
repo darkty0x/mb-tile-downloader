@@ -230,6 +230,7 @@ function createFakePgDb() {
           started_at,
           finished_at,
           error,
+          updated_at,
         ] = params;
         const existing = tables.machine_jobs.get(job_id);
         const row = {
@@ -243,6 +244,7 @@ function createFakePgDb() {
           started_at: existing?.started_at || started_at,
           finished_at,
           error,
+          updated_at,
         };
         tables.machine_jobs.set(job_id, row);
         return rows([{ ...row }]);
@@ -258,6 +260,7 @@ function createFakePgDb() {
           if (progressJson !== null && progressJson !== undefined) row.progress_json = progressJson;
           row.finished_at = finishedAt;
           row.error = error;
+          row.updated_at = finishedAt;
           stopped.push({ ...row });
         }
         return rows(stopped);
