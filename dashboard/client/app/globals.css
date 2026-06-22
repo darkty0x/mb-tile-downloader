@@ -1,14 +1,6 @@
 @import url("https://fonts.googleapis.com/css2?family=Google+Sans:wght@400;500;700&family=Google+Sans+Text:wght@400;500;700&display=swap");
 @import "tailwindcss";
 
-@font-face {
-  font-family: "Material Symbols Rounded";
-  font-style: normal;
-  font-weight: 500;
-  font-display: block;
-  src: url("/fonts/material-symbols-rounded-500.ttf") format("truetype");
-}
-
 :root {
   color-scheme: light;
   --ptg-background: #fef7ff;
@@ -285,28 +277,6 @@ button:disabled {
   justify-content: center;
   flex-shrink: 0;
   overflow: hidden;
-  font-family: "Material Symbols Rounded";
-  font-style: normal;
-  font-weight: 500;
-  line-height: 1;
-  text-transform: none;
-  white-space: nowrap;
-  direction: ltr;
-  font-feature-settings: "liga";
-  -webkit-font-feature-settings: "liga";
-  font-variation-settings:
-    "FILL" 0,
-    "wght" 500,
-    "GRAD" 0,
-    "opsz" 24;
-}
-
-.ptg-symbol[data-filled="true"] {
-  font-variation-settings:
-    "FILL" 1,
-    "wght" 500,
-    "GRAD" 0,
-    "opsz" 24;
 }
 
 .ptg-icon-well.green {
