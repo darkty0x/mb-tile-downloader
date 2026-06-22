@@ -9,7 +9,9 @@ import { createControlClient } from "./control-client.js";
 import { createJobReporter } from "./job-reporter.js";
 import { parseDownloaderProgressLine } from "./progress-events.js";
 
-const STAGES = ["download", "validate", "zip", "upload"];
+const RANGE_STAGES = ["download", "validate", "zip"];
+const PIPELINE_STAGES = ["download", "validate", "zip", "upload"];
+const UPLOAD_STAGE = "upload";
 let activeStageChild = null;
 let processStopRequested = false;
 
@@ -153,6 +155,16 @@ function configIdFromPath(configPath) {
   return name || "dashboard-config";
 }
 
+function dashboardConfigIdFromPath(configPath) {
+  const normalized = String(configPath || "").replace(/\\/g, "/");
+  const match = /(?:^|\/)\.tile-state\/dashboard\/configs\/([^/]+)\.json$/i.exec(normalized);
+  return match?.[1] || null;
+}
+
+function reporterConfigId({ env = process.env, configPath } = {}) {
+  return dashboardConfigIdFromPath(configPath) || env.DASHBOARD_CONFIG_ID || configIdFromPath(configPath);
+}
+
 function rangeIdFor(range, rangeIndex) {
   return String(range?.rangeId || range?.id || range?.label || `range-${rangeIndex}`);
 }
@@ -178,7 +190,7 @@ export function createCliJobReporterFactory({
     baseUrl: env.DASHBOARD_URL,
     agentToken: env.AGENT_TOKEN,
   });
-  const configId = env.DASHBOARD_CONFIG_ID || configIdFromPath(configPath);
+  const configId = reporterConfigId({ env, configPath });
   return ({ rangeIndex, range }) => createJobReporter({
     client: controlClient,
     machineId: env.MACHINE_ID,
@@ -198,7 +210,7 @@ export function stageArgs(stage, { configPath, rangeIndex }) {
     case "zip":
       return ["zip-maker.js", configPath, rangeArg];
     case "upload":
-      return ["storj-uploader.js", configPath, rangeArg];
+      return ["storj-uploader.js", configPath];
     default:
       throw new Error(`unsupported stage: ${stage}`);
   }
@@ -221,11 +233,12 @@ export async function runRangePipeline({
     data: pipelineEventData({ config, configPath }),
   });
 
+  let finalRangeReporter = null;
   for (let rangeIndex = 0; rangeIndex < config.ranges.length; rangeIndex++) {
     const range = config.ranges[rangeIndex];
     const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex, range }) : null;
-    let uploadProof = {};
-    for (const [stageIndex, stage] of STAGES.entries()) {
+    if (rangeIndex === config.ranges.length - 1) finalRangeReporter = reporter;
+    for (const [stageIndex, stage] of RANGE_STAGES.entries()) {
       if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage })) {
         const errorObject = new Error("pipeline stopped");
         emitEvent({
@@ -242,8 +255,8 @@ export async function runRangePipeline({
         rangeIndex,
         rangeCount: config.ranges.length,
         stageIndex,
-        stageCount: STAGES.length,
-        percent: Math.round((stageIndex / STAGES.length) * 100),
+        stageCount: PIPELINE_STAGES.length,
+        percent: Math.round((stageIndex / PIPELINE_STAGES.length) * 100),
       };
       if (reporter) {
         if (stageIndex === 0) {
@@ -277,14 +290,11 @@ export async function runRangePipeline({
         if (reporter) await reporter.fail({ stage, error: errorObject, progress });
         throw errorObject;
       }
-      if (stage === "upload" && result.storjProof) {
-        uploadProof = result.storjProof;
-      }
       emitEvent({
         severity: "success",
         type: `range.${stage}.completed`,
         message: `${stage} completed`,
-        data: { ...pipelineEventData({ config, configPath, rangeIndex, range, stage }), ...(stage === "upload" ? uploadProof : {}) },
+        data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
       });
       if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage, afterStage: true })) {
         const errorObject = new Error("pipeline stopped");
@@ -298,17 +308,16 @@ export async function runRangePipeline({
         throw errorObject;
       }
     }
-    if (reporter) {
+    if (reporter && rangeIndex < config.ranges.length - 1) {
       await reporter.complete({
-        stage: STAGES.at(-1),
+        stage: RANGE_STAGES.at(-1),
         progress: {
           configPath,
           rangeIndex,
           rangeCount: config.ranges.length,
-          stageIndex: STAGES.length,
-          stageCount: STAGES.length,
-          percent: 100,
-          ...uploadProof,
+          stageIndex: RANGE_STAGES.length,
+          stageCount: PIPELINE_STAGES.length,
+          percent: Math.round((RANGE_STAGES.length / PIPELINE_STAGES.length) * 100),
         },
       });
     }
@@ -321,6 +330,80 @@ export async function runRangePipeline({
       });
       return;
     }
+  }
+
+  const uploadRangeIndex = Math.max(0, config.ranges.length - 1);
+  const uploadRange = config.ranges[uploadRangeIndex] || null;
+  const uploadReporter = finalRangeReporter;
+  const uploadStageIndex = PIPELINE_STAGES.indexOf(UPLOAD_STAGE);
+  const uploadProgress = {
+    configPath,
+    rangeIndex: uploadRangeIndex,
+    rangeCount: config.ranges.length,
+    stageIndex: uploadStageIndex,
+    stageCount: PIPELINE_STAGES.length,
+    percent: Math.round((uploadStageIndex / PIPELINE_STAGES.length) * 100),
+  };
+  if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex: uploadRangeIndex, range: uploadRange, stageIndex: uploadStageIndex, stage: UPLOAD_STAGE })) {
+    const errorObject = new Error("pipeline stopped");
+    emitEvent({
+      severity: "warn",
+      type: "pipeline.stopped",
+      message: errorObject.message,
+      data: pipelineEventData({ config, configPath, rangeIndex: uploadRangeIndex, range: uploadRange, stage: UPLOAD_STAGE }),
+    });
+    if (uploadReporter) await uploadReporter.stop({ stage: UPLOAD_STAGE, error: errorObject, progress: uploadProgress });
+    throw errorObject;
+  }
+  if (uploadReporter) await uploadReporter.stage({ stage: UPLOAD_STAGE, progress: uploadProgress });
+  emitEvent({
+    severity: "info",
+    type: "range.upload.started",
+    message: "upload started",
+    data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
+  });
+  const uploadResult = await runStage(UPLOAD_STAGE, {
+    configPath,
+    rangeIndex: null,
+    range: null,
+    reporter: uploadReporter,
+    progress: uploadProgress,
+  });
+  if (!uploadResult || uploadResult.ok !== true) {
+    const error = uploadResult?.error || "upload failed";
+    const errorObject = new Error(error);
+    emitEvent({
+      severity: "error",
+      type: "range.upload.failed",
+      message: error,
+      data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
+    });
+    emitEvent({
+      severity: "error",
+      type: "range.failed",
+      message: error,
+      data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
+    });
+    if (uploadReporter) await uploadReporter.fail({ stage: UPLOAD_STAGE, error: errorObject, progress: uploadProgress });
+    throw errorObject;
+  }
+  const uploadProof = uploadResult.storjProof || {};
+  emitEvent({
+    severity: "success",
+    type: "range.upload.completed",
+    message: "upload completed",
+    data: { ...pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }), ...uploadProof },
+  });
+  if (uploadReporter) {
+    await uploadReporter.complete({
+      stage: UPLOAD_STAGE,
+      progress: {
+        ...uploadProgress,
+        stageIndex: PIPELINE_STAGES.length,
+        percent: 100,
+        ...uploadProof,
+      },
+    });
   }
 
   emitEvent({

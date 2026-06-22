@@ -7,7 +7,7 @@ import path from "node:path";
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { runCommand } from "../src/agent/agent.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
-import { parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
+import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -84,6 +84,41 @@ test("process runner preserves ordered config paths for pipeline commands", () =
 
   assert.deepEqual(start.args, ["src/agent/pipeline.js", "configs/second.json", "configs/first.json"]);
   assert.deepEqual(resume.args, ["src/agent/pipeline.js", "configs/b.json", "configs/a.json"]);
+});
+
+test("dashboard config reporter id comes from each selected config path", async () => {
+  const posts = [];
+  const client = {
+    postJob: async (job) => posts.push(job),
+    updateJob: async () => {},
+  };
+  const env = {
+    DASHBOARD_URL: "https://dashboard.example",
+    AGENT_TOKEN: "agent-token",
+    MACHINE_ID: "server-02",
+    DASHBOARD_CONFIG_ID: "stale-active-config",
+  };
+
+  const firstFactory = createCliJobReporterFactory({
+    env,
+    configPath: ".tile-state/dashboard/configs/cfg-first.json",
+    client,
+    idGenerator: () => "job-1",
+  });
+  const secondFactory = createCliJobReporterFactory({
+    env,
+    configPath: ".tile-state/dashboard/configs/cfg-second.json",
+    client,
+    idGenerator: () => "job-2",
+  });
+
+  await firstFactory({ rangeIndex: 0, range: { label: "r1" } }).start({ stage: "download" });
+  await secondFactory({ rangeIndex: 0, range: { label: "r1" } }).start({ stage: "download" });
+
+  assert.deepEqual(posts.map((job) => [job.configId, job.jobId]), [
+    ["cfg-first", "cfg-first:range-0:job-1"],
+    ["cfg-second", "cfg-second:range-0:job-2"],
+  ]);
 });
 
 test("agent git pull restart trusts the managed project directory", async () => {
@@ -583,14 +618,40 @@ test("range pipeline executes download validate zip upload in order", async () =
     "0:download",
     "0:validate",
     "0:zip",
-    "0:upload",
     "1:download",
     "1:validate",
     "1:zip",
-    "1:upload",
+    "null:upload",
   ]);
   assert.equal(events.at(0), "pipeline.started");
   assert.equal(events.at(-1), "pipeline.completed");
+});
+
+test("range pipeline uploads the whole config once after every range is zipped", async () => {
+  const calls = [];
+
+  await runRangePipeline({
+    config: { ranges: [{ label: "r1" }, { label: "r2" }, { label: "r3" }] },
+    configPath: "configs/a.json",
+    runStage: async (stage, context) => {
+      calls.push({ stage, rangeIndex: context.rangeIndex });
+      return { ok: true };
+    },
+    emitEvent: () => {},
+  });
+
+  assert.deepEqual(calls, [
+    { stage: "download", rangeIndex: 0 },
+    { stage: "validate", rangeIndex: 0 },
+    { stage: "zip", rangeIndex: 0 },
+    { stage: "download", rangeIndex: 1 },
+    { stage: "validate", rangeIndex: 1 },
+    { stage: "zip", rangeIndex: 1 },
+    { stage: "download", rangeIndex: 2 },
+    { stage: "validate", rangeIndex: 2 },
+    { stage: "zip", rangeIndex: 2 },
+    { stage: "upload", rangeIndex: null },
+  ]);
 });
 
 test("range pipeline lifecycle events identify the config and range", async () => {
@@ -642,7 +703,6 @@ test("range pipeline pauses after the current range when requested", async () =>
     "0:download",
     "0:validate",
     "0:zip",
-    "0:upload",
   ]);
   assert.equal(events.includes("pipeline.paused"), true);
   assert.equal(events.includes("pipeline.completed"), false);
@@ -669,7 +729,6 @@ test("pipeline CLI stages pass the selected range index to each script", () => {
   assert.deepEqual(stageArgs("upload", { configPath: "configs/a.json", rangeIndex: 3 }), [
     "storj-uploader.js",
     "configs/a.json",
-    "--range-index=3",
   ]);
 });
 

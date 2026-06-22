@@ -758,6 +758,57 @@ test("overview model exposes completed upload share link as pipeline proof", () 
   );
 });
 
+test("overview model collapses multiple range upload proofs to one link per config", () => {
+  const jobs = Array.from({ length: 10 }, (_, index) => ({
+    jobId: `job-range-${index}`,
+    machineId: "server-02",
+    configId: "cfg-esri",
+    status: "completed",
+    stage: "upload",
+    startedAt: `2026-06-22T10:${String(index).padStart(2, "0")}:00.000Z`,
+    finishedAt: `2026-06-22T10:${String(index).padStart(2, "0")}:30.000Z`,
+    rangeId: `range-${index}`,
+    progress: {
+      percent: 100,
+      storjShareUrl: `https://link.storjshare.io/s/token-${index}/mapbox/1-pyongyang-esri-satellite/`,
+    },
+  }));
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: [{ configId: "cfg-esri", name: "1-pyongyang-esri-satellite" }],
+    jobs,
+    machineId: "server-02",
+  });
+
+  assert.equal(model.storjLinks.length, 1);
+  assert.equal(model.storjLinks[0].configId, "cfg-esri");
+  assert.equal(model.storjLinks[0].configName, "1-pyongyang-esri-satellite");
+  assert.equal(model.storjLinks[0].shareUrl, "https://link.storjshare.io/s/token-9/mapbox/1-pyongyang-esri-satellite/");
+});
+
+test("overview model uses storj url path as config label when completed config was deleted", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: [],
+    jobs: [{
+      jobId: "job-range-1",
+      machineId: "server-02",
+      configId: "cfg-deleted",
+      status: "completed",
+      stage: "upload",
+      startedAt: "2026-06-22T10:00:00.000Z",
+      progress: {
+        percent: 100,
+        storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/",
+      },
+    }],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.storjLinks.length, 1);
+  assert.equal(model.storjLinks[0].configName, "1-pyongyang-esri-satellite");
+});
+
 test("completed config delete prompt candidates come from completed storj jobs with live configs", () => {
   const candidates = completedConfigDeleteCandidates({
     machines: [{ machineId: "server-09", status: "online" }],

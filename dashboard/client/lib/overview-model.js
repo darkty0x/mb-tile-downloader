@@ -632,6 +632,17 @@ function pipelineProcessFromJob(job, { configs = [], machine = null, nowMs = Dat
   };
 }
 
+function configNameFromStorjShareUrl(shareUrl = "") {
+  try {
+    const url = new URL(String(shareUrl || ""));
+    const parts = url.pathname.split("/").filter(Boolean).map((part) => decodeURIComponent(part));
+    return parts.at(-1) || "";
+  } catch {
+    const parts = String(shareUrl || "").split("/").filter(Boolean);
+    return parts.at(-1) || "";
+  }
+}
+
 function buildStorjLinks(jobs = [], configs = []) {
   const seen = new Set();
   return jobs
@@ -639,13 +650,15 @@ function buildStorjLinks(jobs = [], configs = []) {
     .sort(newestFirst)
     .map((job) => {
       const shareUrl = String(job.progress?.storjShareUrl || "").trim();
-      if (!shareUrl || seen.has(shareUrl)) return null;
-      seen.add(shareUrl);
+      const configId = String(job.configId || "").trim();
+      const seenKey = configId ? `config:${configId}` : `url:${shareUrl}`;
+      if (!shareUrl || seen.has(seenKey)) return null;
+      seen.add(seenKey);
       const config = configs.find((item) => item.configId === job.configId);
       return {
         jobId: job.jobId || job.id || "",
-        configId: job.configId || "",
-        configName: config?.name || job.configName || job.configId || "Config 화일",
+        configId,
+        configName: config?.name || job.configName || configNameFromStorjShareUrl(shareUrl) || configId || "Config 화일",
         rangeId: job.rangeId || "",
         shareUrl,
         rawLinkPrefix: job.progress?.storjRawLinkPrefix || "",
