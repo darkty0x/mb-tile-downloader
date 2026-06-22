@@ -1,10 +1,17 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
+import { chmod, mkdir, mkdtemp, readFile, stat, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { extractZip, selectReleaseAssetUrls } from "../scripts/install-storj-uplink.js";
+import {
+  extractZip,
+  executableWorks,
+  installUplinkFromHomebrewBottle,
+  installUplinkWithHomebrew,
+  resolveHomebrewCommand,
+  selectReleaseAssetUrls,
+} from "../scripts/install-storj-uplink.js";
 
 function writeU16(buffer, value, offset) {
   buffer.writeUInt16LE(value & 0xffff, offset);
@@ -113,6 +120,123 @@ test("storj installer can include prerelease assets when explicitly allowed", ()
   );
 
   assert.deepEqual(urls, ["https://example.test/rc/uplink_windows_amd64.zip"]);
+});
+
+test("storj installer falls back to Homebrew when release assets are missing on macOS", async () => {
+  const calls = [];
+  const result = await installUplinkWithHomebrew({
+    platform: "darwin",
+    commandWorks: async (command) => command === "brew",
+    runCommand: async (command, args) => {
+      calls.push([command, args]);
+      return { stdout: args[0] === "--prefix" ? "/opt/homebrew/opt/storj-uplink" : "installed", stderr: "" };
+    },
+    executableWorks: async () => true,
+    localPath: "/repo/tools/uplink/uplink",
+    mkdir: async () => {},
+    copyFile: async () => {},
+    chmod: async () => {},
+  });
+
+  assert.equal(result.exePath, "/repo/tools/uplink/uplink");
+  assert.equal(result.archiveName, "homebrew:storj-uplink");
+  assert.deepEqual(calls, [
+    ["brew", ["install", "storj-uplink"]],
+    ["brew", ["--prefix", "storj-uplink"]],
+  ]);
+});
+
+test("storj installer does not use Homebrew fallback off macOS", async () => {
+  await assert.rejects(
+    () =>
+      installUplinkWithHomebrew({
+        platform: "linux",
+        commandWorks: async () => true,
+        runCommand: async () => ({ stdout: "", stderr: "" }),
+        executableWorks: async () => true,
+        localPath: "/repo/tools/uplink/uplink",
+      }),
+    /Homebrew fallback is only supported on macOS/
+  );
+});
+
+test("storj installer finds Homebrew in standard macOS paths when PATH omits brew", async () => {
+  const command = await resolveHomebrewCommand({
+    commandWorks: async (candidate) => candidate === "/usr/local/bin/brew",
+    runCommand: async () => {
+      throw new Error("not on PATH");
+    },
+  });
+
+  assert.equal(command, "/usr/local/bin/brew");
+});
+
+test("storj installer probes Homebrew with --version instead of generic version arg", async () => {
+  const calls = [];
+  const command = await resolveHomebrewCommand({
+    commandWorks: async () => false,
+    runCommand: async (candidate, args) => {
+      calls.push([candidate, args]);
+      if (candidate === "/usr/local/bin/brew" && args[0] === "--version") return { stdout: "Homebrew 4", stderr: "" };
+      throw new Error("not found");
+    },
+  });
+
+  assert.equal(command, "/usr/local/bin/brew");
+  assert.deepEqual(calls, [
+    ["brew", ["--version"]],
+    ["/opt/homebrew/bin/brew", ["--version"]],
+    ["/usr/local/bin/brew", ["--version"]],
+  ]);
+});
+
+test("storj installer can extract uplink from a fetched Homebrew bottle", async () => {
+  const calls = [];
+  const result = await installUplinkFromHomebrewBottle({
+    brewCommand: "/usr/local/bin/brew",
+    runCommand: async (command, args) => {
+      calls.push([command, args]);
+      if (command === "/usr/local/bin/brew" && args[0] === "fetch") return { stdout: "fetched", stderr: "" };
+      if (command === "/usr/local/bin/brew" && args[0] === "--cache") return { stdout: "/cache/storj-uplink.bottle.tar.gz\n", stderr: "" };
+      if (command === "tar" && args[0] === "-tzf") {
+        return { stdout: "storj-uplink/1.157.5/bin/uplink\n", stderr: "" };
+      }
+      if (command === "tar" && args[0] === "-xzf") return { stdout: "", stderr: "" };
+      throw new Error("unexpected command");
+    },
+    executableWorks: async () => true,
+    localPath: "/repo/tools/uplink/uplink",
+    mkdtemp: async () => "/tmp/storj-bottle-test",
+    mkdir: async () => {},
+    copyFile: async () => {},
+    chmod: async () => {},
+    rm: async () => {},
+  });
+
+  assert.equal(result.exePath, "/repo/tools/uplink/uplink");
+  assert.equal(result.archiveName, "homebrew-bottle:storj-uplink");
+  assert.deepEqual(calls, [
+    ["/usr/local/bin/brew", ["fetch", "--force-bottle", "storj-uplink"]],
+    ["/usr/local/bin/brew", ["--cache", "storj-uplink"]],
+    ["tar", ["-tzf", "/cache/storj-uplink.bottle.tar.gz"]],
+    ["tar", ["-xzf", "/cache/storj-uplink.bottle.tar.gz", "-C", "/tmp/storj-bottle-test", "storj-uplink/1.157.5/bin/uplink"]],
+  ]);
+});
+
+test("storj installer probes executables with closed stdin", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-stdin-"));
+  const executable = path.join(dir, "stdin-check");
+  await writeFile(
+    executable,
+    [
+      "#!/bin/sh",
+      "node -e \"const fs = require('fs'); process.exit(fs.fstatSync(0).isFIFO() ? 1 : 0)\"",
+      "",
+    ].join("\n")
+  );
+  await chmod(executable, 0o755);
+
+  assert.equal(await executableWorks(executable), true);
 });
 
 test("storj installer extracts uplink zip without a system unzip dependency", async () => {

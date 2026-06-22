@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
 import { planConfigGroupUpdate } from "../lib/config-groups";
+import { eventDisplayMessage, eventDisplayTitle } from "../lib/event-display";
 import { dashboardPathForState, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
@@ -252,8 +253,8 @@ export function useDashboardState() {
       seenNotificationEventsRef.current.add(key);
       if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
       try {
-        new window.Notification(event.type || "PTG 관리체계 Event", {
-          body: event.message || "새 관리체계 Event",
+        new window.Notification(eventDisplayTitle(event), {
+          body: eventDisplayMessage(event),
           tag: key,
         });
       } catch {
@@ -686,6 +687,7 @@ export function useDashboardState() {
             machineIds: targetMachineIds,
             name: formData.get("name"),
             splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
+            splitStrategy: formData.get("splitStrategy") || "ranges",
             templateIds,
             rangeInput: formData.get("rangeInput"),
             zoomStart: formData.get("zoomStart"),
@@ -767,6 +769,7 @@ export function useDashboardState() {
               machineIds: targetMachineIds,
               name: formData.get("name"),
               splitAcrossMachines: formData.get("splitAcrossMachines") === "on",
+              splitStrategy: formData.get("splitStrategy") || "ranges",
               templateIds,
               rangeInput: formData.get("rangeInput"),
               zoomStart: formData.get("zoomStart"),

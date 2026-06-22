@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-model";
+import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../lib/event-display";
 import { eventNotificationId } from "../lib/event-identity";
 import { buildConfigGroups } from "../lib/config-groups";
 import { configPresetVisual } from "./config-preset-visuals";
@@ -671,8 +672,8 @@ function EventStreamCard({ events, title = "Event 흐름", limit = 6, readNotifi
               }`}
             />
             <span className="min-w-0">
-              <strong className="block truncate text-[12px] font-[820]">{event.type}</strong>
-              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{event.message}</small>
+              <strong className="block truncate text-[12px] font-[820]">{eventDisplayTitle(event)}</strong>
+              <small className="mt-0.5 block truncate text-[11px] font-[600] text-[var(--ptg-on-surface-variant)]">{eventDisplayMessage(event)}</small>
             </span>
             <time className="text-[10.5px] font-[700] text-[var(--ptg-on-surface-variant)]">{shortDate(event.createdAt)}</time>
           </div>
@@ -1392,7 +1393,7 @@ function ServerPageConsole({ state, actions }) {
   const localLines = state.selectedMachine?.agentSnapshot?.console?.recentLines || [];
   const eventLines = state.events
     .filter((event) => !isConsoleOutputEvent(event))
-    .map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(24)} ${event.message}`);
+    .map((event) => formatEventConsoleLine(event));
   return (
     <section className="grid gap-3">
       <SectionTitle
@@ -1555,7 +1556,7 @@ export function EventsDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <EventStreamCard events={events} title="관리체계 Console" limit={20} readNotificationIds={state.readNotificationIds} actions={actions} machineId={scopedMachineId} />
       <pre className="ptg-scrollbar min-h-[360px] overflow-auto rounded-xl border border-[#12233c] bg-[#071326] p-4 font-mono text-[11.5px] leading-relaxed text-[#d9efff]">
-        {events.length ? events.map((event) => `${event.createdAt} ${event.severity.toUpperCase().padEnd(7)} ${event.type.padEnd(28)} ${event.message}`).join("\n") : "아직 Event가 없습니다"}
+        {events.length ? events.map((event) => formatEventConsoleLine(event, { typeWidth: 28 })).join("\n") : "아직 Event가 없습니다"}
       </pre>
     </section>
   );
@@ -1572,8 +1573,8 @@ export function AlertsDashboard({ state, actions }) {
         <div className="grid gap-2">
           {failed.length ? failed.map((event, index) => (
             <div key={`${event.createdAt}-${index}`} className="rounded-lg border border-[rgba(226,58,77,0.20)] bg-[#fff5f7] px-3 py-2.5">
-              <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-error)]">{event.type}</strong>
-              <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{event.message}</p>
+              <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-error)]">{eventDisplayTitle(event)}</strong>
+              <p className="mt-1 text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">{eventDisplayMessage(event)}</p>
             </div>
           )) : <EmptyLine>읽은 실패 Event가 없습니다</EmptyLine>}
         </div>

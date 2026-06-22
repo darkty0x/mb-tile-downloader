@@ -3,6 +3,7 @@
 
 import fsp from "node:fs/promises";
 import fs from "node:fs";
+import os from "node:os";
 import path from "node:path";
 import { spawn } from "node:child_process";
 import { inflateRawSync } from "node:zlib";
@@ -45,7 +46,7 @@ function localExecutablePath() {
 function run(command, args, options = {}) {
   return new Promise((resolve, reject) => {
     const child = spawn(command, args, {
-      stdio: options.stdio || "pipe",
+      stdio: options.stdio || ["ignore", "pipe", "pipe"],
       shell: options.shell || false,
       cwd: options.cwd || rootDir,
     });
@@ -164,7 +165,130 @@ async function downloadCompatibleUplinkArchive(localPath) {
   if (urls.length === 0) {
     errors.push(`no release asset found for ${candidates.join(" or ")}`);
   }
+  if (process.platform === "darwin") {
+    try {
+      return await installUplinkWithHomebrew({ localPath });
+    } catch (err) {
+      errors.push(`Homebrew fallback failed: ${err.message}`);
+    }
+  }
   throw new Error(`Failed to install a working Uplink binary: ${errors.join("; ")}`);
+}
+
+async function installUplinkWithHomebrew({
+  platform = process.platform,
+  commandWorks: checkCommandWorks = commandWorks,
+  runCommand = run,
+  executableWorks: checkExecutableWorks = executableWorks,
+  localPath = localExecutablePath(),
+  mkdtemp = fsp.mkdtemp,
+  mkdir = fsp.mkdir,
+  copyFile = fsp.cp,
+  chmod = fsp.chmod,
+  rm = fsp.rm,
+} = {}) {
+  if (platform !== "darwin") {
+    throw new Error("Homebrew fallback is only supported on macOS");
+  }
+  const brewCommand = await resolveHomebrewCommand({ commandWorks: checkCommandWorks, runCommand });
+  if (!brewCommand) {
+    throw new Error("Homebrew is not available; install Storj Uplink manually or put uplink on PATH");
+  }
+
+  try {
+    await runCommand(brewCommand, ["install", "storj-uplink"]);
+  } catch (installErr) {
+    try {
+      return await installUplinkFromHomebrewBottle({
+        brewCommand,
+        runCommand,
+        executableWorks: checkExecutableWorks,
+        localPath,
+        mkdtemp,
+        mkdir,
+        copyFile,
+        chmod,
+        rm,
+      });
+    } catch (bottleErr) {
+      throw new Error(`${installErr.message}; bottle fallback failed: ${bottleErr.message}`);
+    }
+  }
+  const prefixResult = await runCommand(brewCommand, ["--prefix", "storj-uplink"]);
+  const prefix = String(prefixResult.stdout || "").trim();
+  const brewUplink = prefix ? path.join(prefix, "bin", "uplink") : "";
+  if (!brewUplink || !(await checkExecutableWorks(brewUplink))) {
+    if (await checkCommandWorks("uplink")) {
+      return { archiveName: "homebrew:storj-uplink", exePath: "uplink" };
+    }
+    throw new Error("Homebrew installed storj-uplink but no working uplink binary was found");
+  }
+
+  await mkdir(path.dirname(localPath), { recursive: true });
+  await copyFile(brewUplink, localPath, { force: true });
+  await chmod(localPath, 0o755).catch(() => {});
+  if (!(await checkExecutableWorks(localPath))) {
+    throw new Error(`Copied Homebrew uplink does not run: ${localPath}`);
+  }
+  return { archiveName: "homebrew:storj-uplink", exePath: localPath };
+}
+
+async function installUplinkFromHomebrewBottle({
+  brewCommand,
+  runCommand = run,
+  executableWorks: checkExecutableWorks = executableWorks,
+  localPath = localExecutablePath(),
+  mkdtemp = fsp.mkdtemp,
+  mkdir = fsp.mkdir,
+  copyFile = fsp.cp,
+  chmod = fsp.chmod,
+  rm = fsp.rm,
+} = {}) {
+  if (!brewCommand) throw new Error("brewCommand is required");
+  await runCommand(brewCommand, ["fetch", "--force-bottle", "storj-uplink"]);
+  const cacheResult = await runCommand(brewCommand, ["--cache", "storj-uplink"]);
+  const bottlePath = String(cacheResult.stdout || "").trim().split(/\r?\n/).filter(Boolean).at(-1);
+  if (!bottlePath) throw new Error("Homebrew did not report a cached storj-uplink bottle path");
+
+  const listResult = await runCommand("tar", ["-tzf", bottlePath]);
+  const entryName = String(listResult.stdout || "")
+    .split(/\r?\n/)
+    .find((entry) => /\/bin\/uplink$/.test(entry));
+  if (!entryName) throw new Error(`Cached bottle does not contain bin/uplink: ${bottlePath}`);
+
+  const tempDir = await mkdtemp(path.join(os.tmpdir(), "storj-uplink-bottle-"));
+  try {
+    await runCommand("tar", ["-xzf", bottlePath, "-C", tempDir, entryName]);
+    const extractedUplink = path.join(tempDir, entryName);
+    if (!(await checkExecutableWorks(extractedUplink))) {
+      throw new Error(`Extracted bottle uplink does not run: ${extractedUplink}`);
+    }
+    await mkdir(path.dirname(localPath), { recursive: true });
+    await copyFile(extractedUplink, localPath, { force: true });
+    await chmod(localPath, 0o755).catch(() => {});
+    if (!(await checkExecutableWorks(localPath))) {
+      throw new Error(`Copied bottle uplink does not run: ${localPath}`);
+    }
+    return { archiveName: "homebrew-bottle:storj-uplink", exePath: localPath };
+  } finally {
+    await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
+async function resolveHomebrewCommand({
+  commandWorks: checkCommandWorks = commandWorks,
+  runCommand = run,
+} = {}) {
+  for (const candidate of ["brew", "/opt/homebrew/bin/brew", "/usr/local/bin/brew"]) {
+    if (await checkCommandWorks(candidate)) return candidate;
+    try {
+      await runCommand(candidate, ["--version"]);
+      return candidate;
+    } catch {
+      // Keep checking the standard Homebrew locations.
+    }
+  }
+  return null;
 }
 
 function findEndOfCentralDirectory(buffer) {
@@ -288,8 +412,12 @@ if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) 
 }
 
 export {
+  executableWorks,
   extractZip,
   findZipEntry,
+  installUplinkFromHomebrewBottle,
+  installUplinkWithHomebrew,
   platformArchiveNames,
+  resolveHomebrewCommand,
   selectReleaseAssetUrls,
 };

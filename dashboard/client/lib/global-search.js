@@ -1,3 +1,5 @@
+import { eventDisplayMessage, eventDisplayTitle } from "./event-display.js";
+
 function normalized(value) {
   return String(value || "").trim().toLowerCase();
 }
@@ -53,6 +55,8 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
     .filter((event) => includesNeedle([
       event.type,
       event.message,
+      eventDisplayTitle(event),
+      eventDisplayMessage(event),
       event.machineId,
       event.severity,
     ], needle))
@@ -60,8 +64,8 @@ export function buildGlobalSearchResults(state = {}, query = "", { limit = 8 } =
       id: `event-${eventId(event, index)}`,
       type: "event",
       icon: event.severity === "error" ? "warning" : "console",
-      title: event.type || "Event 기록",
-      detail: `${event.machineId || "공용"} | ${event.message || "내용 없음"}`,
+      title: eventDisplayTitle(event),
+      detail: `${event.machineId || "공용"} | ${eventDisplayMessage(event)}`,
       tab: "events",
     }));
 

@@ -569,6 +569,14 @@ function jobNameForTarget({ baseJobName, target, multipleTargets }) {
   return `${baseJobName}-${target.splitName}`;
 }
 
+function splitStrategyForBatch(body, { templateCount, targetCount } = {}) {
+  if (!body.splitAcrossMachines || targetCount < 2) return "none";
+  const requested = String(body.splitStrategy || body.splitMode || "").trim();
+  if (["ranges", "range"].includes(requested)) return "ranges";
+  if (["configTypes", "config-types", "types", "templates"].includes(requested)) return "configTypes";
+  return templateCount > 1 ? "configTypes" : "ranges";
+}
+
 async function buildConfigDrafts({ store, body, configTemplatesDir }) {
   const parsedRanges = parseConfigRanges({
     input: body.rangeInput || body.ranges,
@@ -586,11 +594,14 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
 
   const multipleTemplates = templates.length > 1;
   const multipleTargets = targets.length > 1;
-  const splitAcrossMachines = Boolean(body.splitAcrossMachines) && multipleTargets;
+  const splitStrategy = splitStrategyForBatch(body, {
+    templateCount: templates.length,
+    targetCount: targets.length,
+  });
   const rangeSummary = summarizeRanges(parsedRanges);
   const drafts = [];
 
-  for (const template of templates) {
+  for (const [templateIndex, template] of templates.entries()) {
     const sourceName = configNameForTemplate({
       baseName: body.name,
       template,
@@ -602,7 +613,24 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
     };
     sourceConfig.jobName = configJobNameForTemplate({ name: sourceName, template });
 
-    if (splitAcrossMachines) {
+    if (splitStrategy === "configTypes") {
+      const target = targets[templateIndex % targets.length];
+      const name = displayNameForTarget({ baseName: sourceName, target, multipleTargets });
+      const config = structuredClone(sourceConfig);
+      config.jobName = jobNameForTarget({ baseJobName: sourceConfig.jobName, target, multipleTargets });
+      drafts.push({
+        machineId: target.machineId,
+        machineLabel: target.label,
+        templateId: template.id,
+        templateLabel: template.label,
+        name,
+        active: true,
+        config,
+      });
+      continue;
+    }
+
+    if (splitStrategy === "ranges") {
       const split = splitConfigByRows(sourceConfig, {
         names: targets.map((target) => target.splitName),
       });

@@ -381,7 +381,11 @@ test("storj uploader configures api-key credentials without interactive setup", 
         "const args = process.argv.slice(2);",
         "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
         "if (args.includes('setup')) process.exit(9);",
-        "if (args.includes('create')) process.exit(0);",
+        "if (args.includes('create')) {",
+        "  const stdin = fs.readFileSync(0, 'utf8');",
+        "  fs.appendFileSync(process.env.UPLINK_CALLS_PATH, 'stdin:' + JSON.stringify(stdin) + '\\n');",
+        "  process.exit(0);",
+        "}",
         "if (args.includes('ls')) { console.log('tiles_vector_1_000000-000000_y000000-000000.zip'); console.log('archives-manifest.json'); process.exit(0); }",
         "if (args.includes('cp')) process.exit(0);",
         "process.exit(0);",
@@ -411,6 +415,7 @@ test("storj uploader configures api-key credentials without interactive setup", 
       readFile(callsPath, "utf8")
     );
     assert.match(calls, /access create .*--passphrase-stdin .*--import-as mb-tile-downloader .*--force .*--use/);
+    assert.match(calls, /stdin:"test-passphrase\\ntest-passphrase\\n"/);
     assert.doesNotMatch(calls, /\bsetup\b/);
     assert.match(stdout, /SKIP remote exists/);
   } finally {

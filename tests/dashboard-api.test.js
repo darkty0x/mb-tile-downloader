@@ -1142,6 +1142,141 @@ test("dashboard batch config creation can split one selected type across selecte
   ]);
 });
 
+test("dashboard batch config creation smart-splits matching config types across selected servers", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  const fullRange = { zoom: 4, xStart: 0, xEnd: 3, yStart: 0, yEnd: 9 };
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json", { ranges: [fullRange] });
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", { ranges: [fullRange] });
+  await writeConfigTemplate(templatesDir, "esri-satellite.config.json", { ranges: [fullRange] });
+  const normalizedFullRange = {
+    zoomStart: 4,
+    zoomEnd: 4,
+    xStart: 0,
+    xEnd: 3,
+    yStart: 0,
+    yEnd: 9,
+    label: "range#1: z=4 x=0-3 y=0-9",
+  };
+  let id = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => `cfg-${++id}`,
+    }),
+  });
+  const headers = { authorization: "Bearer agent-token" };
+  for (const worker of ["a", "b", "c"]) {
+    await request(server, {
+      method: "POST",
+      path: "/api/agents/register",
+      headers,
+      body: { machineId: `worker-${worker}`, agentInstanceId: `agent-${worker}`, displayName: `Worker ${worker.toUpperCase()}` },
+    });
+  }
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      name: "Ukraine",
+      active: true,
+      splitAcrossMachines: true,
+      machineIds: ["worker-a", "worker-b", "worker-c"],
+      templateIds: ["mapbox-pbf", "mapbox-satellite", "esri-satellite"],
+      rangeInput: JSON.stringify([fullRange]),
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(
+    response.body.configs.map((config) => ({
+      machineId: config.machineId,
+      name: config.name,
+      jobName: config.config.jobName,
+      provider: config.config.provider,
+      layer: config.config.layer,
+      ranges: config.config.ranges,
+    })),
+    [
+      {
+        machineId: "worker-a",
+        name: "Ukraine-mapbox-pbf-Worker A",
+        jobName: "ukraine-mapbox-pbf-worker-a",
+        provider: "mapbox",
+        layer: "vector",
+        ranges: [normalizedFullRange],
+      },
+      {
+        machineId: "worker-b",
+        name: "Ukraine-mapbox-satellite-Worker B",
+        jobName: "ukraine-mapbox-satellite-worker-b",
+        provider: "mapbox",
+        layer: "satellite",
+        ranges: [normalizedFullRange],
+      },
+      {
+        machineId: "worker-c",
+        name: "Ukraine-esri-satellite-Worker C",
+        jobName: "ukraine-esri-satellite-worker-c",
+        provider: "esri",
+        layer: "satellite",
+        ranges: [normalizedFullRange],
+      },
+    ]
+  );
+});
+
+test("dashboard batch config creation can force range split for multiple config types", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  const fullRange = { zoom: 4, xStart: 0, xEnd: 3, yStart: 0, yEnd: 9 };
+  await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json", { ranges: [fullRange] });
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", { ranges: [fullRange] });
+  let id = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    store: createDashboardStore({
+      now: () => new Date("2026-06-16T00:00:00.000Z"),
+      idGenerator: () => `cfg-${++id}`,
+    }),
+  });
+  const headers = { authorization: "Bearer agent-token" };
+  for (const worker of ["a", "b"]) {
+    await request(server, {
+      method: "POST",
+      path: "/api/agents/register",
+      headers,
+      body: { machineId: `worker-${worker}`, agentInstanceId: `agent-${worker}`, displayName: `Worker ${worker.toUpperCase()}` },
+    });
+  }
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      name: "Ukraine",
+      active: true,
+      splitAcrossMachines: true,
+      splitStrategy: "ranges",
+      machineIds: ["worker-a", "worker-b"],
+      templateIds: ["mapbox-pbf", "mapbox-satellite"],
+      rangeInput: JSON.stringify([fullRange]),
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(response.body.configs.map((config) => config.machineId), [
+    "worker-a",
+    "worker-b",
+    "worker-a",
+    "worker-b",
+  ]);
+  assert.deepEqual(
+    response.body.configs.map((config) => config.config.ranges[0].xEnd - config.config.ranges[0].xStart + 1),
+    [2, 2, 2, 2]
+  );
+});
+
 test("dashboard batch config creation rejects unknown server assignment", async (t) => {
   const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
   await writeConfigTemplate(templatesDir, "mapbox-pbf.config.json");

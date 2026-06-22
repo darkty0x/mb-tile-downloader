@@ -135,6 +135,10 @@ export function thresholdValue(settings, name) {
     : DEFAULT_DASHBOARD_SETTINGS.alertThresholds[name];
 }
 
+export function defaultConfigSplitAcrossMachines(machineIds = []) {
+  return Array.isArray(machineIds) && machineIds.filter(Boolean).length > 1;
+}
+
 export function formatBytes(value) {
   if (!Number.isFinite(Number(value)) || Number(value) <= 0) return "0 B";
   const units = ["B", "KB", "MB", "GB", "TB"];

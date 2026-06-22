@@ -2,10 +2,11 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
+import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../dashboard/client/lib/event-display.js";
 import { eventNotificationId, eventRecordId } from "../dashboard/client/lib/event-identity.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
 import { buildDashboardDocumentTitle } from "../dashboard/client/lib/page-title.js";
-import { diskPeakForMachine, envValueFromText, mergeDashboardSettings } from "../dashboard/client/components/dashboard-core.js";
+import { defaultConfigSplitAcrossMachines, diskPeakForMachine, envValueFromText, mergeDashboardSettings } from "../dashboard/client/components/dashboard-core.js";
 
 test("overview model summarizes fleet pipeline disk and resource alerts", () => {
   const model = buildOverviewModel({
@@ -91,6 +92,12 @@ test("client settings preserve runtime telegram chat id fallback", () => {
   assert.equal(settings.telegramEnv.chatId, "-100456");
 });
 
+test("config editor defaults range splitting on for multiple selected servers", () => {
+  assert.equal(defaultConfigSplitAcrossMachines(["worker-a", "worker-b"]), true);
+  assert.equal(defaultConfigSplitAcrossMachines(["worker-a"]), false);
+  assert.equal(defaultConfigSplitAcrossMachines([]), false);
+});
+
 test("event notification identity uses the durable event id field", () => {
   const localStoreEvent = { id: "evt-local", type: "command.accepted", message: "accepted" };
   const postgresEvent = { eventId: "evt-postgres", type: "command.accepted", message: "accepted" };
@@ -99,6 +106,34 @@ test("event notification identity uses the durable event id field", () => {
   assert.equal(eventRecordId(postgresEvent), "evt-postgres");
   assert.equal(eventNotificationId(localStoreEvent), "event-evt-local");
   assert.equal(eventNotificationId(postgresEvent), "event-evt-postgres");
+});
+
+test("event display localizes dashboard-run sync records", () => {
+  const event = {
+    type: "dashboard-run.synced",
+    severity: "info",
+    message: "Local command loaded dashboard-managed config, env, and secrets.",
+    createdAt: "2026-06-22T01:12:00.000Z",
+  };
+
+  assert.equal(eventDisplayTitle(event), "대시보드 설정 동기화 완료");
+  assert.equal(eventDisplayMessage(event), "이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.");
+  assert.match(formatEventConsoleLine(event), /정보\s+대시보드 설정 동기화 완료/);
+});
+
+test("global search uses localized event labels and messages", () => {
+  const [result] = buildGlobalSearchResults({
+    globalEvents: [{
+      eventId: "evt-sync",
+      machineId: "worker-a",
+      type: "dashboard-run.synced",
+      severity: "info",
+      message: "Local command loaded dashboard-managed config, env, and secrets.",
+    }],
+  }, "대시보드 설정");
+
+  assert.equal(result.title, "대시보드 설정 동기화 완료");
+  assert.equal(result.detail, "worker-a | 이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.");
 });
 
 test("overview model displays dashboard-created zoom ranges", () => {

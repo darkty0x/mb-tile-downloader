@@ -6,7 +6,7 @@ import { buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaul
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, ModalShell, SelectInput, SwitchField, TextArea, TextInput } from "./ui";
-import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, displayMachineId, displayProtocol, displayStatus, findMachineById } from "./dashboard-core";
+import { SAMPLE_CONFIG, SECRET_LABELS, SECRET_STATUSES, defaultConfigSplitAcrossMachines, displayMachineId, displayProtocol, displayStatus, findMachineById } from "./dashboard-core";
 
 function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
@@ -625,12 +625,15 @@ function ConfigForm({ record, state, actions, editor }) {
     [editor?.templateId, editor?.templateIds]
   );
   const [selectedTemplateIds, setSelectedTemplateIds] = useState(initialTemplateIds);
-  const [selectedMachineIds, setSelectedMachineIds] = useState(() => {
+  const initialMachineIds = () => {
     if (Array.isArray(editor?.machineIds) && editor.machineIds.length) return editor.machineIds;
     if (state.selectedMachineId) return [state.selectedMachineId];
     return state.machines[0]?.machineId ? [state.machines[0].machineId] : [];
-  });
-  const [splitAcrossMachines, setSplitAcrossMachines] = useState(false);
+  };
+  const [selectedMachineIds, setSelectedMachineIds] = useState(initialMachineIds);
+  const [splitAcrossMachines, setSplitAcrossMachines] = useState(() => defaultConfigSplitAcrossMachines(initialMachineIds()));
+  const [splitAcrossMachinesTouched, setSplitAcrossMachinesTouched] = useState(false);
+  const [splitByConfigTypes, setSplitByConfigTypes] = useState(true);
   const [submitting, setSubmitting] = useState(false);
   const [batchPreview, setBatchPreview] = useState(null);
   const [draftTexts, setDraftTexts] = useState([]);
@@ -648,6 +651,7 @@ function ConfigForm({ record, state, actions, editor }) {
         ? "련결된 봉사기만 선택할수 있습니다"
         : "";
   const canSubmit = !submitting && !machineSelectionError;
+  const configTypeSplitEnabled = splitAcrossMachines && selectedMachineIds.length > 1 && selectedTemplateIds.length > 1;
   const clearBatchPreview = () => {
     setBatchPreview(null);
     setDraftTexts([]);
@@ -695,9 +699,16 @@ function ConfigForm({ record, state, actions, editor }) {
           onServerChange={(machineIds) => {
             clearBatchPreview();
             setSelectedMachineIds(machineIds);
+            if (machineIds.length < 2) {
+              setSplitAcrossMachines(false);
+              setSplitAcrossMachinesTouched(false);
+            } else if (!splitAcrossMachinesTouched) {
+              setSplitAcrossMachines(defaultConfigSplitAcrossMachines(machineIds));
+            }
           }}
           onSplitChange={(value) => {
             clearBatchPreview();
+            setSplitAcrossMachinesTouched(true);
             setSplitAcrossMachines(value);
           }}
         />
@@ -709,6 +720,22 @@ function ConfigForm({ record, state, actions, editor }) {
           onChange={(templateIds) => {
             clearBatchPreview();
             setSelectedTemplateIds(templateIds);
+          }}
+        />
+      ) : null}
+      {!id ? (
+        <input type="hidden" name="splitStrategy" value={configTypeSplitEnabled && splitByConfigTypes ? "configTypes" : "ranges"} />
+      ) : null}
+      {configTypeSplitEnabled ? (
+        <SwitchField
+          checked={splitByConfigTypes}
+          className="border-[rgba(29,116,96,0.18)] bg-[#eefaf6]"
+          description="봉사기마다 전체 범위와 서로 다른 Config 류형을 배정합니다"
+          label="Config 류형별 봉사기 배정"
+          name="splitByConfigTypes"
+          onChange={(event) => {
+            clearBatchPreview();
+            setSplitByConfigTypes(event.target.checked);
           }}
         />
       ) : null}

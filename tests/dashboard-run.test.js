@@ -216,4 +216,5 @@ test("dashboard-run publishes an immediate dashboard snapshot after sync", async
   assert.equal(calls[0][1].agentSnapshot.secrets.mapboxTokenCount, 2);
   assert.equal(calls[1][0], "event");
   assert.equal(calls[1][1].type, "dashboard-run.synced");
+  assert.equal(calls[1][1].message, "이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.");
 });

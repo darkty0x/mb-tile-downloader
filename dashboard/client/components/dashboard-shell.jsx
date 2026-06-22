@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { buildGlobalSearchResults } from "../lib/global-search";
+import { eventDisplayMessage, eventDisplayTitle } from "../lib/event-display";
 import { eventNotificationId, eventRecordId } from "../lib/event-identity";
 import { buildConfigGroups } from "../lib/config-groups";
 import { buildOverviewModel } from "../lib/overview-model";
@@ -310,8 +311,8 @@ function buildNotifications(state, overview) {
       read: Boolean(event.readAt),
       kind: event.severity === "error" ? "error" : event.severity === "warn" ? "warning" : "info",
       icon: event.severity === "error" ? "warning" : event.severity === "warn" ? "alerts" : "bell",
-      title: event.type || "관리체계 Event",
-      message: event.message || "내용 없음",
+      title: eventDisplayTitle(event),
+      message: eventDisplayMessage(event),
       time: shortDate(event.createdAt),
       actionTab: "events",
     }));

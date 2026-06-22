@@ -287,7 +287,7 @@ export async function publishImmediateDashboardSnapshot({
       machineId: identity.machineId,
       severity: "info",
       type: "dashboard-run.synced",
-      message: "Local command loaded dashboard-managed config, env, and secrets.",
+      message: "이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.",
       data: {
         configPath: synced.configPath || null,
         envPath: synced.envPath || null,

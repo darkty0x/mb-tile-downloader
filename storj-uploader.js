@@ -318,7 +318,7 @@ async function ensureAccessConfigured(credentials, configDir) {
       "--use",
     ],
     {
-      input: `${credentials.passphrase}\n`,
+      input: `${credentials.passphrase}\n${credentials.passphrase}\n`,
       configDir,
     }
   );
