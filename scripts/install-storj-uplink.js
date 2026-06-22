@@ -30,10 +30,10 @@ function printUsage(exitCode = 0) {
   process.exit(exitCode);
 }
 
-function platformArchiveNames() {
-  const isArm = process.arch === "arm64";
-  if (process.platform === "win32") return ["uplink_windows_amd64.zip"];
-  if (process.platform === "darwin") {
+function platformArchiveNames({ platform = process.platform, arch = process.arch } = {}) {
+  const isArm = arch === "arm64";
+  if (platform === "win32") return ["uplink_windows_amd64.zip"];
+  if (platform === "darwin") {
     return isArm ? ["uplink_darwin_arm64.zip", "uplink_darwin_amd64.zip"] : ["uplink_darwin_amd64.zip", "uplink_darwin_arm64.zip"];
   }
   return isArm ? ["uplink_linux_arm64.zip", "uplink_linux_amd64.zip"] : ["uplink_linux_amd64.zip", "uplink_linux_arm64.zip"];

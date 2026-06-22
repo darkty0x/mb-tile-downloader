@@ -9,6 +9,7 @@ import {
   executableWorks,
   installUplinkFromHomebrewBottle,
   installUplinkWithHomebrew,
+  platformArchiveNames,
   resolveHomebrewCommand,
   selectReleaseAssetUrls,
 } from "../scripts/install-storj-uplink.js";
@@ -120,6 +121,12 @@ test("storj installer can include prerelease assets when explicitly allowed", ()
   );
 
   assert.deepEqual(urls, ["https://example.test/rc/uplink_windows_amd64.zip"]);
+});
+
+test("storj installer keeps Windows on the official Windows uplink asset", () => {
+  assert.deepEqual(platformArchiveNames({ platform: "win32", arch: "x64" }), [
+    "uplink_windows_amd64.zip",
+  ]);
 });
 
 test("storj installer falls back to Homebrew when release assets are missing on macOS", async () => {
