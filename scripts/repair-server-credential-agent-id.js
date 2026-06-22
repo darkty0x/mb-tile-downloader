@@ -9,6 +9,7 @@ function printUsage(exitCode = 0) {
     "",
     "Usage:",
     "  node --env-file-if-exists=.env scripts/repair-server-credential-agent-id.js [--label \"Server 02\"] [--machine-id SERVER-02]",
+    "  node --env-file-if-exists=.env scripts/repair-server-credential-agent-id.js --label \"봉사기 10\" --machine-id server-10 --personal-computer",
     "",
     "Requires DATABASE_URL and APP_SECRET in .env or the Railway environment.",
   ].join("\n"));
@@ -19,6 +20,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   const opts = {
     label: "Server 02",
     machineId: "SERVER-02",
+    personalComputer: false,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index];
@@ -31,12 +33,14 @@ function parseArgs(argv = process.argv.slice(2)) {
       opts.machineId = argv[++index] || "";
     } else if (arg.startsWith("--machine-id=")) {
       opts.machineId = arg.slice("--machine-id=".length);
+    } else if (arg === "--personal-computer") {
+      opts.personalComputer = true;
     } else {
       throw new Error(`Unknown option: ${arg}`);
     }
   }
   opts.label = String(opts.label || "").trim();
-  opts.machineId = String(opts.machineId || "").trim().toUpperCase();
+  opts.machineId = String(opts.machineId || "").trim();
   if (!opts.label) throw new Error("--label is required");
   if (!opts.machineId) throw new Error("--machine-id is required");
   return opts;
@@ -46,7 +50,7 @@ function matchesCredential(secret, label) {
   const needle = label.toLowerCase();
   return (
     ["credential", "server_rdp_credential"].includes(secret.secretType) &&
-    ["rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol) &&
+    ["agent", "rdp", "ssh", "winrm", "winrms"].includes(secret.credential?.protocol) &&
     (String(secret.label || "").toLowerCase() === needle || String(secret.secretId || "").toLowerCase() === needle)
   );
 }
@@ -68,25 +72,38 @@ async function main() {
     const current = matches[0];
     const dashboardSecret = await vault.getSecretForDashboard(current.secretId);
     const value = JSON.parse(dashboardSecret.value);
-    const currentMachineId = String(value.machineId || "").trim().toUpperCase();
-    if (currentMachineId === opts.machineId) {
+    const currentMachineId = String(value.machineId || "").trim();
+    const nextValue = opts.personalComputer
+      ? {
+        protocolUrl: `agent://${opts.machineId}`,
+        machineId: opts.machineId,
+        username: "",
+        password: "",
+      }
+      : {
+        protocolUrl: value.protocolUrl,
+        machineId: opts.machineId,
+        username: value.username,
+        password: value.password,
+      };
+
+    if (
+      currentMachineId.toLowerCase() === opts.machineId.toLowerCase() &&
+      (!opts.personalComputer || String(value.protocolUrl || "").toLowerCase() === `agent://${opts.machineId}`.toLowerCase())
+    ) {
       console.log(JSON.stringify({
         ok: true,
         changed: false,
         secretId: current.secretId,
         label: current.label,
         machineId: opts.machineId,
+        protocol: opts.personalComputer ? "agent" : current.credential?.protocol,
       }, null, 2));
       return;
     }
 
     await vault.updateSecret(current.secretId, {
-      value: JSON.stringify({
-        protocolUrl: value.protocolUrl,
-        machineId: opts.machineId,
-        username: value.username,
-        password: value.password,
-      }),
+      value: JSON.stringify(nextValue),
     });
 
     console.log(JSON.stringify({
@@ -96,6 +113,7 @@ async function main() {
       label: current.label,
       previousMachineId: currentMachineId || null,
       machineId: opts.machineId,
+      protocol: opts.personalComputer ? "agent" : current.credential?.protocol,
     }, null, 2));
   } finally {
     await db.close();

@@ -49,7 +49,8 @@ CREATE TABLE IF NOT EXISTS machine_jobs (
   progress_json jsonb NOT NULL DEFAULT '{}'::jsonb,
   started_at timestamptz,
   finished_at timestamptz,
-  error text
+  error text,
+  updated_at timestamptz NOT NULL DEFAULT now()
 );
 
 CREATE TABLE IF NOT EXISTS configs (
@@ -143,3 +144,6 @@ ALTER TABLE machines
 
 ALTER TABLE machine_events
   ADD COLUMN IF NOT EXISTS read_at timestamptz;
+
+ALTER TABLE machine_jobs
+  ADD COLUMN IF NOT EXISTS updated_at timestamptz NOT NULL DEFAULT now();

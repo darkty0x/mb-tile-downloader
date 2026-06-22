@@ -79,7 +79,6 @@ export function createProcessRunner({
   let active = null;
   let activeSpec = null;
   let activePromise = null;
-  let activeStartedAt = 0;
   let lastOutputAt = 0;
   let staleTimer = null;
   let restartingStaleProcess = false;
@@ -98,11 +97,12 @@ export function createProcessRunner({
     clearStaleTimer();
     const timeoutMs = staleOutputRestartMs();
     if (!active || !activeSpec || timeoutMs <= 0) return;
-    const elapsedMs = now() - Math.max(activeStartedAt, lastOutputAt);
+    if (!lastOutputAt) return;
+    const elapsedMs = now() - lastOutputAt;
     const delayMs = Math.max(1, timeoutMs - elapsedMs);
     staleTimer = setTimer(() => {
-      if (!active || !activeSpec) return;
-      const quietMs = now() - Math.max(activeStartedAt, lastOutputAt);
+      if (!active || !activeSpec || restartingStaleProcess) return;
+      const quietMs = now() - lastOutputAt;
       if (quietMs < timeoutMs) {
         armStaleTimer();
         return;
@@ -118,6 +118,7 @@ export function createProcessRunner({
           timeoutMs,
         })
       ).catch(() => {});
+      clearStaleTimer();
       staleChild.kill();
     }, delayMs);
   }
@@ -134,9 +135,7 @@ export function createProcessRunner({
     });
     active = child;
     activeSpec = { command, args: [...args] };
-    activeStartedAt = now();
-    lastOutputAt = activeStartedAt;
-    armStaleTimer();
+    lastOutputAt = 0;
     const emitLine = (line, stream) => {
       lastOutputAt = now();
       armStaleTimer();
