@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
 import { planConfigGroupUpdate } from "../lib/config-groups";
+import { completedConfigDeleteCandidates, completedConfigPromptKey } from "../lib/completed-configs";
 import { eventDisplayMessage, eventDisplayTitle } from "../lib/event-display";
 import { dashboardPathForState, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
@@ -44,6 +45,8 @@ export function useDashboardState() {
   const refreshInFlightRef = useRef(false);
   const seenNotificationEventsRef = useRef(new Set());
   const notificationEventsReadyRef = useRef(false);
+  const completedConfigPromptedRef = useRef(new Set());
+  const completedConfigPromptInFlightRef = useRef(false);
 
   useEffect(() => {
     selectedMachineIdRef.current = selectedMachineId;
@@ -262,6 +265,57 @@ export function useDashboardState() {
       }
     }
   }, [events, globalEvents, settings.notifications?.webConsoleEnabled, settings.notifications?.minSeverity]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      completedConfigPromptedRef.current = new Set(JSON.parse(window.localStorage?.getItem("ptg.completedConfigPrompts") || "[]"));
+    } catch {
+      completedConfigPromptedRef.current = new Set();
+    }
+  }, []);
+
+  function rememberCompletedConfigPrompt(key) {
+    if (!key) return;
+    completedConfigPromptedRef.current.add(key);
+    if (typeof window !== "undefined") {
+      window.localStorage?.setItem("ptg.completedConfigPrompts", JSON.stringify([...completedConfigPromptedRef.current].slice(-120)));
+    }
+  }
+
+  async function promptToDeleteCompletedConfigs(candidates) {
+    if (!candidates.length) return;
+    const configNames = candidates.map((candidate) => candidate.configName || candidate.configId).join(", ");
+    const confirmed = await confirmDanger({
+      title: "완료된 Config 삭제 확인",
+      message: `올리적재가 완료된 Config 화일 ${candidates.length}개를 삭제하겠습니까? ${configNames}`,
+      confirmLabel: "완료 Config 삭제",
+    });
+    if (!confirmed) return;
+    for (const candidate of candidates) {
+      await api(`/api/configs/${encodeURIComponent(candidate.configId)}`, { method: "DELETE" });
+    }
+    setEditor({ type: "summary" });
+    setNotice({ message: `완료된 Config 화일 ${candidates.length}개가 삭제되였습니다`, kind: "success" });
+    await refreshAll({ showLoading: false });
+  }
+
+  useEffect(() => {
+    if (authStatus !== "authenticated" || completedConfigPromptInFlightRef.current) return;
+    const sourceConfigs = globalConfigs.length ? globalConfigs : configs;
+    const sourceJobs = globalJobs.length ? globalJobs : jobs;
+    const candidates = completedConfigDeleteCandidates({ configs: sourceConfigs, jobs: sourceJobs, machines });
+    const key = completedConfigPromptKey(candidates);
+    if (!key || completedConfigPromptedRef.current.has(key)) return;
+
+    completedConfigPromptInFlightRef.current = true;
+    rememberCompletedConfigPrompt(key);
+    promptToDeleteCompletedConfigs(candidates)
+      .catch((err) => setNotice({ message: err.message, kind: "error" }))
+      .finally(() => {
+        completedConfigPromptInFlightRef.current = false;
+      });
+  }, [authStatus, configs, globalConfigs, jobs, globalJobs, machines]);
 
   function confirmDanger({ title = "동작 확인", message = "이 동작은 되돌릴수 없습니다.", confirmLabel = "확인" } = {}) {
     return new Promise((resolve) => {
@@ -771,6 +825,12 @@ export function useDashboardState() {
         }
         setEditor({ type: "summary" });
         await refreshAll({ showLoading: false });
+      },
+      async deleteCompletedConfigs(candidates) {
+        const uniqueCandidates = [...new Map((candidates || [])
+          .filter((candidate) => candidate?.configId)
+          .map((candidate) => [candidate.configId, candidate])).values()];
+        await promptToDeleteCompletedConfigs(uniqueCandidates);
       },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);

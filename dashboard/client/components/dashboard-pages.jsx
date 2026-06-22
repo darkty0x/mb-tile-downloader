@@ -336,10 +336,14 @@ function MiniMetric({ label, value }) {
 
 function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
   const pipelineSummary = overview.pipelineSummary || {};
+  const pipelineProcesses = overview.pipelineProcesses || [];
+  const storjLinks = overview.storjLinks || (overview.storjShareUrl ? [{ shareUrl: overview.storjShareUrl, configName: "올리적재 완료증명" }] : []);
+  const activeProcessCount = Number(pipelineSummary.activeProcesses) || pipelineProcesses.length || 0;
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
     ["완료예상", overview.pipelineEta || "대기중"],
+    ...(activeProcessCount > 1 ? [["공정", `${activeProcessCount}개`]] : []),
   ];
   const activeJob = overview.activeJob;
   const activeMachineCount = Number(pipelineSummary.activeMachines) || 0;
@@ -349,6 +353,7 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
     : (pipelineSummary.machineLabel ? displayMachineId(pipelineSummary.machineLabel) : activeJob?.machineId ? displayMachineId(activeJob.machineId) : "대기중");
   const detailRows = [
     ["봉사기", machineLabel],
+    ...(activeProcessCount > 1 ? [["Config 공정", `${activeProcessCount}개 진행중`]] : []),
     ["작업단계", overview.pipelineStage || pipelineSummary.stageLabel || activeJob?.stage || "대기중"],
     ["타일", `${formatInteger(pipelineSummary.processedTiles)} / ${formatInteger(pipelineSummary.totalTiles)}`],
     ["처리속도", `${formatInteger(pipelineSummary.speedTilesPerSecond)} 타일/초`],
@@ -412,20 +417,62 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
           </div>
         ))}
       </div>
-      {overview.storjShareUrl ? (
+      {pipelineProcesses.length > 1 ? (
+        <div className="mt-4 overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white/76">
+          <div className="grid grid-cols-[minmax(0,1.35fr)_110px_110px_minmax(120px,0.8fr)_90px] gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2 text-[10.5px] font-[800] text-[var(--ptg-on-surface-variant)] max-lg:hidden">
+            <span>Config</span>
+            <span>단계</span>
+            <span>상태</span>
+            <span>진행</span>
+            <span>완료예상</span>
+          </div>
+          <div className="divide-y divide-[var(--ptg-outline)]">
+            {pipelineProcesses.map((process) => (
+              <div key={process.jobId || `${process.configId}-${process.stage}`} className="grid grid-cols-[minmax(0,1.35fr)_110px_110px_minmax(120px,0.8fr)_90px] items-center gap-3 px-3 py-2.5 max-lg:grid-cols-1 max-lg:gap-1.5">
+                <div className="min-w-0">
+                  <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{process.configName}</strong>
+                  <span className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{process.rangeId ? `범위 ${process.rangeId}` : process.configId || "Config 공정"}</span>
+                </div>
+                <span className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">{process.stageLabel}</span>
+                <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#d9e3f0]">
+                      <span className="block h-full rounded-full bg-[var(--ptg-primary)]" style={{ width: `${process.progress}%` }} />
+                    </span>
+                    <strong className="w-10 text-right text-[12px] font-[850]">{process.progressLabel}</strong>
+                  </div>
+                  <span className="mt-1 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                    {formatInteger(process.processedTiles)} / {formatInteger(process.totalTiles)} 타일
+                  </span>
+                </div>
+                <span className="text-[11.5px] font-[800] text-[var(--ptg-on-surface)]">{process.etaLabel}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+      {storjLinks.length ? (
         <div className="mt-4 rounded-[16px] border border-[var(--ptg-success)] bg-[rgba(0,166,118,0.10)] p-3">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="min-w-0">
-              <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명</span>
-              <a
-                className="mt-1 block break-all font-mono text-[12px] font-[700] text-[var(--ptg-on-surface)] underline decoration-[var(--ptg-success)] underline-offset-4"
-                href={overview.storjShareUrl}
-                rel="noreferrer"
-                target="_blank"
-              >
-                {overview.storjShareUrl}
-              </a>
-            </span>
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0 flex-1">
+              <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명 {storjLinks.length > 1 ? `${storjLinks.length}개` : ""}</span>
+              <div className="mt-2 grid gap-2">
+                {storjLinks.map((link) => (
+                  <div key={link.shareUrl} className="min-w-0 rounded-[12px] border border-[rgba(0,166,118,0.28)] bg-white/70 px-3 py-2">
+                    <span className="block truncate text-[11px] font-[800] text-[var(--ptg-success)]">{link.configName || link.configId || "Config 화일"}</span>
+                    <a
+                      className="mt-1 block break-all font-mono text-[12px] font-[700] text-[var(--ptg-on-surface)] underline decoration-[var(--ptg-success)] underline-offset-4"
+                      href={link.shareUrl}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      {link.shareUrl}
+                    </a>
+                  </div>
+                ))}
+              </div>
+            </div>
             <Icon name="upload" className="h-6 w-6 shrink-0 text-[var(--ptg-success)]" />
           </div>
         </div>

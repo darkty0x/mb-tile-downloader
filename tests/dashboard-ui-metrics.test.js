@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import { buildGlobalSearchResults } from "../dashboard/client/lib/global-search.js";
+import { completedConfigDeleteCandidates, completedConfigPromptKey } from "../dashboard/client/lib/completed-configs.js";
 import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../dashboard/client/lib/event-display.js";
 import { eventNotificationId, eventRecordId } from "../dashboard/client/lib/event-identity.js";
 import { buildCredentialSecretValue, buildMachineCommandRows, buildOverviewModel, buildServerOnboarding, buildWindowsAgentEnv, buildWindowsAgentInstallCommand, nextServerDefaults } from "../dashboard/client/lib/overview-model.js";
@@ -133,6 +134,36 @@ test("event display includes the event machine source", () => {
   assert.equal(eventDisplayTitle(event), "server-03 · 명령 실패");
   assert.equal(eventDisplayTitle(event, { machineLabel: "SERVER-03" }), "SERVER-03 · 명령 실패");
   assert.match(formatEventConsoleLine(event), /server-03\s+오류\s+명령 실패/);
+});
+
+test("event display includes config and range context for pipeline lifecycle events", () => {
+  const completed = {
+    machineId: "server-02",
+    type: "pipeline.completed",
+    severity: "success",
+    message: "pipeline completed",
+    createdAt: "2026-06-22T10:26:06.000Z",
+    data: {
+      configName: "1-pyongyang-esri-satellite",
+      configPath: ".tile-state/dashboard/configs/cfg-a.json",
+      ranges: 10,
+    },
+  };
+  const rangeFailed = {
+    machineId: "server-02",
+    type: "range.failed",
+    severity: "error",
+    message: "zip failed",
+    createdAt: "2026-06-22T10:26:06.000Z",
+    data: {
+      configName: "1-pyongyang-esri-satellite",
+      rangeIndex: 2,
+      ranges: 10,
+    },
+  };
+
+  assert.match(formatEventConsoleLine(completed), /pipeline completed \| Config 1-pyongyang-esri-satellite/);
+  assert.match(formatEventConsoleLine(rangeFailed), /zip failed \| Config 1-pyongyang-esri-satellite \| 범위 3\/10/);
 });
 
 test("global search uses localized event labels and messages", () => {
@@ -343,6 +374,64 @@ test("overview model uses durable jobs for scoped pipeline and ETA", () => {
   assert.equal(model.pipelineStage, "압축");
   assert.equal(model.pipelineProgress, "63%");
   assert.equal(model.pipelineEta, "10초");
+});
+
+test("overview model preserves multiple active config processes for one server", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online", currentJobId: "job-esri" }],
+    configs: [
+      { configId: "cfg-esri", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-mapbox", name: "2-chiba-mapbox-pbf" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "running",
+        stage: "upload",
+        startedAt: "2026-06-22T10:00:00.000Z",
+        progress: {
+          percent: 75,
+          tilesDone: 750,
+          tilesTotal: 1000,
+          tilesPerSecond: 25,
+        },
+      },
+      {
+        jobId: "job-mapbox",
+        machineId: "server-02",
+        configId: "cfg-mapbox",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-22T10:01:00.000Z",
+        progress: {
+          percent: 50,
+          tilesDone: 250,
+          tilesTotal: 500,
+          tilesPerSecond: 50,
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.kpis.activeJobs.value, 2);
+  assert.equal(model.pipelineSummary.activeProcesses, 2);
+  assert.equal(model.pipelineSummary.processedTiles, 1000);
+  assert.equal(model.pipelineSummary.totalTiles, 1500);
+  assert.equal(model.pipelineProgress, "67%");
+  assert.equal(model.pipelineStage, "여러 단계");
+  assert.equal(model.pipelineProcesses.length, 2);
+  assert.deepEqual(
+    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.progressLabel]),
+    [
+      ["2-chiba-mapbox-pbf", "내리적재", "50%"],
+      ["1-pyongyang-esri-satellite", "올리적재", "75%"],
+    ]
+  );
+  assert.equal(model.machineProcesses["server-02"].processLabel, "2개 공정");
+  assert.equal(model.machineProcesses["server-02"].progressLabel, "67%");
 });
 
 test("overview model aggregates fleet pipeline status across active servers", () => {
@@ -603,10 +692,16 @@ test("overview model does not show stale ETA for stopped machine tasks", () => {
 test("overview model exposes completed upload share link as pipeline proof", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "online" }],
+    configs: [
+      { configId: "cfg-1", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-2", name: "2-chiba-mapbox-pbf" },
+      { configId: "cfg-3", name: "3-tokyo-mapbox-satellite" },
+    ],
     jobs: [
       {
         jobId: "job-server-09",
         machineId: "server-09",
+        configId: "cfg-1",
         status: "completed",
         stage: "upload",
         startedAt: "2026-06-16T00:25:00.000Z",
@@ -617,6 +712,34 @@ test("overview model exposes completed upload share link as pipeline proof", () 
           storjRawLinkPrefix: "https://link.storjshare.io/raw/testshare/mapbox/range-1/",
         },
       },
+      {
+        jobId: "job-server-09-b",
+        machineId: "server-09",
+        configId: "cfg-2",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:20:00.000Z",
+        finishedAt: "2026-06-16T00:30:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/range-2/",
+          storjRawLinkPrefix: "https://link.storjshare.io/raw/testshare/mapbox/range-2/",
+        },
+      },
+      {
+        jobId: "job-server-09-c",
+        machineId: "server-09",
+        configId: "cfg-3",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:15:00.000Z",
+        finishedAt: "2026-06-16T00:25:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/range-3/",
+          storjRawLinkPrefix: "https://link.storjshare.io/raw/testshare/mapbox/range-3/",
+        },
+      },
     ],
     machineId: "server-09",
   });
@@ -625,6 +748,82 @@ test("overview model exposes completed upload share link as pipeline proof", () 
   assert.equal(model.pipelineProgress, "100%");
   assert.equal(model.pipelineEta, "완료");
   assert.equal(model.storjShareUrl, "https://link.storjshare.io/s/testshare/mapbox/range-1/");
+  assert.deepEqual(
+    model.storjLinks.map((link) => [link.configName, link.shareUrl]),
+    [
+      ["1-pyongyang-esri-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-1/"],
+      ["2-chiba-mapbox-pbf", "https://link.storjshare.io/s/testshare/mapbox/range-2/"],
+      ["3-tokyo-mapbox-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-3/"],
+    ]
+  );
+});
+
+test("completed config delete prompt candidates come from completed storj jobs with live configs", () => {
+  const candidates = completedConfigDeleteCandidates({
+    machines: [{ machineId: "server-09", status: "online" }],
+    configs: [
+      { configId: "cfg-1", machineId: "server-09", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-2", machineId: "server-09", name: "2-chiba-mapbox-pbf" },
+    ],
+    jobs: [
+      {
+        jobId: "job-a",
+        machineId: "server-09",
+        configId: "cfg-1",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:25:00.000Z",
+        progress: {
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/range-1/",
+        },
+      },
+      {
+        jobId: "job-b",
+        machineId: "server-09",
+        configId: "cfg-2",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:20:00.000Z",
+        progress: {
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/range-2/",
+        },
+      },
+      {
+        jobId: "job-deleted-config",
+        machineId: "server-09",
+        configId: "cfg-deleted",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:15:00.000Z",
+        progress: {
+          storjShareUrl: "https://link.storjshare.io/s/testshare/mapbox/deleted/",
+        },
+      },
+      {
+        jobId: "job-without-proof",
+        machineId: "server-09",
+        configId: "cfg-2",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-16T00:10:00.000Z",
+        progress: {
+          percent: 100,
+        },
+      },
+    ],
+  });
+
+  assert.deepEqual(
+    candidates.map((candidate) => [candidate.configId, candidate.configName, candidate.shareUrl]),
+    [
+      ["cfg-1", "1-pyongyang-esri-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-1/"],
+      ["cfg-2", "2-chiba-mapbox-pbf", "https://link.storjshare.io/s/testshare/mapbox/range-2/"],
+    ]
+  );
+  assert.equal(
+    completedConfigPromptKey(candidates),
+    "cfg-1:https://link.storjshare.io/s/testshare/mapbox/range-1/|cfg-2:https://link.storjshare.io/s/testshare/mapbox/range-2/"
+  );
 });
 
 test("server command rows follow selected machine lifecycle state", () => {

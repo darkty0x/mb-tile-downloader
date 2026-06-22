@@ -22,8 +22,44 @@ const EVENT_MESSAGE_LABELS = {
   "Local command loaded dashboard-managed config, env, and secrets.": "이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.",
 };
 
+function basename(value = "") {
+  return String(value || "").split(/[\\/]/).pop() || "";
+}
+
+function stripJsonExtension(value = "") {
+  return String(value || "").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
+}
+
 function eventMachineLabel(event = {}, { machineLabel = "" } = {}) {
   return String(machineLabel || event.machineLabel || event.machineName || event.displayName || event.machineId || "").trim();
+}
+
+function eventConfigLabel(event = {}) {
+  const data = event.data || {};
+  return String(
+    event.configName
+    || data.configName
+    || data.jobName
+    || stripJsonExtension(basename(data.configPath || event.configPath || ""))
+    || ""
+  ).trim();
+}
+
+function eventRangeLabel(event = {}) {
+  const data = event.data || {};
+  if (!Number.isFinite(Number(data.rangeIndex))) return "";
+  const index = Number(data.rangeIndex) + 1;
+  const total = Number(data.ranges || data.rangeCount);
+  return Number.isFinite(total) && total > 0 ? `${index}/${total}` : `${index}`;
+}
+
+function eventDisplayContext(event = {}) {
+  const parts = [];
+  const configLabel = eventConfigLabel(event);
+  const rangeLabel = eventRangeLabel(event);
+  if (configLabel) parts.push(`Config ${configLabel}`);
+  if (rangeLabel) parts.push(`범위 ${rangeLabel}`);
+  return parts.join(" | ");
 }
 
 export function eventDisplayTitle(event = {}, options = {}) {
@@ -33,7 +69,9 @@ export function eventDisplayTitle(event = {}, options = {}) {
 }
 
 export function eventDisplayMessage(event = {}) {
-  return EVENT_MESSAGE_LABELS[event.message] || event.message || "자세한 내용이 없습니다.";
+  const message = EVENT_MESSAGE_LABELS[event.message] || event.message || "자세한 내용이 없습니다.";
+  const context = eventDisplayContext(event);
+  return context ? `${message} | ${context}` : message;
 }
 
 export function eventDisplaySeverity(event = {}) {

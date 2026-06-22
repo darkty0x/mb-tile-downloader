@@ -60,3 +60,43 @@ test("progress forwarder posts parsed events with machine id", async () => {
     },
   ]);
 });
+
+test("progress forwarder suppresses noisy range stage lifecycle events", async () => {
+  const posted = [];
+  const forwarder = createProgressEventForwarder({
+    machineId: "worker-a",
+    client: {
+      postEvent: async (event) => posted.push(event),
+    },
+  });
+
+  assert.equal(await forwarder.handleLine('[event] {"severity":"info","type":"range.download.started","message":"download started"}'), true);
+  assert.equal(await forwarder.handleLine('[event] {"severity":"success","type":"range.upload.completed","message":"upload completed"}'), true);
+  assert.equal(await forwarder.handleLine('[event] {"severity":"success","type":"pipeline.completed","message":"pipeline completed","data":{"configName":"cfg-a"}}'), true);
+
+  assert.deepEqual(posted, [
+    {
+      machineId: "worker-a",
+      severity: "success",
+      type: "pipeline.completed",
+      message: "pipeline completed",
+      data: { configName: "cfg-a" },
+    },
+  ]);
+});
+
+test("progress forwarder can opt in to range stage lifecycle events", async () => {
+  const posted = [];
+  const forwarder = createProgressEventForwarder({
+    machineId: "worker-a",
+    forwardRangeStageEvents: true,
+    client: {
+      postEvent: async (event) => posted.push(event),
+    },
+  });
+
+  await forwarder.handleLine('[event] {"severity":"info","type":"range.download.started","message":"download started"}');
+
+  assert.equal(posted.length, 1);
+  assert.equal(posted[0].type, "range.download.started");
+});

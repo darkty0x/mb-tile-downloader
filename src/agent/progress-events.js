@@ -4,6 +4,22 @@ export function parseEventLine(line) {
   return JSON.parse(match[1]);
 }
 
+const LOW_VALUE_RANGE_STAGE_EVENT_TYPES = new Set([
+  "range.download.started",
+  "range.download.completed",
+  "range.validate.started",
+  "range.validate.completed",
+  "range.zip.started",
+  "range.zip.completed",
+  "range.upload.started",
+  "range.upload.completed",
+]);
+
+function shouldForwardEvent(event = {}, { forwardRangeStageEvents = false } = {}) {
+  if (forwardRangeStageEvents) return true;
+  return !LOW_VALUE_RANGE_STAGE_EVENT_TYPES.has(event.type);
+}
+
 export function parseDurationSeconds(value) {
   const text = String(value || "").trim();
   if (!text || text === "unknown") return null;
@@ -65,11 +81,12 @@ export function parseDownloaderProgressLine(line) {
   };
 }
 
-export function createProgressEventForwarder({ machineId, client }) {
+export function createProgressEventForwarder({ machineId, client, forwardRangeStageEvents = false }) {
   return {
     async handleLine(line, stream = "stdout") {
       const event = parseEventLine(line);
       if (!event) return false;
+      if (!shouldForwardEvent(event, { forwardRangeStageEvents })) return true;
       await client.postEvent({
         machineId,
         severity: event.severity || (stream === "stderr" ? "warn" : "info"),

@@ -570,7 +570,7 @@ test("range pipeline executes download validate zip upload in order", async () =
   const events = [];
 
   await runRangePipeline({
-    config: { ranges: [{ label: "r1" }, { label: "r2" }] },
+    config: { jobName: "1-pyongyang-esri-satellite", ranges: [{ label: "r1" }, { label: "r2" }] },
     configPath: "configs/a.json",
     runStage: async (stage, context) => {
       calls.push(`${context.rangeIndex}:${stage}`);
@@ -591,6 +591,36 @@ test("range pipeline executes download validate zip upload in order", async () =
   ]);
   assert.equal(events.at(0), "pipeline.started");
   assert.equal(events.at(-1), "pipeline.completed");
+});
+
+test("range pipeline lifecycle events identify the config and range", async () => {
+  const events = [];
+
+  await runRangePipeline({
+    config: { jobName: "1-pyongyang-esri-satellite", ranges: [{ label: "r1" }] },
+    configPath: "configs/1-pyongyang-esri-satellite.config.json",
+    runStage: async () => ({ ok: true }),
+    emitEvent: (event) => events.push(event),
+  });
+
+  const started = events.find((event) => event.type === "pipeline.started");
+  const rangeStarted = events.find((event) => event.type === "range.download.started");
+  const completed = events.find((event) => event.type === "pipeline.completed");
+
+  assert.deepEqual(started.data, {
+    configPath: "configs/1-pyongyang-esri-satellite.config.json",
+    configName: "1-pyongyang-esri-satellite",
+    ranges: 1,
+  });
+  assert.deepEqual(rangeStarted.data, {
+    configPath: "configs/1-pyongyang-esri-satellite.config.json",
+    configName: "1-pyongyang-esri-satellite",
+    ranges: 1,
+    rangeIndex: 0,
+    label: "r1",
+    stage: "download",
+  });
+  assert.equal(completed.data.configName, "1-pyongyang-esri-satellite");
 });
 
 test("range pipeline pauses after the current range when requested", async () => {

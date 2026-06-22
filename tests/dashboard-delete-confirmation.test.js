@@ -36,3 +36,15 @@ test("global git pull restart uses one confirmed bulk action", () => {
   assert.ok(globalGitSource.indexOf("confirmDanger({") < globalGitSource.indexOf("/api/machines/commands"));
   assert.match(pagesSource, /actions\.gitPullRestartAllMachines/);
 });
+
+test("completed config cleanup uses the shared confirmation before delete APIs", () => {
+  const cleanupSource = stateSource.slice(
+    stateSource.indexOf("async function promptToDeleteCompletedConfigs"),
+    stateSource.indexOf("useEffect(() => {", stateSource.indexOf("async function promptToDeleteCompletedConfigs")),
+  );
+
+  assert.match(cleanupSource, /confirmDanger\(\{/);
+  assert.match(cleanupSource, /title:\s*"완료된 Config 삭제 확인"/);
+  assert.match(cleanupSource, /\/api\/configs\/\$\{encodeURIComponent\(candidate\.configId\)\}/);
+  assert.ok(cleanupSource.indexOf("confirmDanger({") < cleanupSource.indexOf("/api/configs/"));
+});

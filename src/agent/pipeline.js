@@ -157,6 +157,16 @@ function rangeIdFor(range, rangeIndex) {
   return String(range?.rangeId || range?.id || range?.label || `range-${rangeIndex}`);
 }
 
+function pipelineEventData({ config = {}, configPath, rangeIndex = null, range = null, stage = null } = {}) {
+  return {
+    configPath,
+    configName: config.jobName || config.name || configIdFromPath(configPath),
+    ranges: Array.isArray(config.ranges) ? config.ranges.length : null,
+    ...(rangeIndex === null ? {} : { rangeIndex, label: range?.label || null }),
+    ...(stage ? { stage } : {}),
+  };
+}
+
 export function createCliJobReporterFactory({
   env = process.env,
   configPath,
@@ -208,7 +218,7 @@ export async function runRangePipeline({
     severity: "info",
     type: "pipeline.started",
     message: "pipeline started",
-    data: { configPath, ranges: config.ranges.length },
+    data: pipelineEventData({ config, configPath }),
   });
 
   for (let rangeIndex = 0; rangeIndex < config.ranges.length; rangeIndex++) {
@@ -222,7 +232,7 @@ export async function runRangePipeline({
           severity: "warn",
           type: "pipeline.stopped",
           message: errorObject.message,
-          data: { configPath, rangeIndex, label: range.label || null, stage },
+          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
         });
         if (reporter) await reporter.stop({ stage, error: errorObject });
         throw errorObject;
@@ -246,7 +256,7 @@ export async function runRangePipeline({
         severity: "info",
         type: `range.${stage}.started`,
         message: `${stage} started`,
-        data: { configPath, rangeIndex, label: range.label || null },
+        data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
       });
       const result = await runStage(stage, { configPath, rangeIndex, range, reporter, progress });
       if (!result || result.ok !== true) {
@@ -256,13 +266,13 @@ export async function runRangePipeline({
           severity: "error",
           type: `range.${stage}.failed`,
           message: error,
-          data: { configPath, rangeIndex, stage },
+          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
         });
         emitEvent({
           severity: "error",
           type: "range.failed",
           message: error,
-          data: { configPath, rangeIndex, stage },
+          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
         });
         if (reporter) await reporter.fail({ stage, error: errorObject, progress });
         throw errorObject;
@@ -274,7 +284,7 @@ export async function runRangePipeline({
         severity: "success",
         type: `range.${stage}.completed`,
         message: `${stage} completed`,
-        data: { configPath, rangeIndex, label: range.label || null, ...(stage === "upload" ? uploadProof : {}) },
+        data: { ...pipelineEventData({ config, configPath, rangeIndex, range, stage }), ...(stage === "upload" ? uploadProof : {}) },
       });
       if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage, afterStage: true })) {
         const errorObject = new Error("pipeline stopped");
@@ -282,7 +292,7 @@ export async function runRangePipeline({
           severity: "warn",
           type: "pipeline.stopped",
           message: errorObject.message,
-          data: { configPath, rangeIndex, label: range.label || null, stage },
+          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
         });
         if (reporter) await reporter.stop({ stage, error: errorObject, progress });
         throw errorObject;
@@ -307,7 +317,7 @@ export async function runRangePipeline({
         severity: "info",
         type: "pipeline.paused",
         message: "pipeline paused after range",
-        data: { configPath, rangeIndex, label: range.label || null },
+        data: pipelineEventData({ config, configPath, rangeIndex, range }),
       });
       return;
     }
@@ -317,7 +327,7 @@ export async function runRangePipeline({
     severity: "success",
     type: "pipeline.completed",
     message: "pipeline completed",
-    data: { configPath, ranges: config.ranges.length },
+    data: pipelineEventData({ config, configPath }),
   });
 }
 
