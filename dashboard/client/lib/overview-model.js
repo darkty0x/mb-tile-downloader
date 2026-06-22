@@ -643,6 +643,14 @@ function configNameFromStorjShareUrl(shareUrl = "") {
   }
 }
 
+function configDisplayNameFromJob({ job = {}, config = null, shareUrl = "" } = {}) {
+  const urlConfigName = configNameFromStorjShareUrl(shareUrl);
+  const jobConfigName = String(job.configName || "").trim();
+  const configId = String(job.configId || "").trim();
+  const opaqueJobName = jobConfigName && (jobConfigName === configId || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(jobConfigName));
+  return config?.name || (opaqueJobName ? "" : jobConfigName) || urlConfigName || configId || "Config 화일";
+}
+
 function buildStorjLinks(jobs = [], configs = []) {
   const seen = new Set();
   return jobs
@@ -651,14 +659,17 @@ function buildStorjLinks(jobs = [], configs = []) {
     .map((job) => {
       const shareUrl = String(job.progress?.storjShareUrl || "").trim();
       const configId = String(job.configId || "").trim();
-      const seenKey = configId ? `config:${configId}` : `url:${shareUrl}`;
+      const urlConfigName = configNameFromStorjShareUrl(shareUrl);
+      const seenKey = urlConfigName
+        ? `folder:${normalizeMachineId(job.machineId)}:${urlConfigName}`
+        : configId ? `config:${normalizeMachineId(job.machineId)}:${configId}` : `url:${shareUrl}`;
       if (!shareUrl || seen.has(seenKey)) return null;
       seen.add(seenKey);
       const config = configs.find((item) => item.configId === job.configId);
       return {
         jobId: job.jobId || job.id || "",
         configId,
-        configName: config?.name || job.configName || configNameFromStorjShareUrl(shareUrl) || configId || "Config 화일",
+        configName: configDisplayNameFromJob({ job, config, shareUrl }),
         rangeId: job.rangeId || "",
         shareUrl,
         rawLinkPrefix: job.progress?.storjRawLinkPrefix || "",

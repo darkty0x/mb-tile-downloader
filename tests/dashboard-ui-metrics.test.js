@@ -762,7 +762,7 @@ test("overview model collapses multiple range upload proofs to one link per conf
   const jobs = Array.from({ length: 10 }, (_, index) => ({
     jobId: `job-range-${index}`,
     machineId: "server-02",
-    configId: "cfg-esri",
+    configId: `old-partial-cfg-${index}`,
     status: "completed",
     stage: "upload",
     startedAt: `2026-06-22T10:${String(index).padStart(2, "0")}:00.000Z`,
@@ -775,13 +775,13 @@ test("overview model collapses multiple range upload proofs to one link per conf
   }));
   const model = buildOverviewModel({
     machines: [{ machineId: "server-02", status: "online" }],
-    configs: [{ configId: "cfg-esri", name: "1-pyongyang-esri-satellite" }],
+    configs: [],
     jobs,
     machineId: "server-02",
   });
 
   assert.equal(model.storjLinks.length, 1);
-  assert.equal(model.storjLinks[0].configId, "cfg-esri");
+  assert.equal(model.storjLinks[0].configId, "old-partial-cfg-9");
   assert.equal(model.storjLinks[0].configName, "1-pyongyang-esri-satellite");
   assert.equal(model.storjLinks[0].shareUrl, "https://link.storjshare.io/s/token-9/mapbox/1-pyongyang-esri-satellite/");
 });
@@ -794,6 +794,7 @@ test("overview model uses storj url path as config label when completed config w
       jobId: "job-range-1",
       machineId: "server-02",
       configId: "cfg-deleted",
+      configName: "25915295-c271-4284-b21f-c79c37125865",
       status: "completed",
       stage: "upload",
       startedAt: "2026-06-22T10:00:00.000Z",
