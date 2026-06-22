@@ -16,13 +16,46 @@ function expandRows(rawConfig) {
           xEnd: x,
           yStart: range.yStart,
           yEnd: range.yEnd,
-          label: `${range.label} x=${x}`,
+          label: range.label,
           tiles,
         });
       }
     }
   }
   return rows;
+}
+
+function labelForXRange(baseLabel, xStart, xEnd) {
+  return `${baseLabel} x=${xStart}${xEnd === xStart ? "" : `-${xEnd}`}`;
+}
+
+function compactRows(rows) {
+  const ranges = [];
+  for (const row of rows) {
+    const last = ranges[ranges.length - 1];
+    if (
+      last &&
+      last.zoom === row.zoom &&
+      last.yStart === row.yStart &&
+      last.yEnd === row.yEnd &&
+      last.baseLabel === row.label &&
+      last.xEnd + 1 === row.xStart
+    ) {
+      last.xEnd = row.xEnd;
+      last.label = labelForXRange(last.baseLabel, last.xStart, last.xEnd);
+      continue;
+    }
+    ranges.push({
+      zoom: row.zoom,
+      xStart: row.xStart,
+      xEnd: row.xEnd,
+      yStart: row.yStart,
+      yEnd: row.yEnd,
+      label: labelForXRange(row.label, row.xStart, row.xEnd),
+      baseLabel: row.label,
+    });
+  }
+  return ranges.map(({ baseLabel, ...range }) => range);
 }
 
 export function splitConfigByRows(rawConfig, { parts, names } = {}) {
@@ -34,7 +67,7 @@ export function splitConfigByRows(rawConfig, { parts, names } = {}) {
     throw new Error("split requires --parts or --names");
   }
 
-  const rows = expandRows(rawConfig).sort((a, b) => b.tiles - a.tiles);
+  const rows = expandRows(rawConfig);
   if (machineNames.length > rows.length) {
     throw new Error(
       `more split targets than rows: targets=${machineNames.length}, rows=${rows.length}`
@@ -47,18 +80,29 @@ export function splitConfigByRows(rawConfig, { parts, names } = {}) {
     tiles: 0,
   }));
 
-  for (const row of rows) {
-    buckets.sort((a, b) => a.tiles - b.tiles || a.name.localeCompare(b.name));
-    const target = buckets[0];
-    target.ranges.push({
-      zoom: row.zoom,
-      xStart: row.xStart,
-      xEnd: row.xEnd,
-      yStart: row.yStart,
-      yEnd: row.yEnd,
-      label: row.label,
-    });
-    target.tiles += row.tiles;
+  let rowIndex = 0;
+  let remainingTiles = rows.reduce((sum, row) => sum + row.tiles, 0);
+  for (let bucketIndex = 0; bucketIndex < buckets.length; bucketIndex++) {
+    const target = buckets[bucketIndex];
+    const remainingBuckets = buckets.length - bucketIndex;
+    const targetTiles = Math.ceil(remainingTiles / remainingBuckets);
+
+    while (rowIndex < rows.length) {
+      const row = rows[rowIndex];
+      target.ranges.push(row);
+      target.tiles += row.tiles;
+      remainingTiles -= row.tiles;
+      rowIndex++;
+
+      const remainingRows = rows.length - rowIndex;
+      if (
+        bucketIndex < buckets.length - 1 &&
+        target.tiles >= targetTiles &&
+        remainingRows >= buckets.length - bucketIndex - 1
+      ) {
+        break;
+      }
+    }
   }
 
   const baseJobName = rawConfig.jobName || `${rawConfig.provider || "tiles"}-${rawConfig.layer || "download"}`;
@@ -68,7 +112,7 @@ export function splitConfigByRows(rawConfig, { parts, names } = {}) {
       const config = {
         ...rawConfig,
         jobName: `${baseJobName}-${bucket.name}`,
-        ranges: bucket.ranges.sort((a, b) => a.zoom - b.zoom || a.xStart - b.xStart || a.yStart - b.yStart),
+        ranges: compactRows(bucket.ranges),
       };
       return {
         name: bucket.name,

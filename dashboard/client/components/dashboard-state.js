@@ -736,6 +736,22 @@ export function useDashboardState() {
         setNotice({ message: "Config 류형이 보관되였습니다", kind: "success" });
         await refreshAll({ showLoading: false });
       },
+      async deleteConfigGroup(configGroup) {
+        const configIds = [...new Set((configGroup?.configs || []).map((config) => config.configId).filter(Boolean))];
+        if (!configIds.length) return;
+        const confirmed = await confirmDanger({
+          title: "Config 그룹 삭제 확인",
+          message: `Config 화일 ${configIds.length}개를 삭제하겠습니까? 진행중인 해당 작업은 정지됩니다.`,
+          confirmLabel: "삭제",
+          storageKey: "delete",
+        });
+        if (!confirmed) return;
+        for (const configId of configIds) {
+          await api(`/api/configs/${encodeURIComponent(configId)}`, { method: "DELETE" });
+        }
+        setEditor({ type: "summary" });
+        await refreshAll({ showLoading: false });
+      },
       async saveConfig(formData, id) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
         const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);

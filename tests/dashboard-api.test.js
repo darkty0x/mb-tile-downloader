@@ -1136,7 +1136,10 @@ test("dashboard batch config creation can split one selected type across selecte
     "ukraine-mapbox-pbf-worker-b",
   ]);
   assert.deepEqual(tileCounts, [20, 20]);
-  assert.deepEqual(response.body.configs.map((config) => config.config.ranges.length), [2, 2]);
+  assert.deepEqual(response.body.configs.map((config) => config.config.ranges), [
+    [{ zoom: 4, xStart: 0, xEnd: 1, yStart: 0, yEnd: 9, label: "range#1: z=4 x=0-3 y=0-9 x=0-1" }],
+    [{ zoom: 4, xStart: 2, xEnd: 3, yStart: 0, yEnd: 9, label: "range#1: z=4 x=0-3 y=0-9 x=2-3" }],
+  ]);
 });
 
 test("dashboard batch config creation rejects unknown server assignment", async (t) => {

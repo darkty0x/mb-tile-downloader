@@ -121,3 +121,15 @@ test("config group update plan adds missing selected types and removes unchecked
     }
   );
 });
+
+test("config group cards expose icon actions without the old type-edit label", () => {
+  const pageSource = readFileSync(new URL("../dashboard/client/components/dashboard-pages.jsx", import.meta.url), "utf8");
+  const stateSource = readFileSync(new URL("../dashboard/client/components/dashboard-state.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(pageSource, />류형 편집<\/AppButton>/);
+  assert.match(pageSource, /<IconButton label="편집" icon="edit" onClick=\{editGroup\} \/>/);
+  assert.match(pageSource, /<IconButton label="복제" icon="copy" onClick=\{duplicateGroup\} \/>/);
+  assert.match(pageSource, /<IconButton label="삭제" icon="trash" onClick=\{deleteGroup\} \/>/);
+  assert.match(pageSource, /actions\.deleteConfigGroup\(group\)/);
+  assert.match(stateSource, /async deleteConfigGroup\(configGroup\)/);
+});

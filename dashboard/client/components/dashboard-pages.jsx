@@ -1480,6 +1480,13 @@ function ConfigGroupCard({ group, state, actions }) {
     templateIds: group.enabledTemplateIds,
     configGroup: group,
   });
+  const duplicateGroup = () => actions.setEditor({
+    type: "new-config",
+    name: `${group.name}-copy`,
+    machineIds: group.machineId ? [group.machineId] : [],
+    templateIds: group.enabledTemplateIds,
+  });
+  const deleteGroup = () => actions.deleteConfigGroup(group).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
 
   return (
     <div className="rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
@@ -1490,7 +1497,11 @@ function ConfigGroupCard({ group, state, actions }) {
             {machineName} | 활성 류형 {group.enabledTemplateIds.length}/{group.templates.length} | Config {group.configCount}개
           </p>
         </div>
-        <AppButton icon="edit" onClick={editGroup}>류형 편집</AppButton>
+        <div className="flex justify-end gap-1.5">
+          <IconButton label="편집" icon="edit" onClick={editGroup} />
+          <IconButton label="복제" icon="copy" onClick={duplicateGroup} />
+          <IconButton label="삭제" icon="trash" onClick={deleteGroup} />
+        </div>
       </div>
       <div className="mt-3 grid grid-cols-9 gap-2 max-xl:grid-cols-6 max-md:grid-cols-3">
         {group.templates.map((template) => {

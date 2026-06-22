@@ -22,8 +22,16 @@ test("splits config ranges into numbered balanced machine configs", () => {
   assert.equal(split[0].config.jobName, "mapbox-pbf-001");
   assert.equal(split[1].config.jobName, "mapbox-pbf-002");
   assert.equal(
-    split.reduce((sum, item) => sum + item.config.ranges.length, 0),
-    4
+    split.reduce(
+      (sum, item) =>
+        sum +
+        item.config.ranges.reduce(
+          (rangeSum, range) => rangeSum + (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
+          0
+        ),
+      0
+    ),
+    12
   );
 });
 
@@ -43,6 +51,51 @@ test("uses explicit machine names when provided", () => {
     "esri-satellite-cig",
     "esri-satellite-cmi",
   ]);
+});
+
+test("splits a single contiguous range into contiguous machine ranges", () => {
+  const raw = {
+    jobName: "esri-satellite",
+    provider: "esri",
+    ranges: [
+      {
+        zoom: 12,
+        xStart: 2388,
+        xEnd: 2395,
+        yStart: 1377,
+        yEnd: 1388,
+        label: "bounds z=12",
+      },
+    ],
+  };
+
+  const split = splitConfigByRows(raw, { names: ["server-01", "server-02"] });
+
+  assert.deepEqual(
+    split.map((item) => item.config.ranges),
+    [
+      [
+        {
+          zoom: 12,
+          xStart: 2388,
+          xEnd: 2391,
+          yStart: 1377,
+          yEnd: 1388,
+          label: "bounds z=12 x=2388-2391",
+        },
+      ],
+      [
+        {
+          zoom: 12,
+          xStart: 2392,
+          xEnd: 2395,
+          yStart: 1377,
+          yEnd: 1388,
+          label: "bounds z=12 x=2392-2395",
+        },
+      ],
+    ]
+  );
 });
 
 test("rejects splits that would create empty machine configs", () => {
