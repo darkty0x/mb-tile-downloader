@@ -22,8 +22,14 @@ const EVENT_MESSAGE_LABELS = {
   "Local command loaded dashboard-managed config, env, and secrets.": "이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.",
 };
 
-export function eventDisplayTitle(event = {}) {
-  return EVENT_TYPE_LABELS[event.type] || event.type || "관리체계 알림";
+function eventMachineLabel(event = {}, { machineLabel = "" } = {}) {
+  return String(machineLabel || event.machineLabel || event.machineName || event.displayName || event.machineId || "").trim();
+}
+
+export function eventDisplayTitle(event = {}, options = {}) {
+  const title = EVENT_TYPE_LABELS[event.type] || event.type || "관리체계 알림";
+  const source = eventMachineLabel(event, options);
+  return source ? `${source} · ${title}` : title;
 }
 
 export function eventDisplayMessage(event = {}) {
@@ -40,7 +46,8 @@ export function eventDisplaySeverity(event = {}) {
 
 export function formatEventConsoleLine(event = {}, { typeWidth = 24 } = {}) {
   const createdAt = event.createdAt || "";
+  const source = eventMachineLabel(event).padEnd(12);
   const severity = eventDisplaySeverity(event).padEnd(4);
-  const title = eventDisplayTitle(event).padEnd(typeWidth);
-  return `${createdAt} ${severity} ${title} ${eventDisplayMessage(event)}`.trim();
+  const title = (EVENT_TYPE_LABELS[event.type] || event.type || "관리체계 알림").padEnd(typeWidth);
+  return `${createdAt} ${source} ${severity} ${title} ${eventDisplayMessage(event)}`.trim();
 }

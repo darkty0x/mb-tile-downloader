@@ -58,7 +58,7 @@ test("overview model summarizes fleet pipeline disk and resource alerts", () => 
 
   assert.equal(model.kpis.serversOnline.value, "1 / 2");
   assert.equal(model.kpis.failedJobs.value, 0);
-  assert.equal(model.diskPressure, 92);
+  assert.equal(model.diskPressure, 67);
   assert.deepEqual(model.pipeline.map((step) => step.label), ["내리적재", "검증", "압축", "올리적재"]);
   assert.equal(model.pipeline[0].status, "running");
   assert.equal(model.pipeline[1].status, "complete");
@@ -121,6 +121,20 @@ test("event display localizes dashboard-run sync records", () => {
   assert.match(formatEventConsoleLine(event), /정보\s+대시보드 설정 동기화 완료/);
 });
 
+test("event display includes the event machine source", () => {
+  const event = {
+    machineId: "server-03",
+    type: "command.failed",
+    severity: "error",
+    message: "Command failed: git pull --ff-only",
+    createdAt: "2026-06-22T10:07:00.000Z",
+  };
+
+  assert.equal(eventDisplayTitle(event), "server-03 · 명령 실패");
+  assert.equal(eventDisplayTitle(event, { machineLabel: "SERVER-03" }), "SERVER-03 · 명령 실패");
+  assert.match(formatEventConsoleLine(event), /server-03\s+오류\s+명령 실패/);
+});
+
 test("global search uses localized event labels and messages", () => {
   const [result] = buildGlobalSearchResults({
     globalEvents: [{
@@ -132,7 +146,7 @@ test("global search uses localized event labels and messages", () => {
     }],
   }, "대시보드 설정");
 
-  assert.equal(result.title, "대시보드 설정 동기화 완료");
+  assert.equal(result.title, "worker-a · 대시보드 설정 동기화 완료");
   assert.equal(result.detail, "worker-a | 이 작업기가 대시보드의 Config, .Env, API Key/Proxy 설정을 불러왔습니다.");
 });
 
@@ -655,6 +669,24 @@ test("machine disk usage uses summed capacity instead of highest drive percent",
 
   assert.equal(diskPeakForMachine(machine), 17);
   assert.equal(buildOverviewModel({ machines: [machine] }).diskPressure, 17);
+});
+
+test("fleet disk pressure uses total used bytes over total available capacity", () => {
+  const model = buildOverviewModel({
+    machines: [
+      {
+        machineId: "server-a",
+        disk: [{ mount: "D:", totalBytes: 100, usedBytes: 74, percentUsed: 74 }],
+      },
+      {
+        machineId: "server-b",
+        disk: [{ mount: "D:", totalBytes: 900, usedBytes: 90, percentUsed: 10 }],
+      },
+    ],
+  });
+
+  assert.equal(model.diskPressure, 16);
+  assert.equal(model.kpis.storagePressure.value, "16%");
 });
 
 test("global search returns navigable servers configs and events", () => {

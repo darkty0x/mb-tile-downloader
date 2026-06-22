@@ -112,6 +112,25 @@ function diskPeak(machine) {
   return Math.max(0, ...disks.map((disk) => Number(disk.percentUsed) || 0));
 }
 
+function diskPressureForFleet(machines = []) {
+  let totalBytes = 0;
+  let usedBytes = 0;
+  for (const machine of machines) {
+    for (const disk of machine?.disk || []) {
+      const total = Number(disk.totalBytes) || 0;
+      if (total <= 0) continue;
+      const explicitUsed = Number(disk.usedBytes);
+      const used = Number.isFinite(explicitUsed) && explicitUsed >= 0
+        ? explicitUsed
+        : Math.max(0, total - (Number(disk.freeBytes) || 0));
+      totalBytes += total;
+      usedBytes += Math.min(total, used);
+    }
+  }
+  if (totalBytes > 0) return Math.round((usedBytes / totalBytes) * 100);
+  return Math.max(0, ...machines.map(diskPeak));
+}
+
 function secretCounts(secrets, secretType) {
   const items = secrets.filter((secret) => secret.secretType === secretType);
   const available = items.filter((secret) => secret.status === "active").length;
@@ -673,7 +692,7 @@ export function buildOverviewModel({
   const activeJobs = activeJobCount(jobs, machineId, machines);
   const queuedJobs = queuedJobCount(jobs, machineId, machines);
   const throughput = averageDownloadThroughput(jobs, machineId, machines);
-  const diskPressure = Math.max(0, ...machines.map(diskPeak));
+  const diskPressure = diskPressureForFleet(machines);
   const mapbox = secretCounts(secretPool, "mapbox_token");
   const proxies = secretCounts(secretPool, "proxy_txt");
   const mapboxThreshold = thresholdValue(settings, "mapboxTokensPerServer", 2) * machines.length;

@@ -133,3 +133,11 @@ test("config group cards expose icon actions without the old type-edit label", (
   assert.match(pageSource, /actions\.deleteConfigGroup\(group\)/);
   assert.match(stateSource, /async deleteConfigGroup\(configGroup\)/);
 });
+
+test("enabled config type tiles show a prominent server assignment label", () => {
+  const pageSource = readFileSync(new URL("../dashboard/client/components/dashboard-pages.jsx", import.meta.url), "utf8");
+
+  assert.match(pageSource, /const templateMachineName = enabled \? machineName : "";/);
+  assert.match(pageSource, /<span className="block w-full truncate text-\[12px\] font-\[850\]/);
+  assert.match(pageSource, /\{templateMachineName\}/);
+});

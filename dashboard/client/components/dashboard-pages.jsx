@@ -772,7 +772,7 @@ export function ServersDashboard({ state, actions }) {
     <section className="screen-enter mt-4 grid gap-4">
       <section className="ptg-card-grid gap-3">
         <InsightCard icon="servers" label="등록된 봉사기" value={state.machines.length} detail={`정상 ${overview.health.healthy}, 위험 ${overview.health.critical}`} palette="sky" />
-        <InsightCard icon="disk" label="구동기용량 여부" value={`${overview.diskPressure}%`} detail="관측된 최고 구동기사용량" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
+        <InsightCard icon="disk" label="구동기용량 여부" value={`${overview.diskPressure}%`} detail="전체 구동기사용량 합계" tone={overview.diskPressure >= 85 ? "warn" : "primary"} palette="lemon" />
         <InsightCard icon="control" label="관리 Profile" value={connections.length} detail={`Agent ${onlineAgents}/${state.machines.length} 련결됨`} palette="mint" />
       </section>
       <ServerConnectionsSection state={state} actions={actions} />
@@ -1509,6 +1509,7 @@ function ConfigGroupCard({ group, state, actions }) {
         {group.templates.map((template) => {
           const visual = configPresetVisual(template);
           const enabled = Boolean(template.enabled);
+          const templateMachineName = enabled ? machineName : "";
           const openTemplate = () => {
             if (enabled && template.config?.configId) {
               actions.setEditor({ type: "config", id: template.config.configId });
@@ -1528,7 +1529,7 @@ function ConfigGroupCard({ group, state, actions }) {
               type="button"
               title={template.label}
               aria-label={`${template.label} ${enabled ? "enabled" : "disabled"}`}
-              className={`state-layer group grid min-h-[82px] min-w-0 content-center justify-items-center gap-1.5 rounded-lg border p-2 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] ${
+              className={`state-layer group grid min-h-[96px] min-w-0 content-center justify-items-center gap-1.5 rounded-lg border p-2 text-center transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[var(--ptg-primary)] ${
                 enabled
                   ? "border-[rgba(96,64,239,0.32)] bg-[var(--ptg-primary-soft)]"
                   : "border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] opacity-55 hover:opacity-100"
@@ -1538,6 +1539,9 @@ function ConfigGroupCard({ group, state, actions }) {
               <span className={`inline-flex h-9 w-9 items-center justify-center rounded-xl border ${enabled ? visual.badge : visual.shell}`}>
                 <Icon name={visual.icon} className="h-4 w-4" />
               </span>
+              {templateMachineName ? (
+                <span className="block w-full truncate text-[12px] font-[850] leading-tight text-[var(--ptg-primary)]">{templateMachineName}</span>
+              ) : null}
               <span className="block w-full truncate text-[10.5px] font-[780] text-[var(--ptg-on-surface)]">{template.label}</span>
             </button>
           );
