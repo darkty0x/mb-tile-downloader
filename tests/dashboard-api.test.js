@@ -209,6 +209,36 @@ test("queueing stop command immediately stops active jobs and cancels pending st
   assert.deepEqual(commands.map((command) => command.commandType), ["stop_pipeline"]);
 });
 
+test("dashboard global command route queues git pull restart for connected machines", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({ machineId: "server-01", agentInstanceId: "agent-01" });
+  await store.registerMachine({ machineId: "server-02", agentInstanceId: "agent-02" });
+  const server = await withServer(t, { store });
+
+  const response = await request(server, {
+    method: "POST",
+    path: "/api/machines/commands",
+    body: {
+      commandType: "git_pull_restart",
+      requestedBy: "dashboard.bulk",
+    },
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.count, 2);
+  assert.deepEqual(response.body.machineIds, ["server-01", "server-02"]);
+  assert.deepEqual(
+    store.claimCommands({ machineId: "server-01" }).map((command) => command.commandType),
+    ["git_pull_restart"]
+  );
+  assert.deepEqual(
+    store.claimCommands({ machineId: "server-02" }).map((command) => command.commandType),
+    ["git_pull_restart"]
+  );
+});
+
 test("health endpoint does not require authentication", async (t) => {
   const server = await withServer(t);
 

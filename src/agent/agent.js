@@ -111,8 +111,9 @@ function isBackgroundCommand(commandType) {
 }
 
 async function gitPullProject(projectDir) {
-  const { stdout = "", stderr = "" } = await execFileAsync("git", ["pull", "--ff-only"], {
-    cwd: projectDir,
+  const resolvedProjectDir = path.resolve(projectDir);
+  const { stdout = "", stderr = "" } = await execFileAsync("git", ["-c", `safe.directory=${resolvedProjectDir}`, "pull", "--ff-only"], {
+    cwd: resolvedProjectDir,
     maxBuffer: 1024 * 1024,
     timeout: 120_000,
   });

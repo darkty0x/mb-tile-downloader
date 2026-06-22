@@ -573,6 +573,24 @@ export function useDashboardState() {
         setNotice({ message: `일시중지 명령 ${targets.length}대가 대기에 들어갔습니다`, kind: "success" });
         await refreshAll();
       },
+      async gitPullRestartAllMachines() {
+        const targets = machines.filter((machine) => machine.status !== "offline").map((machine) => machine.machineId);
+        if (!targets.length) throw new Error("Git Pull 및 재시작할 련결된 봉사기가 없습니다");
+        const confirmed = await confirmDanger({
+          title: "전체 Git Pull 및 재시작 확인",
+          message: `련결된 봉사기 ${targets.length}대에 Git Pull 및 재시작 명령을 보내겠습니까?`,
+          confirmLabel: "전체 Git Pull 및 재시작",
+          storageKey: "git-pull-restart-all",
+        });
+        if (!confirmed) return;
+        const result = await api("/api/machines/commands", {
+          method: "POST",
+          body: JSON.stringify({ commandType: "git_pull_restart", payload: {}, requestedBy: "dashboard.bulk" }),
+        });
+        const count = result.count ?? targets.length;
+        setNotice({ message: `Git Pull 및 재시작 명령 ${count}대가 대기에 들어갔습니다`, kind: "success" });
+        await refreshAll();
+      },
       async writeRootEnv(envText) {
         const targetMachineId = normalizeMachineId(selectedMachineId);
         if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");

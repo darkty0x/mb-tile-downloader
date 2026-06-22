@@ -23,3 +23,16 @@ test("machine deletion is confirmed in the action layer before calling the delet
   assert.match(deleteMachineSource, /method:\s*"DELETE"/);
   assert.ok(deleteMachineSource.indexOf("confirmDanger({") < deleteMachineSource.indexOf('method: "DELETE"'));
 });
+
+test("global git pull restart uses one confirmed bulk action", () => {
+  const globalGitSource = stateSource.slice(
+    stateSource.indexOf("async gitPullRestartAllMachines()"),
+    stateSource.indexOf("async writeRootEnv", stateSource.indexOf("async gitPullRestartAllMachines()")),
+  );
+
+  assert.match(globalGitSource, /confirmDanger\(\{/);
+  assert.match(globalGitSource, /\/api\/machines\/commands/);
+  assert.match(globalGitSource, /commandType:\s*"git_pull_restart"/);
+  assert.ok(globalGitSource.indexOf("confirmDanger({") < globalGitSource.indexOf("/api/machines/commands"));
+  assert.match(pagesSource, /actions\.gitPullRestartAllMachines/);
+});

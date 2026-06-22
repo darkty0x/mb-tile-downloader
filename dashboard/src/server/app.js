@@ -1429,6 +1429,30 @@ export function createDashboardApp({
           return;
         }
 
+        if (req.method === "POST" && url.pathname === "/api/machines/commands") {
+          const body = await readJson(req);
+          if (body.commandType !== "git_pull_restart") {
+            throw new Error("unsupported global command");
+          }
+          const machines = await store.listMachines();
+          const targets = machines.filter((machine) => machine.status !== "offline");
+          if (!targets.length) {
+            throw new Error("no connected machines are available");
+          }
+          const commands = await Promise.all(targets.map((machine) => store.queueCommand({
+            machineId: machine.machineId,
+            commandType: body.commandType,
+            payload: body.payload && typeof body.payload === "object" ? body.payload : {},
+            requestedBy: body.requestedBy || "dashboard.bulk",
+          })));
+          json(res, 200, {
+            commands,
+            count: commands.length,
+            machineIds: commands.map((command) => command.machineId),
+          });
+          return;
+        }
+
         if (req.method === "DELETE" && machineMatch) {
           const machineId = decodeURIComponent(machineMatch[1]);
           if (secretVault) {

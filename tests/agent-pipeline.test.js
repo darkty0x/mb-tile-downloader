@@ -86,6 +86,68 @@ test("process runner preserves ordered config paths for pipeline commands", () =
   assert.deepEqual(resume.args, ["src/agent/pipeline.js", "configs/b.json", "configs/a.json"]);
 });
 
+test("agent git pull restart trusts the managed project directory", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-git-safe-"));
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  const gitLogPath = path.join(dir, "git-args.txt");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(projectDir, { recursive: true });
+  const gitPath = path.join(binDir, "git");
+  await writeFile(
+    gitPath,
+    [
+      "#!/bin/sh",
+      `printf '%s\\n' \"$*\" > ${JSON.stringify(gitLogPath)}`,
+      `if [ \"$1\" = \"-c\" ] && [ \"$2\" = \"safe.directory=${projectDir}\" ] && [ \"$3\" = \"pull\" ] && [ \"$4\" = \"--ff-only\" ]; then`,
+      "  echo pull-ok",
+      "  exit 0",
+      "fi",
+      "echo \"fatal: detected dubious ownership in repository\" >&2",
+      "exit 128",
+      "",
+    ].join("\n"),
+    { mode: 0o755 }
+  );
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId, payload = {}) => calls.push(["ack", commandId, payload.error || null]),
+    postEvent: async (event) => calls.push(["event", event.severity, event.type, event.message]),
+  };
+  const runner = {
+    restartActiveAfter: async (task) => {
+      await task();
+      return { restarted: false };
+    },
+  };
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`;
+  try {
+    await runCommand(
+      {
+        id: "cmd-git",
+        commandType: "git_pull_restart",
+        payload: {},
+        claimedAt: "claim-git",
+      },
+      {
+        client,
+        runner,
+        machineId: "worker-a",
+        projectDir,
+      }
+    );
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  assert.equal(await readFile(gitLogPath, "utf8"), `-c safe.directory=${projectDir} pull --ff-only\n`);
+  assert.deepEqual(calls, [
+    ["event", "success", "command.accepted", "Git pull completed; no active command was running."],
+    ["ack", "cmd-git", null],
+  ]);
+});
+
 test("process runner uses root env over stale service env for managed child commands", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-runner-env-"));
   await writeFile(

@@ -579,6 +579,7 @@ function QuickActionsCard({ actions }) {
   const items = [
     ["console", "명령실행", () => actions.setSelectedTab("events")],
     ["pause", "모두 일시중지", () => actions.pauseAllMachines().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
+    ["sync", "전체 Git Pull", () => actions.gitPullRestartAllMachines().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
     ["refresh", "Config 화일 동기화", () => actions.refreshAll().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))],
     ["pipelines", "공정흐름보기", () => actions.setSelectedTab("pipelines")],
     ["events", "기록보기", () => actions.setSelectedTab("events")],
@@ -2505,6 +2506,9 @@ function ServersTable({ state, actions }) {
                 className="h-9 w-full rounded-lg border border-[var(--ptg-outline)] bg-white pl-9 pr-3 text-[13px] focus:border-[var(--ptg-primary)] focus:shadow-[0_0_0_3px_rgba(96,64,239,0.14)]"
               />
             </label>
+            <AppButton icon="sync" onClick={() => actions.gitPullRestartAllMachines().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>
+              전체 Git Pull
+            </AppButton>
             <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "server-onboarding" })}>봉사기 추가</AppButton>
           </div>
         }
