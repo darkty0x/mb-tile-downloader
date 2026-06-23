@@ -334,7 +334,7 @@ function MiniMetric({ label, value }) {
   );
 }
 
-function PipelineOverview({ overview, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
+function PipelineOverview({ overview, actions, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
   const pipelineSummary = overview.pipelineSummary || {};
   const pipelineProcesses = overview.pipelineProcesses || [];
   const storjLinks = overview.storjLinks || (overview.storjShareUrl ? [{ shareUrl: overview.storjShareUrl, configName: "올리적재 완료증명" }] : []);
@@ -477,7 +477,10 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
                       <IconButton
                         label="완료증명 삭제"
                         icon="trash"
-                        onClick={() => actions.deleteMachineTask(link.machineId, link.jobId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          return actions.deleteMachineTask(link.machineId, link.jobId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        }}
                       />
                     ) : null}
                   </div>
@@ -804,7 +807,7 @@ export function OverviewDashboard({ state, actions }) {
       </section>
       <section className="grid min-w-0 grid-cols-[minmax(0,1fr)_minmax(300px,360px)] gap-4 max-2xl:grid-cols-1">
         <div className="grid min-w-0 gap-4">
-          <PipelineOverview overview={overview} onClick={() => actions.setSelectedTab("pipelines")} />
+          <PipelineOverview overview={overview} actions={actions} onClick={() => actions.setSelectedTab("pipelines")} />
           <section className="grid min-w-0 grid-cols-[minmax(220px,0.7fr)_minmax(260px,0.85fr)_minmax(260px,0.85fr)] gap-4 max-2xl:grid-cols-2 max-lg:grid-cols-1">
             <FleetHealthCard overview={overview} />
             <DiskCapacityCard state={state} />
@@ -1071,7 +1074,7 @@ export function ServerManagementPage({ state, actions }) {
       </nav>
 
       <Surface className="p-4">
-        {state.selectedServerTab === "control" ? <ServerPageControl state={serverState} machine={machine} overview={serverOverview} /> : null}
+        {state.selectedServerTab === "control" ? <ServerPageControl state={serverState} actions={actions} machine={machine} overview={serverOverview} /> : null}
         {state.selectedServerTab === "configs" ? <ServerPageConfigs state={serverState} actions={actions} /> : null}
         {state.selectedServerTab === "env" ? <ServerPageEnv state={serverState} actions={actions} /> : null}
         {state.selectedServerTab === "secrets" ? <ServerPageSecrets state={serverState} actions={actions} /> : null}
@@ -1101,7 +1104,7 @@ function activeJobMeta(activeJob, configs = []) {
   return [configName, rangeText].filter(Boolean).join(" | ");
 }
 
-function ServerPageControl({ state, machine, overview }) {
+function ServerPageControl({ state, actions, machine, overview }) {
   const snapshot = machine?.agentSnapshot || {};
   const proxySummary = snapshot.secrets?.proxy;
   const proxy = state.secrets.find((secret) => secret.secretType === "proxy_txt");
@@ -1118,6 +1121,7 @@ function ServerPageControl({ state, machine, overview }) {
     <section className="grid gap-4">
       <PipelineOverview
         overview={overview}
+        actions={actions}
         title="선택된 봉사기 공정흐름"
         meta={activeJobMeta(overview.activeJob, state.configs)}
       />
@@ -1494,11 +1498,11 @@ function ServerPageConsole({ state, actions }) {
   );
 }
 
-export function PipelinesDashboard({ state }) {
+export function PipelinesDashboard({ state, actions }) {
   const overview = buildOverviewModel(fleetState(state));
   return (
     <section className="screen-enter mt-4 grid grid-cols-[minmax(0,1fr)_minmax(320px,0.9fr)] gap-4 max-xl:grid-cols-1">
-      <PipelineOverview overview={overview} />
+      <PipelineOverview overview={overview} actions={actions} />
       <EventStreamCard events={overview.recentEvents} title="공정흐름 Event" limit={8} readNotificationIds={state.readNotificationIds} />
       <ActiveRangesCard overview={overview} />
       <DiskCapacityCard state={state} />

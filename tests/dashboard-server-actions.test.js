@@ -21,6 +21,10 @@ test("storj completion proof rows expose a delete action", () => {
     pagesSource.indexOf("function FleetHealthCard", pagesSource.indexOf("{storjLinks.length ? (")),
   );
 
+  assert.match(pagesSource, /function PipelineOverview\(\{ overview, actions,/);
+  assert.match(pagesSource, /<PipelineOverview overview=\{overview\} actions=\{actions\}/);
+  assert.match(pagesSource, /<PipelineOverview\s+overview=\{overview\}\s+actions=\{actions\}/);
   assert.match(proofSource, /label="완료증명 삭제"/);
+  assert.match(proofSource, /event\.stopPropagation\(\)/);
   assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);
 });
