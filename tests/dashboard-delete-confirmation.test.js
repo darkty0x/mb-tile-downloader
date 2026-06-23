@@ -60,3 +60,30 @@ test("machine task deletion clears global job state after confirmation", () => {
   assert.match(deleteTaskSource, /setGlobalJobs\(\(current\) => current\.filter/);
   assert.ok(deleteTaskSource.indexOf("confirmDanger({") < deleteTaskSource.indexOf("/api/machines/"));
 });
+
+test("notification menu delete closes before confirmed event deletion", () => {
+  const deleteReadSource = shellSource.slice(
+    shellSource.indexOf("const deleteReadEvents = async"),
+    shellSource.indexOf("const deleteAllEvents = async"),
+  );
+  const deleteAllSource = shellSource.slice(
+    shellSource.indexOf("const deleteAllEvents = async"),
+    shellSource.indexOf("return (", shellSource.indexOf("const deleteAllEvents = async")),
+  );
+
+  assert.match(deleteReadSource, /setOpen\(false\);[\s\S]*actions\.deleteEvents\(\{ eventIds: readEventIds, readState: "read" \}\)/);
+  assert.match(deleteAllSource, /setOpen\(false\);[\s\S]*actions\.deleteEvents\(\{ eventIds \}\)/);
+});
+
+test("event deletion applies backend-deleted ids to local notification state", () => {
+  const deleteEventsSource = stateSource.slice(
+    stateSource.indexOf("async deleteEvents({ machineId, eventIds, readState }"),
+    stateSource.indexOf("async clearAgentLog", stateSource.indexOf("async deleteEvents({ machineId, eventIds, readState }")),
+  );
+
+  assert.match(deleteEventsSource, /const deletedIds = new Set/);
+  assert.match(deleteEventsSource, /result\.events/);
+  assert.match(deleteEventsSource, /setEvents\(\(current\) => current\.filter\(keepEvent\)\)/);
+  assert.match(deleteEventsSource, /setGlobalEvents\(\(current\) => current\.filter\(keepEvent\)\)/);
+  assert.match(deleteEventsSource, /setReadNotificationIds/);
+});

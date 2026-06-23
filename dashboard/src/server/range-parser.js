@@ -180,7 +180,7 @@ function parseTileRangeInput(input) {
     for (const line of lines) {
       const parsed = parseTileRangeInput(line);
       if (!parsed) return null;
-      ranges.push(...parsed.ranges);
+      ranges.push(...parsed.ranges.map(({ label: _label, ...range }) => range));
     }
     return parsedRanges(normalizeRanges({ ranges }), { source: "tile-ranges" });
   }
@@ -263,6 +263,26 @@ export function parseConfigRangeInput({ input, zoom, zoomStart, zoomEnd } = {}) 
 
 export function parseConfigRanges(options = {}) {
   return parseConfigRangeInput(options).ranges;
+}
+
+export function invertTileYRanges(ranges = []) {
+  return normalizeRanges({
+    ranges: ranges.map((range) => {
+      const zoomStart = range.zoomStart ?? range.zoom;
+      const zoomEnd = range.zoomEnd ?? range.zoom ?? zoomStart;
+      if (zoomStart !== zoomEnd) throw new Error("tile y repair requires single-zoom ranges");
+      const maxY = 2 ** zoomStart - 1;
+      const { label: _label, ...rest } = range;
+      return {
+        ...rest,
+        zoom: range.zoom,
+        zoomStart,
+        zoomEnd,
+        yStart: maxY - range.yEnd,
+        yEnd: maxY - range.yStart,
+      };
+    }),
+  });
 }
 
 export function summarizeRanges(ranges, { includeArea = true } = {}) {

@@ -370,11 +370,13 @@ function NotificationsMenu({ notifications, actions, state }) {
 
   const deleteReadEvents = async () => {
     if (!readEventIds.length) return;
+    setOpen(false);
     await actions.deleteEvents({ eventIds: readEventIds, readState: "read" });
   };
 
   const deleteAllEvents = async () => {
     if (!eventIds.length) return;
+    setOpen(false);
     await actions.deleteEvents({ eventIds });
   };
 

@@ -420,18 +420,81 @@ test("overview model preserves multiple active config processes for one server",
   assert.equal(model.pipelineSummary.activeProcesses, 2);
   assert.equal(model.pipelineSummary.processedTiles, 1000);
   assert.equal(model.pipelineSummary.totalTiles, 1500);
-  assert.equal(model.pipelineProgress, "67%");
+  assert.equal(model.pipelineSummary.completedConfigLabel, "0/2 완료");
+  assert.equal(model.pipelineProgress, "53%");
   assert.equal(model.pipelineStage, "여러 단계");
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress]),
+    [
+      ["download", 75],
+      ["validate", 50],
+      ["zip", 50],
+      ["upload", 38],
+    ]
+  );
   assert.equal(model.pipelineProcesses.length, 2);
   assert.deepEqual(
     model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.progressLabel]),
     [
-      ["2-chiba-mapbox-pbf", "내리적재", "50%"],
       ["1-pyongyang-esri-satellite", "올리적재", "75%"],
+      ["2-chiba-mapbox-pbf", "내리적재", "50%"],
     ]
   );
   assert.equal(model.machineProcesses["server-02"].processLabel, "2개 공정");
   assert.equal(model.machineProcesses["server-02"].progressLabel, "67%");
+});
+
+test("selected server pipeline stats include pending assigned configs when only one config is active", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online", currentJobId: "job-esri" }],
+    configs: [
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-23T11:37:00.000Z",
+        progress: {
+          percent: 100,
+          rangeIndex: 8,
+          rangeCount: 10,
+          tilesDone: 110,
+          tilesTotal: 110,
+          tilesPerSecond: 47,
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineSummary.totalConfigs, 3);
+  assert.equal(model.pipelineSummary.completedConfigLabel, "0/3 완료");
+  assert.equal(model.pipelineProgress, "8%");
+  assert.equal(model.pipelineStage, "내리적재");
+  assert.equal(model.pipelineEta, "0/3 완료");
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 33, "running"],
+      ["validate", 0, "pending"],
+      ["zip", 0, "pending"],
+      ["upload", 0, "pending"],
+    ]
+  );
+  assert.deepEqual(
+    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.statusLabel, process.progressLabel]),
+    [
+      ["1-pyongyang-mapbox-satellite", "대기중", "대기중", "0%"],
+      ["1-pyongyang-mapbox-pbf", "대기중", "대기중", "0%"],
+      ["1-pyongyang-esri-satellite", "내리적재", "진행중", "100%"],
+    ]
+  );
 });
 
 test("overview model aggregates fleet pipeline status across active servers", () => {

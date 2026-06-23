@@ -23,7 +23,7 @@ import {
   stripTemplateRanges,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
-import { parseConfigRangeInput, summarizeRanges } from "./range-parser.js";
+import { invertTileYRanges, parseConfigRangeInput, summarizeRanges } from "./range-parser.js";
 import { createSecretValidator, isValidatableSecretType } from "./secret-validators.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
@@ -579,8 +579,16 @@ function coordinateAreaName(area = {}) {
   return `Area ${Math.abs(latitude).toFixed(3)}${latSuffix} ${Math.abs(longitude).toFixed(3)}${lonSuffix}`;
 }
 
+function placeNameFromNamedetails(namedetails = {}) {
+  return namedetails["_place_name:en"]
+    || namedetails["name:en"]
+    || namedetails.name
+    || "";
+}
+
 function placeNameFromAddress(address = {}) {
   return address.city
+    || address.city_district
     || address.town
     || address.village
     || address.municipality
@@ -597,26 +605,38 @@ export async function defaultLocationResolver({ center } = {}) {
   const latitude = Number(center?.latitude);
   const longitude = Number(center?.longitude);
   if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || typeof fetch !== "function") return "";
-  try {
+  for (const zoom of [6, 8, 10]) {
     const url = new URL("https://nominatim.openstreetmap.org/reverse");
     url.searchParams.set("format", "jsonv2");
     url.searchParams.set("lat", String(latitude));
     url.searchParams.set("lon", String(longitude));
-    url.searchParams.set("zoom", "10");
+    url.searchParams.set("zoom", String(zoom));
     url.searchParams.set("addressdetails", "1");
-    const response = await fetch(url, {
-      headers: {
-        "accept": "application/json",
-        "user-agent": "mb-tile-downloader-dashboard/1.0",
-      },
-      signal: AbortSignal.timeout(1500),
-    });
-    if (!response.ok) return "";
-    const payload = await response.json();
-    return String(placeNameFromAddress(payload.address) || payload.name || payload.display_name || "").trim();
-  } catch {
-    return "";
+    url.searchParams.set("namedetails", "1");
+    try {
+      const response = await fetch(url, {
+        headers: {
+          "accept": "application/json",
+          "accept-language": "en",
+          "user-agent": "mb-tile-downloader-dashboard/1.0",
+        },
+        signal: AbortSignal.timeout(5000),
+      });
+      if (!response.ok) continue;
+      const payload = await response.json();
+      const name = String(
+        placeNameFromNamedetails(payload.namedetails)
+        || placeNameFromAddress(payload.address)
+        || payload.name
+        || payload.display_name
+        || ""
+      ).trim();
+      if (name) return name;
+    } catch {
+      continue;
+    }
   }
+  return "";
 }
 
 async function inferBaseConfigName({ requestedName, rangeSummary, locationResolver } = {}) {
@@ -636,16 +656,33 @@ async function resolveMapboxTileRangeName({ parsedInput, locationResolver }) {
   const name = rangeSummary.area && locationResolver
     ? String(await locationResolver(rangeSummary.area) || "").trim()
     : "";
-  if (!name) {
+  if (name) {
+    return {
+      ranges: parsedInput.ranges,
+      rangeSummary: {
+        ...rangeSummary,
+        area: rangeSummary.area ? { ...rangeSummary.area, label: name } : null,
+      },
+      baseName: { name, inferred: true },
+    };
+  }
+
+  const repairedRanges = invertTileYRanges(parsedInput.ranges);
+  const repairedSummary = summarizeRanges(repairedRanges, { includeArea: true });
+  const repairedName = repairedSummary.area && locationResolver
+    ? String(await locationResolver(repairedSummary.area) || "").trim()
+    : "";
+  if (!repairedName) {
     throw new Error("Could not resolve a location name from this Mapbox tile range; enter a name manually.");
   }
+
   return {
-    ranges: parsedInput.ranges,
+    ranges: repairedRanges,
     rangeSummary: {
-      ...rangeSummary,
-      area: rangeSummary.area ? { ...rangeSummary.area, label: name } : null,
+      ...repairedSummary,
+      area: repairedSummary.area ? { ...repairedSummary.area, label: repairedName } : null,
     },
-    baseName: { name, inferred: true },
+    baseName: { name: repairedName, inferred: true },
   };
 }
 

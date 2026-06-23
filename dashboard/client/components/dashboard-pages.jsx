@@ -1104,6 +1104,23 @@ function activeJobMeta(activeJob, configs = []) {
   return [configName, rangeText].filter(Boolean).join(" | ");
 }
 
+function pipelineMeta(overview, configs = []) {
+  const summary = overview?.pipelineSummary || {};
+  const totalConfigs = Number(summary.totalConfigs) || configs.length || 0;
+  if (totalConfigs > 1) {
+    const activeProcesses = Number(summary.activeProcesses) || 0;
+    const completedLabel = summary.completedConfigLabel || `${Number(summary.completedConfigs) || 0}/${totalConfigs} 완료`;
+    const activeConfig = (overview.pipelineProcesses || []).find((process) => process.status === "running" || process.status === "claimed" || process.status === "queued");
+    return [
+      `${totalConfigs}개 Config`,
+      completedLabel,
+      activeProcesses ? `${activeProcesses}개 진행중` : "대기중",
+      activeConfig?.configName,
+    ].filter(Boolean).join(" | ");
+  }
+  return activeJobMeta(overview?.activeJob, configs);
+}
+
 function ServerPageControl({ state, actions, machine, overview }) {
   const snapshot = machine?.agentSnapshot || {};
   const proxySummary = snapshot.secrets?.proxy;
@@ -1111,8 +1128,12 @@ function ServerPageControl({ state, actions, machine, overview }) {
   const latest = state.events.at(-1);
   const localConfigCount = snapshot.configs?.length || 0;
   const localEnvCount = snapshot.envFiles?.filter((file) => file.exists).length || 0;
+  const managedConfigCount = state.configs.length;
+  const configFact = managedConfigCount > 1
+    ? `${managedConfigCount}개 Config | ${overview.pipelineSummary?.completedConfigLabel || `0/${managedConfigCount} 완료`}`
+    : state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `Local Config 화일 ${localConfigCount}개` : "관리체계 Config 화일 배정없음");
   const facts = [
-    ["layers", "Config 화일", state.activeConfig?.name || snapshot.managed?.activeConfigName || (localConfigCount ? `Local Config 화일 ${localConfigCount}개` : "관리체계 Config 화일 배정없음")],
+    ["layers", "Config 화일", configFact],
     ["env", ".Env", state.activeEnv?.name || (localEnvCount ? `Local .Env화일 ${localEnvCount}개` : "관리체계 .Env 배정없음")],
     ["key", "Proxy", proxy?.status ? displayStatus(proxy.status) : proxySummary?.exists ? `Local Proxy ${proxySummary.availableCount}개` : "없음"],
     ["control", "마지막 확인", machine ? shortDate(machine.lastSeenAt) : "대기중"],
@@ -1123,7 +1144,7 @@ function ServerPageControl({ state, actions, machine, overview }) {
         overview={overview}
         actions={actions}
         title="선택된 봉사기 공정흐름"
-        meta={activeJobMeta(overview.activeJob, state.configs)}
+        meta={pipelineMeta(overview, state.configs)}
       />
       <div className="grid grid-cols-4 gap-3 max-xl:grid-cols-2 max-sm:grid-cols-1">
         {facts.map(([icon, label, value]) => (

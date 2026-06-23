@@ -6,6 +6,7 @@ import { buildCredentialSecretValue } from "../lib/overview-model";
 import { planConfigGroupUpdate } from "../lib/config-groups";
 import { completedConfigDeleteCandidates, completedConfigPromptKey } from "../lib/completed-configs";
 import { eventDisplayMessage, eventDisplayTitle } from "../lib/event-display";
+import { eventNotificationId, eventRecordId } from "../lib/event-identity";
 import { dashboardPathForState, parseDashboardRoute } from "../lib/route-state";
 import { DEFAULT_DASHBOARD_SETTINGS, SECRET_LABELS, displayMachineId, findMachineById, mergeDashboardSettings, normalizeMachineId, sameMachineId } from "./dashboard-core";
 
@@ -237,7 +238,7 @@ export function useDashboardState() {
     if (typeof window === "undefined" || !("Notification" in window)) return;
     const sourceEvents = (globalEvents.length ? globalEvents : events).filter((event) => event.type !== "process.output");
     const eventKeys = sourceEvents
-      .map((event, index) => event.eventId || `${event.createdAt || ""}-${event.type || ""}-${index}`)
+      .map((event, index) => eventRecordId(event) || `${event.createdAt || ""}-${event.type || ""}-${index}`)
       .filter(Boolean);
     if (!notificationEventsReadyRef.current) {
       seenNotificationEventsRef.current = new Set(eventKeys);
@@ -251,7 +252,7 @@ export function useDashboardState() {
     const minSeverity = settings.notifications?.minSeverity || "error";
     const rank = { debug: 0, info: 1, warn: 2, error: 3 };
     for (const [index, event] of sourceEvents.entries()) {
-      const key = event.eventId || `${event.createdAt || ""}-${event.type || ""}-${index}`;
+      const key = eventRecordId(event) || `${event.createdAt || ""}-${event.type || ""}-${index}`;
       if (!key || seenNotificationEventsRef.current.has(key)) continue;
       seenNotificationEventsRef.current.add(key);
       if ((rank[event.severity || "info"] ?? 1) < (rank[minSeverity] ?? 3)) continue;
@@ -471,6 +472,18 @@ export function useDashboardState() {
           method: "DELETE",
           body: JSON.stringify(body),
         });
+        const deletedIds = new Set((result.events || []).map((event) => eventRecordId(event)).filter(Boolean).map(String));
+        if (deletedIds.size) {
+          const keepEvent = (event) => !deletedIds.has(String(eventRecordId(event) || ""));
+          setEvents((current) => current.filter(keepEvent));
+          setGlobalEvents((current) => current.filter(keepEvent));
+          setReadNotificationIds((current) => {
+            const next = new Set(current);
+            for (const event of result.events || []) next.delete(eventNotificationId(event));
+            persistReadNotificationIds(next);
+            return next;
+          });
+        }
         setNotice({ message: `${result.count || 0}개 Event가 삭제되였습니다`, kind: "success" });
         await refreshAll({ showLoading: false });
       },

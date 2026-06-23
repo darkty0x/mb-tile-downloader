@@ -387,6 +387,11 @@ function jobStageProgress(job) {
   return numericProgress(job?.progress) ?? 0;
 }
 
+function jobPipelineProgress(job) {
+  const index = stageIndex(String(job?.stage || "").toLowerCase());
+  return Math.max(0, Math.min(100, ((index * 100) + jobStageProgress(job)) / PIPELINE_STEPS.length));
+}
+
 export function jobPipelineStepNumber(job) {
   const stage = String(job?.stage || "").toLowerCase();
   return stage ? stageIndex(stage) + 1 : null;
@@ -632,6 +637,74 @@ function pipelineProcessFromJob(job, { configs = [], machine = null, nowMs = Dat
   };
 }
 
+function configIdValue(value) {
+  return String(value || "").trim();
+}
+
+function latestJobsByConfig(jobs = []) {
+  const latest = new Map();
+  for (const job of jobs) {
+    const configId = configIdValue(job.configId);
+    if (!configId) continue;
+    const existing = latest.get(configId);
+    latest.set(configId, existing ? newestJob(job, existing) : job);
+  }
+  return latest;
+}
+
+function pipelineProcessFromConfig(config = {}, { link = null } = {}) {
+  const configId = configIdValue(config.configId) || configIdValue(link?.configId);
+  const configName = config.name || link?.configName || configId || "Config 화일";
+  if (link) {
+    return {
+      jobId: link.jobId || "",
+      machineId: link.machineId || config.machineId || "",
+      configId,
+      configName,
+      rangeId: "",
+      stage: "upload",
+      stageLabel: "올리적재",
+      status: "completed",
+      statusLabel: "완료",
+      tone: "success",
+      stale: false,
+      progress: 100,
+      progressLabel: "100%",
+      etaLabel: "완료",
+      storjShareUrl: link.shareUrl || "",
+      storjRawLinkPrefix: link.rawLinkPrefix || "",
+      processedTiles: 0,
+      totalTiles: 0,
+      speedTilesPerSecond: 0,
+      missingTiles: 0,
+      failedTiles: 0,
+    };
+  }
+  return {
+    jobId: "",
+    machineId: config.machineId || "",
+    configId,
+    configName,
+    rangeId: "",
+    stage: "",
+    stageLabel: "대기중",
+    status: "pending",
+    statusLabel: "대기중",
+    tone: "neutral",
+    stale: false,
+    progress: 0,
+    progressLabel: "0%",
+    etaLabel: "대기중",
+    storjShareUrl: "",
+    storjRawLinkPrefix: "",
+    processedTiles: 0,
+    totalTiles: 0,
+    speedTilesPerSecond: 0,
+    missingTiles: 0,
+    failedTiles: 0,
+  };
+}
+
 function configNameFromStorjShareUrl(shareUrl = "") {
   try {
     const url = new URL(String(shareUrl || ""));
@@ -715,6 +788,127 @@ function completedConfigSteps(summary) {
   });
 }
 
+function aggregateConfigPipelineSteps(configs = [], { liveJobsByConfig = new Map(), completedLinksByConfig = new Map() } = {}) {
+  const totalConfigs = Math.max(1, configs.length);
+  return PIPELINE_STEPS.map(([key, label], index) => {
+    let progressTotal = 0;
+    const sameStageJobs = [];
+
+    for (const config of configs) {
+      const configId = configIdValue(config.configId);
+      const completed = completedLinksByConfig.has(configId);
+      if (completed) {
+        progressTotal += 100;
+        continue;
+      }
+
+      const job = liveJobsByConfig.get(configId);
+      if (!job) continue;
+
+      const currentIndex = stageIndex(String(job.stage || "").toLowerCase());
+      if (currentIndex > index) {
+        progressTotal += 100;
+      } else if (currentIndex === index) {
+        progressTotal += jobStageProgress(job);
+        sameStageJobs.push(job);
+      }
+    }
+
+    const progress = Math.max(0, Math.min(100, Math.round(progressTotal / totalConfigs)));
+    const stageStatuses = new Set(sameStageJobs.map((job) => jobStatus(job)));
+    let status = "pending";
+    if (stageStatuses.has("failed")) status = "error";
+    else if (stageStatuses.has("stopped")) status = "stopped";
+    else if (sameStageJobs.some((job) => RUNNING_JOB_STATUSES.has(jobStatus(job)))) {
+      status = sameStageJobs.some((job) => jobStatus(job) === "queued") ? "queued" : "running";
+    } else if (progress >= 100) status = "complete";
+    else if (progress > 0) status = "running";
+    return { key, label, status, progress };
+  });
+}
+
+function configPipelineSummary({
+  configs = [],
+  liveJobs = [],
+  liveJobsByConfig = new Map(),
+  completedLinksByConfig = new Map(),
+  baseSummary = {},
+} = {}) {
+  const total = configs.length;
+  const completed = Math.min(total, completedLinksByConfig.size);
+  const completedLabel = `${completed}/${total} 완료`;
+  const progressTotal = configs.reduce((sum, config) => {
+    const configId = configIdValue(config.configId);
+    if (completedLinksByConfig.has(configId)) return sum + 100;
+    const job = liveJobsByConfig.get(configId);
+    return sum + (job ? jobPipelineProgress(job) : 0);
+  }, 0);
+  const progress = total > 0 ? Math.max(0, Math.min(100, Math.round(progressTotal / total))) : 0;
+  const runningStageKeys = [...new Set(liveJobs.map((job) => String(job.stage || "download").toLowerCase()).filter(Boolean))];
+  const stageLabel = completed >= total
+    ? "올리적재"
+    : runningStageKeys.length > 1
+      ? "여러 단계"
+      : (runningStageKeys.length === 1 ? PIPELINE_STEPS[stageIndex(runningStageKeys[0])]?.[1] || runningStageKeys[0] : "대기중");
+  const processedTiles = liveJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesDone", "done", "processedTiles")), 0);
+  const totalTiles = liveJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesTotal", "total", "totalTiles")), 0);
+  const speedTilesPerSecond = liveJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesPerSecond", "tileRate", "rate", "speedTilesPerSecond")), 0);
+  const missingTiles = liveJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesMissing", "missing", "missingTiles")), 0);
+  const failedTiles = liveJobs.reduce((sum, job) => sum + Math.max(0, jobProgressNumber(job, "tilesFailed", "failedTiles", "failures", "failed")), 0);
+  return {
+    ...baseSummary,
+    activeProcesses: liveJobs.length,
+    completedConfigs: completed,
+    totalConfigs: total,
+    pendingConfigs: Math.max(0, total - completed - liveJobs.length),
+    completedConfigLabel: completedLabel,
+    stageLabel,
+    processedTiles,
+    totalTiles,
+    speedTilesPerSecond,
+    missingTiles,
+    failedTiles,
+    progressLabel: `${progress}%`,
+    etaLabel: completed >= total ? "완료" : completedLabel,
+  };
+}
+
+function buildConfigPipelineModel({ configs = [], scopedJobs = [], liveScopedJobs = [], completedStorjLinks = [], machine = null, nowMs = Date.now(), summary = {} } = {}) {
+  const completedLinksByConfig = new Map();
+  for (const link of completedStorjLinks) {
+    const configId = configIdValue(link.configId);
+    if (configId && !completedLinksByConfig.has(configId)) completedLinksByConfig.set(configId, link);
+  }
+
+  const liveJobsByConfig = latestJobsByConfig(
+    liveScopedJobs.filter((job) => !completedLinksByConfig.has(configIdValue(job.configId)))
+  );
+  const liveJobs = [...liveJobsByConfig.values()].sort(newestFirst);
+  const processes = configs.map((config) => {
+    const configId = configIdValue(config.configId);
+    const liveJob = liveJobsByConfig.get(configId);
+    if (liveJob) return pipelineProcessFromJob(liveJob, { configs, machine, nowMs });
+    return pipelineProcessFromConfig(config, { link: completedLinksByConfig.get(configId) || null });
+  });
+  const configSummary = configPipelineSummary({
+    configs,
+    liveJobs,
+    liveJobsByConfig,
+    completedLinksByConfig,
+    baseSummary: summary,
+  });
+  return {
+    steps: aggregateConfigPipelineSteps(configs, { liveJobsByConfig, completedLinksByConfig }),
+    activeJob: liveJobs[0] || null,
+    activeJobs: liveJobs,
+    pipelineProcesses: processes,
+    etaLabel: configSummary.etaLabel,
+    stageLabel: configSummary.stageLabel,
+    progressLabel: configSummary.progressLabel,
+    summary: configSummary,
+  };
+}
+
 function storjLinksArePublishable({ storjLinks = [], configs = [], scopedJobs = [], liveScopedJobs = [] } = {}) {
   if (!storjLinks.length) return false;
   if (liveScopedJobs.length) return false;
@@ -753,6 +947,23 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
   const storjLinks = storjLinksArePublishable({ storjLinks: completedStorjLinks, configs: scopedConfigs, scopedJobs, liveScopedJobs })
     ? completedStorjLinks
     : [];
+  if (!isFleet && scopedConfigs.length > 1) {
+    const configPipeline = buildConfigPipelineModel({
+      configs: scopedConfigs,
+      scopedJobs,
+      liveScopedJobs,
+      completedStorjLinks,
+      machine,
+      nowMs,
+      summary,
+    });
+    return {
+      ...configPipeline,
+      storjLinks,
+      storjShareUrl: storjLinks[0]?.shareUrl || "",
+      storjRawLinkPrefix: storjLinks[0]?.rawLinkPrefix || "",
+    };
+  }
   const completedConfigSummary = !isFleet && !liveScopedJobs.length
     ? completedConfigSummaryFromLinks(completedStorjLinks, scopedConfigs)
     : null;

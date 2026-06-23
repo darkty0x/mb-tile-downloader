@@ -1208,8 +1208,58 @@ test("dashboard batch config preview auto-resolves unnamed Mapbox tile ranges th
   assert.equal(preview.body.drafts[0].config.jobName, "pyongyang-mapbox-satellite");
   assert.deepEqual(preview.body.drafts[0].config.ranges, [
     { zoomStart: 14, zoomEnd: 14, xStart: 13910, xEnd: 13920, yStart: 6254, yEnd: 6263, label: "range#1: z=14 x=13910-13920 y=6254-6263" },
-    { zoomStart: 15, zoomEnd: 15, xStart: 27819, xEnd: 27839, yStart: 12510, yEnd: 12528, label: "range#1: z=15 x=27819-27839 y=12510-12528" },
-    { zoomStart: 16, zoomEnd: 16, xStart: 55637, xEnd: 55678, yStart: 25021, yEnd: 25058, label: "range#1: z=16 x=55637-55678 y=25021-25058" },
+    { zoomStart: 15, zoomEnd: 15, xStart: 27819, xEnd: 27839, yStart: 12510, yEnd: 12528, label: "range#2: z=15 x=27819-27839 y=12510-12528" },
+    { zoomStart: 16, zoomEnd: 16, xStart: 55637, xEnd: 55678, yStart: 25021, yEnd: 25058, label: "range#3: z=16 x=55637-55678 y=25021-25058" },
+  ]);
+});
+
+test("dashboard batch config preview repairs inverted-y tile paste into Mapbox XYZ ranges", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
+    layer: "satellite",
+    format: "jpg",
+  });
+  const resolvedCenters = [];
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    locationResolver: async ({ center }) => {
+      resolvedCenters.push(center);
+      return center.latitude > 0 ? "Pyongyang" : "";
+    },
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+
+  const preview = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      preview: true,
+      machineId: "worker-a",
+      name: "",
+      templateIds: ["mapbox-satellite"],
+      rangeInput: [
+        "14/13910/10120/ - 14/13920/10129/",
+        "15/27819/20239/ - 15/27839/20257/",
+        "16/55637/40477/ - 16/55678/40514/",
+      ].join("\n"),
+    },
+  });
+
+  assert.equal(preview.status, 200);
+  assert.equal(resolvedCenters.length, 2);
+  assert.ok(resolvedCenters[0].latitude < 0);
+  assert.ok(resolvedCenters[1].latitude > 0);
+  assert.equal(preview.body.suggestedName, "Pyongyang");
+  assert.equal(preview.body.drafts[0].name, "Pyongyang");
+  assert.deepEqual(preview.body.drafts[0].config.ranges, [
+    { zoomStart: 14, zoomEnd: 14, xStart: 13910, xEnd: 13920, yStart: 6254, yEnd: 6263, label: "range#1: z=14 x=13910-13920 y=6254-6263" },
+    { zoomStart: 15, zoomEnd: 15, xStart: 27819, xEnd: 27839, yStart: 12510, yEnd: 12528, label: "range#2: z=15 x=27819-27839 y=12510-12528" },
+    { zoomStart: 16, zoomEnd: 16, xStart: 55637, xEnd: 55678, yStart: 25021, yEnd: 25058, label: "range#3: z=16 x=55637-55678 y=25021-25058" },
   ]);
 });
 
