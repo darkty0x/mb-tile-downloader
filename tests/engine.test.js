@@ -174,6 +174,50 @@ test("progress output reports source counters and ETA", async () => {
   assert.match(rowLine, /완료예상=\d+s/);
 });
 
+test("progress output reports tile counters at config scope across ranges", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const lines = [];
+  const originalLog = console.log;
+  console.log = (message) => {
+    lines.push(String(message));
+  };
+
+  try {
+    await runDownloadJob({
+      config: {
+        jobName: "progress-config-scope",
+        provider: "esri",
+        layer: "satellite",
+        format: "jpg",
+        configHash: "hash",
+        output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+        tile: { extension: "jpg", yScheme: "xyz" },
+        url: { template: "https://example.test/{z}/{y}/{x}" },
+        ranges: [
+          { zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1, label: "r1" },
+          { zoomStart: 1, zoomEnd: 1, xStart: 2, xEnd: 2, yStart: 1, yEnd: 1, label: "r2" },
+        ],
+        platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+        performance: { maxRetries: 1, retryBackoffMs: 1 },
+        verifyAfterDownload: false,
+      },
+      stateDb: db,
+      progress: true,
+      skipVerifyAfterDownload: true,
+      fetchImpl: async () => new Response("tile"),
+    });
+  } finally {
+    console.log = originalLog;
+    db.close();
+  }
+
+  const firstRangeLine = lines.find((line) => line.includes("범위 1/2 행 1/1"));
+  const secondRangeLine = lines.find((line) => line.includes("범위 2/2 행 1/1"));
+  assert.match(firstRangeLine, /타일 1\/2/);
+  assert.match(secondRangeLine, /타일 2\/2/);
+});
+
 test("progress ETA ignores skip-only rows when estimating remaining download work", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));

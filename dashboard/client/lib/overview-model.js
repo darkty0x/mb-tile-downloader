@@ -610,7 +610,7 @@ function buildMachineProcesses(machines = [], jobs = [], { nowMs = Date.now() } 
 
 function pipelineProcessFromJob(job, { configs = [], machine = null, nowMs = Date.now() } = {}) {
   const config = configs.find((item) => item.configId === job.configId);
-  const progress = jobStageProgress(job);
+  const progress = Math.round(jobPipelineProgress(job));
   const stale = jobProgressIsStale(job, machine, nowMs);
   return {
     jobId: job.jobId || job.id || "",
@@ -726,12 +726,14 @@ function configDisplayNameFromJob({ job = {}, config = null, shareUrl = "" } = {
 
 function buildStorjLinks(jobs = [], configs = []) {
   const seen = new Set();
+  const currentConfigIds = new Set(configs.map((config) => configIdValue(config.configId)).filter(Boolean));
   return jobs
     .filter((job) => jobHasCompletedStorjProof(job))
     .sort(newestFirst)
     .map((job) => {
       const shareUrl = String(job.progress?.storjShareUrl || "").trim();
       const configId = String(job.configId || "").trim();
+      if (currentConfigIds.size > 0 && !currentConfigIds.has(configId)) return null;
       const urlConfigName = configNameFromStorjShareUrl(shareUrl);
       const seenKey = urlConfigName
         ? `folder:${normalizeMachineId(job.machineId)}:${urlConfigName}`
@@ -920,21 +922,6 @@ function buildConfigPipelineModel({ configs = [], scopedJobs = [], liveScopedJob
   };
 }
 
-function storjLinksArePublishable({ storjLinks = [], configs = [], scopedJobs = [], liveScopedJobs = [] } = {}) {
-  if (!storjLinks.length) return false;
-  if (liveScopedJobs.length) return false;
-
-  const latestJob = scopedJobs[0] || null;
-  if (latestJob && jobStatus(latestJob) !== "completed") return false;
-
-  if (configs.length > 0) {
-    const completedConfigIds = new Set(storjLinks.map((link) => String(link.configId || "").trim()).filter(Boolean));
-    return configs.every((config) => completedConfigIds.has(String(config.configId || "").trim()));
-  }
-
-  return true;
-}
-
 function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [], configs = [], nowMs = Date.now() } = {}) {
   const isFleet = !normalizeMachineId(machineId);
   const scopedMachineId = normalizeMachineId(machineId);
@@ -955,9 +942,7 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
     .filter((job) => RUNNING_JOB_STATUSES.has(jobStatus(job)) || (!liveScopedJobs.length && job === activeJob))
     .map((job) => pipelineProcessFromJob(job, { configs: scopedConfigs, machine, nowMs }));
   const completedStorjLinks = buildStorjLinks(scopedJobs, scopedConfigs);
-  const storjLinks = storjLinksArePublishable({ storjLinks: completedStorjLinks, configs: scopedConfigs, scopedJobs, liveScopedJobs })
-    ? completedStorjLinks
-    : [];
+  const storjLinks = completedStorjLinks;
   if (!isFleet && scopedConfigs.length > 1) {
     const configPipeline = buildConfigPipelineModel({
       configs: scopedConfigs,

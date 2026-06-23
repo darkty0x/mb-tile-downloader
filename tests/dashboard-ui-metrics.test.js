@@ -436,8 +436,8 @@ test("overview model preserves multiple active config processes for one server",
   assert.deepEqual(
     model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.progressLabel]),
     [
-      ["1-pyongyang-esri-satellite", "올리적재", "75%"],
-      ["2-chiba-mapbox-pbf", "내리적재", "50%"],
+      ["1-pyongyang-esri-satellite", "올리적재", "94%"],
+      ["2-chiba-mapbox-pbf", "내리적재", "13%"],
     ]
   );
   assert.equal(model.machineProcesses["server-02"].processLabel, "2개 공정");
@@ -492,7 +492,7 @@ test("selected server pipeline stats include pending assigned configs when only 
     [
       ["1-pyongyang-mapbox-satellite", "대기중", "대기중", "0%"],
       ["1-pyongyang-mapbox-pbf", "대기중", "대기중", "0%"],
-      ["1-pyongyang-esri-satellite", "내리적재", "진행중", "100%"],
+      ["1-pyongyang-esri-satellite", "내리적재", "진행중", "25%"],
     ]
   );
 });
@@ -584,7 +584,7 @@ test("selected server pipeline step progress follows the active config job", () 
     [
       ["1-pyongyang-esri-satellite", "올리적재", "완료", "100%"],
       ["1-pyongyang-mapbox-pbf", "올리적재", "완료", "100%"],
-      ["1-pyongyang-mapbox-satellite", "내리적재", "진행중", "81%"],
+      ["1-pyongyang-mapbox-satellite", "내리적재", "진행중", "20%"],
     ]
   );
 });
@@ -664,6 +664,14 @@ test("selected server pipeline upload phase is not marked complete until active 
       ["validate", 100, "complete"],
       ["zip", 100, "complete"],
       ["upload", 0, "running"],
+    ]
+  );
+  assert.deepEqual(
+    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.statusLabel, process.progressLabel]),
+    [
+      ["1-pyongyang-esri-satellite", "올리적재", "완료", "100%"],
+      ["1-pyongyang-mapbox-pbf", "올리적재", "완료", "100%"],
+      ["1-pyongyang-mapbox-satellite", "올리적재", "진행중", "75%"],
     ]
   );
 });
@@ -1044,7 +1052,13 @@ test("overview model shows partial config completion from storj proofs", () => {
       ["upload", 0, "pending"],
     ]
   );
-  assert.equal(model.storjLinks.length, 0);
+  assert.deepEqual(
+    model.storjLinks.map((link) => [link.configName, link.shareUrl]),
+    [
+      ["1-pyongyang-mapbox-pbf", "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-pbf/"],
+      ["1-pyongyang-esri-satellite", "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/"],
+    ]
+  );
 });
 
 test("overview model does not turn completed proofs into active stage progress", () => {
@@ -1087,7 +1101,39 @@ test("overview model does not turn completed proofs into active stage progress",
   );
 });
 
-test("overview model only publishes storj links after every selected config completes", () => {
+test("overview model ignores completed proofs for configs deleted from the current selection", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: Array.from({ length: 15 }, (_, index) => ({
+      configId: `active-cfg-${index + 1}`,
+      machineId: "server-02",
+      name: `active-config-${index + 1}`,
+    })),
+    jobs: Array.from({ length: 6 }, (_, index) => ({
+      jobId: `deleted-complete-${index + 1}`,
+      machineId: "server-02",
+      configId: `deleted-cfg-${index + 1}`,
+      status: "completed",
+      stage: "upload",
+      startedAt: `2026-06-23T11:${String(index).padStart(2, "0")}:00.000Z`,
+      finishedAt: `2026-06-23T11:${String(index).padStart(2, "0")}:30.000Z`,
+      progress: {
+        percent: 100,
+        storjShareUrl: `https://link.storjshare.io/s/token/mapbox/deleted-config-${index + 1}/`,
+      },
+    })),
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "0%");
+  assert.equal(model.pipelineEta, "0/15 완료");
+  assert.equal(model.pipelineSummary.completedConfigLabel, "0/15 완료");
+  assert.equal(model.pipelineSummary.completedConfigs, 0);
+  assert.equal(model.pipelineSummary.totalConfigs, 15);
+  assert.equal(model.storjLinks.length, 0);
+});
+
+test("overview model publishes each completed config storj link before every selected config completes", () => {
   const base = {
     machines: [{ machineId: "server-02", status: "online" }],
     configs: [
@@ -1137,8 +1183,11 @@ test("overview model only publishes storj links after every selected config comp
 
   assert.equal(incomplete.pipelineProgress, "67%");
   assert.equal(incomplete.pipelineEta, "2/3 완료");
-  assert.equal(incomplete.storjLinks.length, 0);
-  assert.equal(incomplete.storjShareUrl, "");
+  assert.deepEqual(
+    incomplete.storjLinks.map((link) => link.configName),
+    ["1-pyongyang-mapbox-satellite", "1-pyongyang-mapbox-pbf"]
+  );
+  assert.equal(incomplete.storjShareUrl, "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-satellite/");
 
   const complete = buildOverviewModel({
     ...base,

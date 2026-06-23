@@ -224,11 +224,11 @@ function createProgressReporter(enabled) {
   }
 
   return {
-    rangeStart({ rangeIndex, rangeCount, range, rows, tiles }) {
+    rangeStart({ rangeIndex, rangeCount, range, rows, tiles, tilesDone = 0, costlyTilesDone = 0 }) {
       currentRangeStartedAt = Date.now();
       lastRowsDone = 0;
-      lastTilesDone = 0;
-      lastCostlyTilesDone = 0;
+      lastTilesDone = tilesDone;
+      lastCostlyTilesDone = costlyTilesDone;
       lastRateAt = currentRangeStartedAt;
       sustainedTileRates = [];
       line(
@@ -1057,6 +1057,7 @@ export async function runDownloadJob({
   let tilesPlanned = 0;
   let rowsSkipped = 0;
   let rowsCompleted = 0;
+  let tilesProcessed = 0;
   let tilesDownloaded = 0;
   let tilesCreated = 0;
   let tilesMissing = 0;
@@ -1108,6 +1109,8 @@ export async function runDownloadJob({
         range,
         rows: rangeRows.length,
         tiles: rangeTiles,
+        tilesDone: tilesProcessed,
+        costlyTilesDone: tilesDownloaded + tilesCreated + tilesMissing + tilesFailed,
       });
       let nextRow = 0;
       const rowWorkers = Array.from(
@@ -1147,13 +1150,14 @@ export async function runDownloadJob({
             rangeTilesFailed += result.failed;
             rangeRowsDone++;
             rangeTilesDone += result.expected;
+            tilesProcessed += result.expected;
             reporter.rowDone({
               rangeIndex,
               rangeCount,
               rowsDone: rangeRowsDone,
               rowsTotal: rangeRows.length,
-              tilesDone: rangeTilesDone,
-              tilesTotal: rangeTiles,
+              tilesDone: tilesProcessed,
+              tilesTotal: tilesPlanned,
               totals: {
                 rowsSkipped,
                 rowsCompleted,
