@@ -183,7 +183,7 @@ test("agent git pull restart trusts the managed project directory", async () => 
     ["event", "success", "command.accepted", "Git pull completed; agent is restarting."],
     ["ack", "cmd-git", null],
   ]);
-  assert.deepEqual(restartRequests, [{ when: "now", commandId: "cmd-git" }]);
+  assert.deepEqual(restartRequests, [{ when: "now", commandId: "cmd-git", reinstallInstalledAgent: true }]);
 });
 
 test("agent git pull restart defers agent reload while managed command is active", async () => {
@@ -250,7 +250,7 @@ test("agent git pull restart defers agent reload while managed command is active
     ],
     ["ack", "cmd-git-active", null],
   ]);
-  assert.deepEqual(restartRequests, [{ when: "idle", commandId: "cmd-git-active" }]);
+  assert.deepEqual(restartRequests, [{ when: "idle", commandId: "cmd-git-active", reinstallInstalledAgent: true }]);
 });
 
 test("process runner uses root env over stale service env for managed child commands", async () => {

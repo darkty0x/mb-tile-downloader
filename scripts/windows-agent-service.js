@@ -7,6 +7,30 @@ import {
   uninstallWindowsAgentService,
 } from "../src/agent/windows-agent-service.js";
 
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function processIsAlive(pid) {
+  const numericPid = Number(pid);
+  if (!Number.isInteger(numericPid) || numericPid <= 0) return false;
+  try {
+    process.kill(numericPid, 0);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+async function waitForParentExit(pid, { timeoutMs = 30_000 } = {}) {
+  const numericPid = Number(pid);
+  if (!Number.isInteger(numericPid) || numericPid <= 0) return;
+  const startedAt = Date.now();
+  while (processIsAlive(numericPid) && Date.now() - startedAt < timeoutMs) {
+    await sleep(500);
+  }
+}
+
 function usage() {
   console.log(
     [
@@ -55,6 +79,10 @@ try {
   } else if (action === "uninstall") {
     result = await uninstallWindowsAgentService();
     console.log(`Windows agent startup task removed: ${result.taskName}`);
+  } else if (action === "install-after-parent-exit") {
+    await waitForParentExit(process.argv[3]);
+    result = await installWindowsAgentService();
+    console.log(`Windows agent startup task reinstalled: ${result.taskName}`);
   } else if (action === "--help" || action === "-h" || action === "help") {
     usage();
     process.exit(0);

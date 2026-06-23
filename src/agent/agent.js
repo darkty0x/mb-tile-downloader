@@ -2,7 +2,7 @@ import os from "node:os";
 import path from "node:path";
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { execFile } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { promisify } from "node:util";
 
 import { createControlClient, ControlClientError } from "./control-client.js";
@@ -190,6 +190,24 @@ function scheduleAgentRestart({ delayMs = 250, exitCode = 0 } = {}) {
   timer.unref?.();
 }
 
+function scheduleInstalledAgentReinstall({ projectDir = process.cwd(), delayMs = 250, exitCode = 0 } = {}) {
+  if (process.platform === "win32") {
+    const child = spawn(
+      process.execPath,
+      ["--env-file-if-exists=.env", "scripts/windows-agent-service.js", "install-after-parent-exit", String(process.pid)],
+      {
+        cwd: projectDir,
+        env: process.env,
+        detached: true,
+        stdio: "ignore",
+        windowsHide: true,
+      }
+    );
+    child.unref?.();
+  }
+  scheduleAgentRestart({ delayMs, exitCode });
+}
+
 export async function runCommand(
   command,
   {
@@ -236,12 +254,13 @@ export async function runCommand(
           commandType: command.commandType,
           restarted: restartResult.restarted,
           agentRestart: restartWhen,
+          reinstallInstalledAgent: true,
           stdout: pullResult?.stdout || "",
           stderr: pullResult?.stderr || "",
         },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
-      requestAgentRestart({ when: restartWhen, commandId: command.id });
+      requestAgentRestart({ when: restartWhen, commandId: command.id, reinstallInstalledAgent: true });
       return;
     }
 
@@ -468,8 +487,8 @@ export async function runAgent({
     },
   });
 
-  function requestAgentRestart({ when = "now", commandId = null } = {}) {
-    agentRestartRequested = { when, commandId };
+  function requestAgentRestart({ when = "now", commandId = null, reinstallInstalledAgent = false } = {}) {
+    agentRestartRequested = { when, commandId, reinstallInstalledAgent };
   }
 
   function restartAgentIfReady() {
@@ -478,7 +497,11 @@ export async function runAgent({
     log(
       `dashboard agent restarting after git pull command=${agentRestartRequested.commandId || "unknown"} when=${agentRestartRequested.when}`
     );
-    scheduleAgentRestart();
+    if (agentRestartRequested.reinstallInstalledAgent) {
+      scheduleInstalledAgentReinstall({ projectDir });
+    } else {
+      scheduleAgentRestart();
+    }
     return true;
   }
 
