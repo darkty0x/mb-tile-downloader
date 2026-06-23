@@ -218,6 +218,27 @@ function parseTileRangeInput(input) {
   return null;
 }
 
+export function rangesForYScheme(ranges = [], yScheme = "xyz") {
+  const normalized = normalizeRanges({ ranges });
+  if (String(yScheme || "xyz").toLowerCase() !== "tms") return normalized;
+  return normalized.flatMap((range) => {
+    const converted = [];
+    for (let zoom = range.zoomStart; zoom <= range.zoomEnd; zoom += 1) {
+      const max = 2 ** zoom - 1;
+      converted.push({
+        ...range,
+        zoomStart: zoom,
+        zoomEnd: zoom,
+        yStart: max - range.yEnd,
+        yEnd: max - range.yStart,
+        label: `${range.label} y=tms->xyz`,
+        autoCorrectedY: "tms-to-xyz",
+      });
+    }
+    return converted;
+  });
+}
+
 function parseBoundsInput(input, zoomOptions) {
   const lbTrMatch = input.match(/LB\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)[\s\S]*?TR\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
   if (!lbTrMatch) return null;

@@ -1162,18 +1162,18 @@ test("dashboard batch config preview infers a name from the selected area", asyn
   assert.equal(preview.body.drafts[0].config.jobName, "prince-edward-islands-mapbox-satellite");
 });
 
-test("dashboard batch config preview does not infer a location from raw tile ranges", async (t) => {
+test("dashboard batch config preview auto-resolves unnamed TMS tile ranges through reverse geocoding", async (t) => {
   const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
   await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
     layer: "satellite",
     format: "jpg",
   });
-  let resolverCalls = 0;
+  const resolvedCenters = [];
   const server = await withServer(t, {
     configTemplatesDir: templatesDir,
-    locationResolver: async () => {
-      resolverCalls += 1;
-      return "Pyongyang";
+    locationResolver: async ({ center }) => {
+      resolvedCenters.push(center);
+      return center.latitude > 0 ? "Pyongyang" : "";
     },
   });
   await request(server, {
@@ -1207,11 +1207,50 @@ test("dashboard batch config preview does not infer a location from raw tile ran
   });
 
   assert.equal(preview.status, 200);
-  assert.equal(resolverCalls, 0);
-  assert.equal(preview.body.rangeSummary.area, null);
-  assert.equal(preview.body.suggestedName, "");
-  assert.equal(preview.body.drafts[0].name, "Selected Area");
-  assert.equal(preview.body.drafts[0].config.jobName, "selected-area-mapbox-satellite");
+  assert.deepEqual(resolvedCenters.map((center) => Math.sign(center.latitude)), [-1, 1]);
+  assert.equal(preview.body.rangeSummary.area.label, "Pyongyang");
+  assert.equal(preview.body.rangeSummary.inputYScheme, "tms");
+  assert.equal(preview.body.suggestedName, "Pyongyang");
+  assert.equal(preview.body.drafts[0].name, "Pyongyang");
+  assert.equal(preview.body.drafts[0].config.jobName, "pyongyang-mapbox-satellite");
+  assert.deepEqual(preview.body.drafts[0].config.ranges.slice(0, 3), [
+    { zoomStart: 7, zoomEnd: 7, xStart: 109, xEnd: 109, yStart: 47, yEnd: 48, label: "range#1: z=7 x=109-109 y=79-80 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
+    { zoomStart: 8, zoomEnd: 8, xStart: 218, xEnd: 218, yStart: 96, yEnd: 97, label: "range#1: z=8 x=218-218 y=158-159 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
+    { zoomStart: 9, zoomEnd: 9, xStart: 435, xEnd: 435, yStart: 194, yEnd: 194, label: "range#1: z=9 x=435-435 y=317-317 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
+  ]);
+});
+
+test("dashboard batch config preview rejects unnamed raw tile ranges when geocoding is ambiguous", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
+    layer: "satellite",
+    format: "jpg",
+  });
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    locationResolver: async () => "",
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+
+  const preview = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      preview: true,
+      machineId: "worker-a",
+      name: "",
+      templateIds: ["mapbox-satellite"],
+      rangeInput: "7/109/79/ - 7/109/80/",
+    },
+  });
+
+  assert.equal(preview.status, 400);
+  assert.match(preview.body.error, /enter a name|choose XYZ or TMS/i);
 });
 
 test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {

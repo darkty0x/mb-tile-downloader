@@ -769,6 +769,7 @@ export function useDashboardState() {
             rangeInput: formData.get("rangeInput"),
             zoomStart: formData.get("zoomStart"),
             zoomEnd: formData.get("zoomEnd"),
+            inputYScheme: formData.get("inputYScheme") || "auto",
           }),
         });
       },
@@ -857,6 +858,7 @@ export function useDashboardState() {
               rangeInput: formData.get("rangeInput"),
               zoomStart: formData.get("zoomStart"),
               zoomEnd: formData.get("zoomEnd"),
+              inputYScheme: formData.get("inputYScheme") || "auto",
             }),
           });
           setEditor({ type: "summary" });
