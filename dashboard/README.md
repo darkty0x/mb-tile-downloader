@@ -157,11 +157,10 @@ The agent never executes arbitrary shell commands from the dashboard.
 `start_pipeline` runs the managed range pipeline:
 
 ```text
-download selected range
-validate selected range
-zip selected range
-continue with next range
-upload the full config to Storj only after every selected range is zipped
+download every range in the config
+validate every range in the config
+zip every range in the config
+upload the completed config to Storj once
 ```
 
-This uses `--range-index` on `downloader.js` and `zip-maker.js` so each range can complete before the next range starts. `storj-uploader.js` always runs against the full config and refuses range-scoped uploads, because the Storj share link is the completed-config proof.
+The pipeline treats one config file as the unit of work. It does not pass `--range-index` to `downloader.js`, `zip-maker.js`, or `storj-uploader.js`; each stage must finish the full config before the next stage starts. `storj-uploader.js` always runs against the full config and refuses range-scoped uploads, because the Storj share link is the completed-config proof.

@@ -159,6 +159,27 @@ function commandMode(command, scriptIndex) {
   return null;
 }
 
+function commandRequiresDashboardConfig(command) {
+  const scriptIndex = scriptIndexFor(command);
+  const script = command[scriptIndex];
+  const scriptName = path.basename(script || "");
+  if (!MANAGED_CONFIG_SCRIPTS.has(scriptName)) return false;
+  const mode = commandMode(command, scriptIndex);
+  if (scriptName === "downloader.js" && (mode === "split" || mode === "clear-token-state")) return false;
+  return true;
+}
+
+function assertSyncedCommandHasDashboardConfig(command, synced) {
+  if (!synced?.synced) return;
+  if (!commandRequiresDashboardConfig(command)) return;
+  if (synced.configPath) return;
+  const script = command[scriptIndexFor(command)];
+  throw new Error(
+    `No active dashboard config is assigned for ${path.basename(script || "managed command")}. ` +
+      "Refusing to fall back to local defaults."
+  );
+}
+
 export function withDashboardConfig(command, configPath) {
   if (!configPath) return command;
   const scriptIndex = scriptIndexFor(command);
@@ -332,6 +353,7 @@ export async function runDashboardCommand({
   }
 
   assertManagedCommandHasCompleteDashboardEnv(opts.command, env);
+  assertSyncedCommandHasDashboardConfig(opts.command, synced);
   const command = withDashboardConfig(opts.command, synced.configPath);
   const [runner, runnerArgs] = plainCommand(command);
   const outputTee = createOutputTee({ agentLogPath: dashboardLogPath(stateDir) });

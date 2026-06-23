@@ -600,7 +600,7 @@ test("agent pause command records a pause request and acknowledges command", asy
   ]);
 });
 
-test("range pipeline executes download validate zip upload in order", async () => {
+test("range pipeline executes config-level download validate zip upload in order", async () => {
   const calls = [];
   const events = [];
 
@@ -615,19 +615,16 @@ test("range pipeline executes download validate zip upload in order", async () =
   });
 
   assert.deepEqual(calls, [
-    "0:download",
-    "0:validate",
-    "0:zip",
-    "1:download",
-    "1:validate",
-    "1:zip",
+    "null:download",
+    "null:validate",
+    "null:zip",
     "null:upload",
   ]);
   assert.equal(events.at(0), "pipeline.started");
   assert.equal(events.at(-1), "pipeline.completed");
 });
 
-test("range pipeline uploads the whole config once after every range is zipped", async () => {
+test("range pipeline treats all ranges in a config as one stage unit", async () => {
   const calls = [];
 
   await runRangePipeline({
@@ -641,20 +638,14 @@ test("range pipeline uploads the whole config once after every range is zipped",
   });
 
   assert.deepEqual(calls, [
-    { stage: "download", rangeIndex: 0 },
-    { stage: "validate", rangeIndex: 0 },
-    { stage: "zip", rangeIndex: 0 },
-    { stage: "download", rangeIndex: 1 },
-    { stage: "validate", rangeIndex: 1 },
-    { stage: "zip", rangeIndex: 1 },
-    { stage: "download", rangeIndex: 2 },
-    { stage: "validate", rangeIndex: 2 },
-    { stage: "zip", rangeIndex: 2 },
+    { stage: "download", rangeIndex: null },
+    { stage: "validate", rangeIndex: null },
+    { stage: "zip", rangeIndex: null },
     { stage: "upload", rangeIndex: null },
   ]);
 });
 
-test("range pipeline lifecycle events identify the config and range", async () => {
+test("range pipeline lifecycle events identify the config-level stage", async () => {
   const events = [];
 
   await runRangePipeline({
@@ -665,7 +656,7 @@ test("range pipeline lifecycle events identify the config and range", async () =
   });
 
   const started = events.find((event) => event.type === "pipeline.started");
-  const rangeStarted = events.find((event) => event.type === "range.download.started");
+  const downloadStarted = events.find((event) => event.type === "pipeline.download.started");
   const completed = events.find((event) => event.type === "pipeline.completed");
 
   assert.deepEqual(started.data, {
@@ -673,18 +664,16 @@ test("range pipeline lifecycle events identify the config and range", async () =
     configName: "1-pyongyang-esri-satellite",
     ranges: 1,
   });
-  assert.deepEqual(rangeStarted.data, {
+  assert.deepEqual(downloadStarted.data, {
     configPath: "configs/1-pyongyang-esri-satellite.config.json",
     configName: "1-pyongyang-esri-satellite",
     ranges: 1,
-    rangeIndex: 0,
-    label: "r1",
     stage: "download",
   });
   assert.equal(completed.data.configName, "1-pyongyang-esri-satellite");
 });
 
-test("range pipeline pauses after the current range when requested", async () => {
+test("range pipeline pauses after the current config-level stage when requested", async () => {
   const calls = [];
   const events = [];
 
@@ -696,35 +685,32 @@ test("range pipeline pauses after the current range when requested", async () =>
       return { ok: true };
     },
     emitEvent: (event) => events.push(event.type),
-    shouldPauseAfterRange: async ({ rangeIndex }) => rangeIndex === 0,
+    shouldPauseAfterRange: async ({ stage }) => stage === "zip",
   });
 
   assert.deepEqual(calls, [
-    "0:download",
-    "0:validate",
-    "0:zip",
+    "null:download",
+    "null:validate",
+    "null:zip",
   ]);
   assert.equal(events.includes("pipeline.paused"), true);
   assert.equal(events.includes("pipeline.completed"), false);
 });
 
-test("pipeline CLI stages pass the selected range index to each script", () => {
+test("pipeline CLI stages run against the full config without range scoping", () => {
   assert.deepEqual(stageArgs("download", { configPath: "configs/a.json", rangeIndex: 3 }), [
     "downloader.js",
     "configs/a.json",
-    "--range-index=3",
   ]);
   assert.deepEqual(stageArgs("validate", { configPath: "configs/a.json", rangeIndex: 3 }), [
     "downloader.js",
     "configs/a.json",
     "--validate",
     "--force-verify",
-    "--range-index=3",
   ]);
   assert.deepEqual(stageArgs("zip", { configPath: "configs/a.json", rangeIndex: 3 }), [
     "zip-maker.js",
     "configs/a.json",
-    "--range-index=3",
   ]);
   assert.deepEqual(stageArgs("upload", { configPath: "configs/a.json", rangeIndex: 3 }), [
     "storj-uploader.js",
@@ -761,8 +747,8 @@ test("range pipeline reports durable job stages", async () => {
     config: { ranges: [{ label: "r1" }] },
     configPath: "configs/a.json",
     createJobReporter: ({ rangeIndex, range }) => {
-      assert.equal(rangeIndex, 0);
-      assert.equal(range.label, "r1");
+      assert.equal(rangeIndex, null);
+      assert.equal(range, null);
       return {
         start: async ({ stage }) => reports.push(`start:${stage}`),
         stage: async ({ stage }) => reports.push(`stage:${stage}`),

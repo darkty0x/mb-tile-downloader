@@ -23,7 +23,7 @@ import {
   stripTemplateRanges,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
-import { parseConfigRanges, summarizeRanges } from "./range-parser.js";
+import { parseConfigRangeInput, summarizeRanges } from "./range-parser.js";
 import { createSecretValidator, isValidatableSecretType } from "./secret-validators.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
@@ -623,6 +623,7 @@ async function inferBaseConfigName({ requestedName, rangeSummary, locationResolv
   const cleanName = String(requestedName || "").trim();
   if (cleanName) return { name: cleanName, inferred: false };
   const area = rangeSummary?.area || null;
+  if (!area) return { name: "Selected Area", inferred: false };
   const resolvedName = area && locationResolver
     ? String(await locationResolver(area) || "").trim()
     : "";
@@ -639,12 +640,13 @@ function splitStrategyForBatch(body, { templateCount, targetCount } = {}) {
 }
 
 async function buildConfigDrafts({ store, body, configTemplatesDir, locationResolver = defaultLocationResolver }) {
-  const parsedRanges = parseConfigRanges({
+  const parsedInput = parseConfigRangeInput({
     input: body.rangeInput || body.ranges,
     zoom: body.zoom,
     zoomStart: body.zoomStart,
     zoomEnd: body.zoomEnd,
   });
+  const parsedRanges = parsedInput.ranges;
   const templates = await selectConfigTemplates(body.templateIds, {
     templatesDir: configTemplatesDir,
   });
@@ -659,7 +661,7 @@ async function buildConfigDrafts({ store, body, configTemplatesDir, locationReso
     templateCount: templates.length,
     targetCount: targets.length,
   });
-  const rangeSummary = summarizeRanges(parsedRanges);
+  const rangeSummary = summarizeRanges(parsedRanges, { includeArea: parsedInput.canInferArea });
   const baseName = await inferBaseConfigName({
     requestedName: body.name,
     rangeSummary,
@@ -1187,12 +1189,13 @@ export function createDashboardApp({
 
         if (req.method === "POST" && url.pathname === "/api/ranges/parse") {
           const body = await readJson(req);
-          const summary = summarizeRanges(parseConfigRanges({
+          const parsedInput = parseConfigRangeInput({
             input: body.input,
             zoom: body.zoom,
             zoomStart: body.zoomStart,
             zoomEnd: body.zoomEnd,
-          }));
+          });
+          const summary = summarizeRanges(parsedInput.ranges, { includeArea: parsedInput.canInferArea });
           json(res, 200, summary);
           return;
         }

@@ -36,6 +36,20 @@ function parseNumber(value, name) {
   return number;
 }
 
+function parseLongitude(value, name = "longitude") {
+  const longitude = parseNumber(value, name);
+  if (longitude < -180 || longitude > 180) throw new Error(`${name} must be between -180 and 180`);
+  return longitude;
+}
+
+function parseLatitude(value, name = "latitude") {
+  const latitude = parseNumber(value, name);
+  if (latitude < -85.05112878 || latitude > 85.05112878) {
+    throw new Error(`${name} must be between -85.05112878 and 85.05112878`);
+  }
+  return latitude;
+}
+
 function parseInteger(value, name) {
   if (value === undefined || value === null || value === "") throw new Error(`${name} must be an integer`);
   const number = Number(value);
@@ -92,58 +106,68 @@ function rangesFromPoint({ latitude, longitude, zoomStart, zoomEnd }) {
   return normalizeRanges({ ranges });
 }
 
+function parsedRanges(ranges, { source, canInferArea = false } = {}) {
+  return {
+    ranges,
+    source,
+    canInferArea,
+  };
+}
+
 function parseLatLonInput(input, zoomOptions) {
   const namedLat = input.match(/\b(?:lat|latitude)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
   const namedLon = input.match(/\b(?:lon|lng|longitude)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
   if (namedLat && namedLon) {
     const { zoomStart, zoomEnd } = normalizePointZooms(zoomOptions);
-    return rangesFromPoint({
-      latitude: parseNumber(namedLat[1], "latitude"),
-      longitude: parseNumber(namedLon[1], "longitude"),
+    return parsedRanges(rangesFromPoint({
+      latitude: parseLatitude(namedLat[1], "latitude"),
+      longitude: parseLongitude(namedLon[1], "longitude"),
       zoomStart,
       zoomEnd,
-    });
+    }), { source: "point", canInferArea: true });
   }
 
   const pairMatch = input.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
   if (!pairMatch) return null;
-  const latitude = parseNumber(pairMatch[1], "latitude");
-  const longitude = parseNumber(pairMatch[2], "longitude");
-  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  const latitude = parseLatitude(pairMatch[1], "latitude");
+  const longitude = parseLongitude(pairMatch[2], "longitude");
   const { zoomStart, zoomEnd } = normalizePointZooms(zoomOptions);
-  return rangesFromPoint({ latitude, longitude, zoomStart, zoomEnd });
+  return parsedRanges(rangesFromPoint({ latitude, longitude, zoomStart, zoomEnd }), {
+    source: "point",
+    canInferArea: true,
+  });
 }
 
 function parseJsonRangeInput(input, zoomOptions) {
   const parsed = JSON.parse(input);
   if (Array.isArray(parsed)) {
-    return normalizeRanges({ ranges: parsed });
+    return parsedRanges(normalizeRanges({ ranges: parsed }), { source: "json-ranges" });
   }
   if (parsed?.ranges) {
-    return normalizeRanges(parsed);
+    return parsedRanges(normalizeRanges(parsed), { source: "json-ranges" });
   }
   const hasBounds = ["west", "south", "east", "north"].every((key) => parsed?.[key] !== undefined);
   if (hasBounds) {
     const zooms = normalizeZooms({ ...zoomOptions, ...parsed });
-    return rangesFromBounds({
-      west: parseNumber(parsed.west, "west"),
-      south: parseNumber(parsed.south, "south"),
-      east: parseNumber(parsed.east, "east"),
-      north: parseNumber(parsed.north, "north"),
+    return parsedRanges(rangesFromBounds({
+      west: parseLongitude(parsed.west, "west"),
+      south: parseLatitude(parsed.south, "south"),
+      east: parseLongitude(parsed.east, "east"),
+      north: parseLatitude(parsed.north, "north"),
       ...zooms,
-    });
+    }), { source: "bounds", canInferArea: true });
   }
   const latitude = parsed?.latitude ?? parsed?.lat;
   const longitude = parsed?.longitude ?? parsed?.lon ?? parsed?.lng;
   if (latitude !== undefined && longitude !== undefined) {
     const zooms = normalizePointZooms({ ...zoomOptions, ...parsed });
-    return rangesFromPoint({
-      latitude: parseNumber(latitude, "latitude"),
-      longitude: parseNumber(longitude, "longitude"),
+    return parsedRanges(rangesFromPoint({
+      latitude: parseLatitude(latitude, "latitude"),
+      longitude: parseLongitude(longitude, "longitude"),
       ...zooms,
-    });
+    }), { source: "point", canInferArea: true });
   }
-  return normalizeRanges({ ranges: [parsed] });
+  return parsedRanges(normalizeRanges({ ranges: [parsed] }), { source: "json-ranges" });
 }
 
 function parseTileRangeInput(input) {
@@ -156,9 +180,9 @@ function parseTileRangeInput(input) {
     for (const line of lines) {
       const parsed = parseTileRangeInput(line);
       if (!parsed) return null;
-      ranges.push(...parsed);
+      ranges.push(...parsed.ranges);
     }
-    return normalizeRanges({ ranges });
+    return parsedRanges(normalizeRanges({ ranges }), { source: "tile-ranges" });
   }
 
   const slashMatch = compact.match(/^(\d+)\/(\d+)\/(\d+)\/?\s*[-–—]\s*(?:(\d+)\/)?(\d+)\/(\d+)\/?$/);
@@ -166,7 +190,7 @@ function parseTileRangeInput(input) {
     const zoomStart = parseInteger(slashMatch[1], "zoom");
     const zoomEnd = parseInteger(slashMatch[4] || slashMatch[1], "zoomEnd");
     if (zoomStart !== zoomEnd) throw new Error("slash tile range must use the same zoom at both ends");
-    return normalizeRanges({
+    return parsedRanges(normalizeRanges({
       ranges: [{
         zoom: zoomStart,
         xStart: parseInteger(slashMatch[2], "xStart"),
@@ -174,12 +198,12 @@ function parseTileRangeInput(input) {
         yStart: parseInteger(slashMatch[3], "yStart"),
         yEnd: parseInteger(slashMatch[6], "yEnd"),
       }],
-    });
+    }), { source: "tile-ranges" });
   }
 
   const keyMatch = compact.match(/z(?:oom)?\s*=\s*(\d+)(?:\s*[-–—]\s*(\d+))?.*?x\s*=\s*(\d+)\s*[-–—]\s*(\d+).*?y\s*=\s*(\d+)\s*[-–—]\s*(\d+)/i);
   if (keyMatch) {
-    return normalizeRanges({
+    return parsedRanges(normalizeRanges({
       ranges: [{
         zoomStart: parseInteger(keyMatch[1], "zoomStart"),
         zoomEnd: parseInteger(keyMatch[2] || keyMatch[1], "zoomEnd"),
@@ -188,7 +212,7 @@ function parseTileRangeInput(input) {
         yStart: parseInteger(keyMatch[5], "yStart"),
         yEnd: parseInteger(keyMatch[6], "yEnd"),
       }],
-    });
+    }), { source: "tile-ranges" });
   }
 
   return null;
@@ -198,11 +222,16 @@ function parseBoundsInput(input, zoomOptions) {
   const lbTrMatch = input.match(/LB\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)[\s\S]*?TR\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
   if (!lbTrMatch) return null;
   const { zoomStart, zoomEnd } = normalizeZooms(zoomOptions);
-  const west = parseNumber(lbTrMatch[1], "LB longitude");
-  const south = parseNumber(lbTrMatch[2], "LB latitude");
-  const east = parseNumber(lbTrMatch[3], "TR longitude");
-  const north = parseNumber(lbTrMatch[4], "TR latitude");
-  return rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd });
+  const west = parseLongitude(lbTrMatch[1], "LB longitude");
+  const south = parseLatitude(lbTrMatch[2], "LB latitude");
+  const east = parseLongitude(lbTrMatch[3], "TR longitude");
+  const north = parseLatitude(lbTrMatch[4], "TR latitude");
+  if (east < west) throw new Error("TR longitude must be greater than or equal to LB longitude");
+  if (north < south) throw new Error("TR latitude must be greater than or equal to LB latitude");
+  return parsedRanges(rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd }), {
+    source: "bounds",
+    canInferArea: true,
+  });
 }
 
 function pointFromRanges(ranges = []) {
@@ -220,7 +249,7 @@ function pointFromRanges(ranges = []) {
   return point;
 }
 
-export function parseConfigRanges({ input, zoom, zoomStart, zoomEnd } = {}) {
+export function parseConfigRangeInput({ input, zoom, zoomStart, zoomEnd } = {}) {
   const text = String(input || "").trim();
   if (!text) throw new Error("range input is required");
   if (/^[\[{]/.test(text)) return parseJsonRangeInput(text, { zoom, zoomStart, zoomEnd });
@@ -232,12 +261,24 @@ export function parseConfigRanges({ input, zoom, zoomStart, zoomEnd } = {}) {
   })();
 }
 
-export function summarizeRanges(ranges) {
+export function parseConfigRanges(options = {}) {
+  return parseConfigRangeInput(options).ranges;
+}
+
+export function summarizeRanges(ranges, { includeArea = true } = {}) {
   const normalized = normalizeRanges({ ranges });
   const tiles = normalized.reduce(
     (sum, range) => sum + (range.zoomEnd - range.zoomStart + 1) * (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
     0
   );
+  if (!includeArea) {
+    return {
+      ranges: normalized,
+      rangeCount: normalized.length,
+      tiles,
+      area: null,
+    };
+  }
   const point = pointFromRanges(normalized);
   if (point) {
     const roundedLatitude = roundCoordinate(point.latitude);

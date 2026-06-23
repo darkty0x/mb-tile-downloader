@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, readFile } from "node:fs/promises";
+import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
@@ -176,6 +176,90 @@ test("dashboard-run refuses managed commands when dashboard env is partial", asy
     }),
     /missing MACHINE_ID.*wrong tile set/
   );
+});
+
+test("dashboard-run refuses runtime commands when no active dashboard config is assigned", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-run-no-config-"));
+  await assert.rejects(
+    () => runDashboardCommand({
+      argv: ["--", process.execPath, "zip-maker.js", "--dry-run"],
+      env: {
+        DASHBOARD_URL: "https://dashboard.example.com",
+        AGENT_TOKEN: "agent-token",
+        MACHINE_ID: "worker-a",
+      },
+      projectDir: dir,
+      log: () => {},
+      createClient: () => ({
+        async register() {
+          return { status: "registered" };
+        },
+        async postEvent() {
+          return { event: {} };
+        },
+        async listConfigs() {
+          return { configs: [] };
+        },
+        async listEnvProfiles() {
+          return { envProfiles: [] };
+        },
+        async listSecrets() {
+          return { secrets: [] };
+        },
+      }),
+    }),
+    /No active dashboard config.*local defaults/
+  );
+});
+
+test("dashboard-run still allows dashboard maintenance commands without an active config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-run-maintenance-"));
+  const outputPath = path.join(dir, "output.json");
+  const scriptPath = path.join(dir, "downloader.js");
+  await writeFile(
+    scriptPath,
+    "import fs from 'node:fs'; fs.writeFileSync(process.argv[3], JSON.stringify({args:process.argv.slice(2), managed:process.env.DASHBOARD_MANAGED_RUN}));\n",
+    "utf8"
+  );
+  const code = await runDashboardCommand({
+    argv: [
+      "--",
+      process.execPath,
+      scriptPath,
+      "split",
+      outputPath,
+    ],
+    env: {
+      DASHBOARD_URL: "https://dashboard.example.com",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "worker-a",
+    },
+    projectDir: dir,
+    stateDir: path.join(dir, ".tile-state"),
+    log: () => {},
+    createClient: () => ({
+      async register() {
+        return { status: "registered" };
+      },
+      async postEvent() {
+        return { event: {} };
+      },
+      async listConfigs() {
+        return { configs: [] };
+      },
+      async listEnvProfiles() {
+        return { envProfiles: [] };
+      },
+      async listSecrets() {
+        return { secrets: [] };
+      },
+    }),
+  });
+
+  assert.equal(code, 0);
+  const parsed = JSON.parse(await readFile(outputPath, "utf8"));
+  assert.deepEqual(parsed.args, ["split", outputPath]);
+  assert.equal(parsed.managed, "1");
 });
 
 test("dashboard-run publishes an immediate dashboard snapshot after sync", async () => {

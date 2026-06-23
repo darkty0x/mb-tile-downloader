@@ -9,7 +9,6 @@ import { createControlClient } from "./control-client.js";
 import { createJobReporter } from "./job-reporter.js";
 import { parseDownloaderProgressLine } from "./progress-events.js";
 
-const RANGE_STAGES = ["download", "validate", "zip"];
 const PIPELINE_STAGES = ["download", "validate", "zip", "upload"];
 const UPLOAD_STAGE = "upload";
 let activeStageChild = null;
@@ -166,6 +165,7 @@ function reporterConfigId({ env = process.env, configPath } = {}) {
 }
 
 function rangeIdFor(range, rangeIndex) {
+  if (rangeIndex === null || rangeIndex === undefined) return null;
   return String(range?.rangeId || range?.id || range?.label || `range-${rangeIndex}`);
 }
 
@@ -191,24 +191,25 @@ export function createCliJobReporterFactory({
     agentToken: env.AGENT_TOKEN,
   });
   const configId = reporterConfigId({ env, configPath });
-  return ({ rangeIndex, range }) => createJobReporter({
+  return ({ rangeIndex = null, range = null } = {}) => createJobReporter({
     client: controlClient,
     machineId: env.MACHINE_ID,
     configId,
     rangeId: rangeIdFor(range, rangeIndex),
-    jobId: `${configId}:range-${rangeIndex}:${idGenerator()}`,
+    jobId: rangeIndex === null || rangeIndex === undefined
+      ? `${configId}:pipeline:${idGenerator()}`
+      : `${configId}:range-${rangeIndex}:${idGenerator()}`,
   });
 }
 
-export function stageArgs(stage, { configPath, rangeIndex }) {
-  const rangeArg = `--range-index=${rangeIndex}`;
+export function stageArgs(stage, { configPath }) {
   switch (stage) {
     case "download":
-      return ["downloader.js", configPath, rangeArg];
+      return ["downloader.js", configPath];
     case "validate":
-      return ["downloader.js", configPath, "--validate", "--force-verify", rangeArg];
+      return ["downloader.js", configPath, "--validate", "--force-verify"];
     case "zip":
-      return ["zip-maker.js", configPath, rangeArg];
+      return ["zip-maker.js", configPath];
     case "upload":
       return ["storj-uploader.js", configPath];
     default:
@@ -226,6 +227,7 @@ export async function runRangePipeline({
   shouldStop = null,
 } = {}) {
   if (!config || !Array.isArray(config.ranges)) throw new Error("config.ranges is required");
+  const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex: null, range: null }) : null;
   emitEvent({
     severity: "info",
     type: "pipeline.started",
@@ -233,177 +235,98 @@ export async function runRangePipeline({
     data: pipelineEventData({ config, configPath }),
   });
 
-  let finalRangeReporter = null;
-  for (let rangeIndex = 0; rangeIndex < config.ranges.length; rangeIndex++) {
-    const range = config.ranges[rangeIndex];
-    const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex, range }) : null;
-    if (rangeIndex === config.ranges.length - 1) finalRangeReporter = reporter;
-    for (const [stageIndex, stage] of RANGE_STAGES.entries()) {
-      if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage })) {
-        const errorObject = new Error("pipeline stopped");
-        emitEvent({
-          severity: "warn",
-          type: "pipeline.stopped",
-          message: errorObject.message,
-          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
-        });
-        if (reporter) await reporter.stop({ stage, error: errorObject });
-        throw errorObject;
-      }
-      const progress = {
-        configPath,
-        rangeIndex,
-        rangeCount: config.ranges.length,
-        stageIndex,
-        stageCount: PIPELINE_STAGES.length,
-        percent: Math.round((stageIndex / PIPELINE_STAGES.length) * 100),
-      };
-      if (reporter) {
-        if (stageIndex === 0) {
-          await reporter.start({ stage, progress });
-        } else {
-          await reporter.stage({ stage, progress });
-        }
-      }
+  for (const [stageIndex, stage] of PIPELINE_STAGES.entries()) {
+    const progress = {
+      configPath,
+      rangeCount: config.ranges.length,
+      stageIndex,
+      stageCount: PIPELINE_STAGES.length,
+      percent: 0,
+    };
+    if (processStopRequested || await shouldStop?.({ config, configPath, stageIndex, stage })) {
+      const errorObject = new Error("pipeline stopped");
       emitEvent({
-        severity: "info",
-        type: `range.${stage}.started`,
-        message: `${stage} started`,
-        data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
+        severity: "warn",
+        type: "pipeline.stopped",
+        message: errorObject.message,
+        data: pipelineEventData({ config, configPath, stage }),
       });
-      const result = await runStage(stage, { configPath, rangeIndex, range, reporter, progress });
-      if (!result || result.ok !== true) {
-        const error = result?.error || `${stage} failed`;
-        const errorObject = new Error(error);
-        emitEvent({
-          severity: "error",
-          type: `range.${stage}.failed`,
-          message: error,
-          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
-        });
-        emitEvent({
-          severity: "error",
-          type: "range.failed",
-          message: error,
-          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
-        });
-        if (reporter) await reporter.fail({ stage, error: errorObject, progress });
-        throw errorObject;
-      }
-      emitEvent({
-        severity: "success",
-        type: `range.${stage}.completed`,
-        message: `${stage} completed`,
-        data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
-      });
-      if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex, range, stageIndex, stage, afterStage: true })) {
-        const errorObject = new Error("pipeline stopped");
-        emitEvent({
-          severity: "warn",
-          type: "pipeline.stopped",
-          message: errorObject.message,
-          data: pipelineEventData({ config, configPath, rangeIndex, range, stage }),
-        });
-        if (reporter) await reporter.stop({ stage, error: errorObject, progress });
-        throw errorObject;
-      }
+      if (reporter) await reporter.stop({ stage, error: errorObject, progress });
+      throw errorObject;
     }
-    if (reporter && rangeIndex < config.ranges.length - 1) {
+    if (reporter) {
+      if (stageIndex === 0) await reporter.start({ stage, progress });
+      else await reporter.stage({ stage, progress });
+    }
+    emitEvent({
+      severity: "info",
+      type: `pipeline.${stage}.started`,
+      message: `${stage} started`,
+      data: pipelineEventData({ config, configPath, stage }),
+    });
+    const result = await runStage(stage, {
+      configPath,
+      rangeIndex: null,
+      range: null,
+      reporter,
+      progress,
+    });
+    if (!result || result.ok !== true) {
+      const error = result?.error || `${stage} failed`;
+      const errorObject = new Error(error);
+      emitEvent({
+        severity: "error",
+        type: `pipeline.${stage}.failed`,
+        message: error,
+        data: pipelineEventData({ config, configPath, stage }),
+      });
+      emitEvent({
+        severity: "error",
+        type: "range.failed",
+        message: error,
+        data: pipelineEventData({ config, configPath, stage }),
+      });
+      if (reporter) await reporter.fail({ stage, error: errorObject, progress });
+      throw errorObject;
+    }
+    const uploadProof = stage === UPLOAD_STAGE ? result.storjProof || {} : {};
+    emitEvent({
+      severity: "success",
+      type: `pipeline.${stage}.completed`,
+      message: `${stage} completed`,
+      data: { ...pipelineEventData({ config, configPath, stage }), ...uploadProof },
+    });
+    if (stage === UPLOAD_STAGE && reporter) {
       await reporter.complete({
-        stage: RANGE_STAGES.at(-1),
+        stage,
         progress: {
-          configPath,
-          rangeIndex,
-          rangeCount: config.ranges.length,
-          stageIndex: RANGE_STAGES.length,
-          stageCount: PIPELINE_STAGES.length,
-          percent: Math.round((RANGE_STAGES.length / PIPELINE_STAGES.length) * 100),
+          ...progress,
+          stageIndex: PIPELINE_STAGES.length,
+          percent: 100,
+          ...uploadProof,
         },
       });
     }
-    if (shouldPauseAfterRange && await shouldPauseAfterRange({ config, configPath, rangeIndex, range })) {
+    if (processStopRequested || await shouldStop?.({ config, configPath, stageIndex, stage, afterStage: true })) {
+      const errorObject = new Error("pipeline stopped");
+      emitEvent({
+        severity: "warn",
+        type: "pipeline.stopped",
+        message: errorObject.message,
+        data: pipelineEventData({ config, configPath, stage }),
+      });
+      if (reporter) await reporter.stop({ stage, error: errorObject, progress });
+      throw errorObject;
+    }
+    if (stage !== UPLOAD_STAGE && shouldPauseAfterRange && await shouldPauseAfterRange({ config, configPath, stageIndex, stage })) {
       emitEvent({
         severity: "info",
         type: "pipeline.paused",
-        message: "pipeline paused after range",
-        data: pipelineEventData({ config, configPath, rangeIndex, range }),
+        message: "pipeline paused after stage",
+        data: pipelineEventData({ config, configPath, stage }),
       });
       return;
     }
-  }
-
-  const uploadRangeIndex = Math.max(0, config.ranges.length - 1);
-  const uploadRange = config.ranges[uploadRangeIndex] || null;
-  const uploadReporter = finalRangeReporter;
-  const uploadStageIndex = PIPELINE_STAGES.indexOf(UPLOAD_STAGE);
-  const uploadProgress = {
-    configPath,
-    rangeIndex: uploadRangeIndex,
-    rangeCount: config.ranges.length,
-    stageIndex: uploadStageIndex,
-    stageCount: PIPELINE_STAGES.length,
-    percent: Math.round((uploadStageIndex / PIPELINE_STAGES.length) * 100),
-  };
-  if (processStopRequested || await shouldStop?.({ config, configPath, rangeIndex: uploadRangeIndex, range: uploadRange, stageIndex: uploadStageIndex, stage: UPLOAD_STAGE })) {
-    const errorObject = new Error("pipeline stopped");
-    emitEvent({
-      severity: "warn",
-      type: "pipeline.stopped",
-      message: errorObject.message,
-      data: pipelineEventData({ config, configPath, rangeIndex: uploadRangeIndex, range: uploadRange, stage: UPLOAD_STAGE }),
-    });
-    if (uploadReporter) await uploadReporter.stop({ stage: UPLOAD_STAGE, error: errorObject, progress: uploadProgress });
-    throw errorObject;
-  }
-  if (uploadReporter) await uploadReporter.stage({ stage: UPLOAD_STAGE, progress: uploadProgress });
-  emitEvent({
-    severity: "info",
-    type: "range.upload.started",
-    message: "upload started",
-    data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
-  });
-  const uploadResult = await runStage(UPLOAD_STAGE, {
-    configPath,
-    rangeIndex: null,
-    range: null,
-    reporter: uploadReporter,
-    progress: uploadProgress,
-  });
-  if (!uploadResult || uploadResult.ok !== true) {
-    const error = uploadResult?.error || "upload failed";
-    const errorObject = new Error(error);
-    emitEvent({
-      severity: "error",
-      type: "range.upload.failed",
-      message: error,
-      data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
-    });
-    emitEvent({
-      severity: "error",
-      type: "range.failed",
-      message: error,
-      data: pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }),
-    });
-    if (uploadReporter) await uploadReporter.fail({ stage: UPLOAD_STAGE, error: errorObject, progress: uploadProgress });
-    throw errorObject;
-  }
-  const uploadProof = uploadResult.storjProof || {};
-  emitEvent({
-    severity: "success",
-    type: "range.upload.completed",
-    message: "upload completed",
-    data: { ...pipelineEventData({ config, configPath, stage: UPLOAD_STAGE }), ...uploadProof },
-  });
-  if (uploadReporter) {
-    await uploadReporter.complete({
-      stage: UPLOAD_STAGE,
-      progress: {
-        ...uploadProgress,
-        stageIndex: PIPELINE_STAGES.length,
-        percent: 100,
-        ...uploadProof,
-      },
-    });
   }
 
   emitEvent({

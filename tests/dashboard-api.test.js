@@ -887,6 +887,24 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
       input: JSON.stringify([{ zoom: 12, xStart: 1, xEnd: 2, yStart: 3, yEnd: 4 }]),
     },
   });
+  const pyongyangTileRanges = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: [
+        "7/109/79/ - 7/109/80/",
+        "8/218/158/ - 8/218/159/",
+        "9/435/317/ - 9/435/317/",
+        "10/870/633/ - 10/870/634/",
+        "11/1739/1265/ - 11/1740/1267/",
+        "12/3478/2530/ - 12/3480/2533/",
+        "13/6955/5060/ - 13/6960/5065/",
+        "14/13910/10120/ - 14/13920/10129/",
+        "15/27819/20239/ - 15/27839/20257/",
+        "16/55637/40477/ - 16/55678/40514/",
+      ].join("\n"),
+    },
+  });
   const latLonPoint = await request(server, {
     method: "POST",
     path: "/api/ranges/parse",
@@ -899,6 +917,29 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
     path: "/api/ranges/parse",
     body: {
       input: "LB: 34.799, 46.82\nTR: 40.739, 52.272",
+    },
+  });
+  const invalidLatitude = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "lat: 91, lon: 126.9780",
+    },
+  });
+  const invalidLongitude = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: JSON.stringify({ lat: 37.5665, lon: 181 }),
+    },
+  });
+  const invertedBounds = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "LB: 40, 50\nTR: 30, 60",
+      zoomStart: 7,
+      zoomEnd: 7,
     },
   });
 
@@ -922,8 +963,13 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
     yEnd: 351754,
     label: "range#1: z=19 x=312824-321475 y=339498-351754",
   });
+  assert.equal(tileString.body.area, null);
   assert.equal(jsonRanges.status, 200);
   assert.equal(jsonRanges.body.tiles, 4);
+  assert.equal(jsonRanges.body.area, null);
+  assert.equal(pyongyangTileRanges.status, 200);
+  assert.equal(pyongyangTileRanges.body.rangeCount, 10);
+  assert.equal(pyongyangTileRanges.body.area, null);
   assert.equal(latLonPoint.status, 200);
   assert.equal(latLonPoint.body.rangeCount, 19);
   assert.deepEqual(latLonPoint.body.ranges.map((range) => range.zoomStart), Array.from({ length: 19 }, (_, index) => index + 1));
@@ -940,6 +986,12 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
   assert.equal(latLonPoint.body.area.center.longitude, 126.978);
   assert.equal(missingZoom.status, 400);
   assert.match(missingZoom.body.error, /zoom/);
+  assert.equal(invalidLatitude.status, 400);
+  assert.match(invalidLatitude.body.error, /latitude must be between/);
+  assert.equal(invalidLongitude.status, 400);
+  assert.match(invalidLongitude.body.error, /longitude must be between/);
+  assert.equal(invertedBounds.status, 400);
+  assert.match(invertedBounds.body.error, /TR longitude/);
 });
 
 test("dashboard batch config creation creates one runnable config per selected type", async (t) => {
@@ -1046,8 +1098,7 @@ test("dashboard batch config preview returns editable drafts without creating co
     ["ukraine-range-01-mapbox-pbf", "ukraine-range-01-mapbox-satellite"]
   );
   assert.equal(preview.body.rangeSummary.tiles, 106047564);
-  assert.equal(preview.body.rangeSummary.area.bounds.west, 34.799194);
-  assert.equal(preview.body.rangeSummary.area.bounds.east, 40.740051);
+  assert.equal(preview.body.rangeSummary.area, null);
   assert.equal(beforeConfirm.body.configs.length, 0);
 
   const editedDraft = structuredClone(preview.body.drafts[0]);
@@ -1098,18 +1149,69 @@ test("dashboard batch config preview infers a name from the selected area", asyn
       machineId: "worker-a",
       name: "",
       templateIds: ["mapbox-satellite"],
+      rangeInput: "LB: 34.799, 46.82\nTR: 40.739, 52.272",
+      zoomStart: 12,
+      zoomEnd: 13,
+    },
+  });
+
+  assert.equal(preview.status, 200);
+  assert.deepEqual(resolvedCenter, { longitude: 37.749023, latitude: 49.560985 });
+  assert.equal(preview.body.suggestedName, "Prince Edward Islands");
+  assert.equal(preview.body.drafts[0].name, "Prince Edward Islands");
+  assert.equal(preview.body.drafts[0].config.jobName, "prince-edward-islands-mapbox-satellite");
+});
+
+test("dashboard batch config preview does not infer a location from raw tile ranges", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
+    layer: "satellite",
+    format: "jpg",
+  });
+  let resolverCalls = 0;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    locationResolver: async () => {
+      resolverCalls += 1;
+      return "Pyongyang";
+    },
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+
+  const preview = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      preview: true,
+      machineId: "worker-a",
+      name: "",
+      templateIds: ["mapbox-satellite"],
       rangeInput: [
-        "12/3478/2530 - 12/3478/2533",
-        "13/6955/5060 - 13/6960/5065",
+        "7/109/79/ - 7/109/80/",
+        "8/218/158/ - 8/218/159/",
+        "9/435/317/ - 9/435/317/",
+        "10/870/633/ - 10/870/634/",
+        "11/1739/1265/ - 11/1740/1267/",
+        "12/3478/2530/ - 12/3480/2533/",
+        "13/6955/5060/ - 13/6960/5065/",
+        "14/13910/10120/ - 14/13920/10129/",
+        "15/27819/20239/ - 15/27839/20257/",
+        "16/55637/40477/ - 16/55678/40514/",
       ].join("\n"),
     },
   });
 
   assert.equal(preview.status, 200);
-  assert.deepEqual(resolvedCenter, { longitude: 125.771484, latitude: -39.095831 });
-  assert.equal(preview.body.suggestedName, "Prince Edward Islands");
-  assert.equal(preview.body.drafts[0].name, "Prince Edward Islands");
-  assert.equal(preview.body.drafts[0].config.jobName, "prince-edward-islands-mapbox-satellite");
+  assert.equal(resolverCalls, 0);
+  assert.equal(preview.body.rangeSummary.area, null);
+  assert.equal(preview.body.suggestedName, "");
+  assert.equal(preview.body.drafts[0].name, "Selected Area");
+  assert.equal(preview.body.drafts[0].config.jobName, "selected-area-mapbox-satellite");
 });
 
 test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {

@@ -301,11 +301,11 @@ function failedTileMachines(jobs = [], machineId) {
 }
 
 function pipelineStatus(events, step) {
-  const completed = events.some((event) => event.type === `range.${step}.completed`);
+  const completed = events.some((event) => event.type === `pipeline.${step}.completed` || event.type === `range.${step}.completed`);
   if (completed) return "complete";
-  const running = events.some((event) => event.type === `range.${step}.started`);
+  const running = events.some((event) => event.type === `pipeline.${step}.started` || event.type === `range.${step}.started`);
   if (running) return "running";
-  const failed = events.some((event) => event.type === `range.${step}.failed` || event.type === "range.failed");
+  const failed = events.some((event) => event.type === `pipeline.${step}.failed` || event.type === `range.${step}.failed` || event.type === "range.failed");
   if (failed && step === "download") return "error";
   return "pending";
 }

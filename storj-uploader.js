@@ -65,7 +65,7 @@ function printUsage(exitCode = 0) {
       "",
       "Upload completed ZIP archives to Storj, then delete local ZIPs after remote verification.",
       "",
-      `Usage: node ${cmd} [configPath] [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local] [--range-index=N]`,
+      `Usage: node ${cmd} [configPath] [--archive-dir=path] [--bucket=name] [--prefix=path] [--access=grant] [--dry-run] [--keep-local]`,
       "",
   "Environment:",
   "  STORJ_BUCKET          required unless --bucket is provided",
@@ -99,11 +99,12 @@ function parseArgs(argv) {
     uplinkConfigDir: null,
     dryRun: false,
     keepLocal: false,
-    rangeIndex: null,
     configPath: null,
   };
 
-  for (const arg of argv.slice(2)) {
+  const args = argv.slice(2);
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
     if (arg === "--help" || arg === "-h") printUsage(0);
     else if (arg === "--dry-run") opts.dryRun = true;
     else if (arg === "--keep-local") opts.keepLocal = true;
@@ -112,9 +113,10 @@ function parseArgs(argv) {
     else if (arg.startsWith("--prefix=")) opts.prefix = arg.slice("--prefix=".length);
     else if (arg.startsWith("--access=")) opts.access = arg.slice("--access=".length);
     else if (arg.startsWith("--uplink-config-dir=")) opts.uplinkConfigDir = arg.slice("--uplink-config-dir=".length);
-    else if (arg.startsWith("--range-index=")) {
-      opts.rangeIndex = Number.parseInt(arg.slice("--range-index=".length), 10);
-      if (!Number.isInteger(opts.rangeIndex) || opts.rangeIndex < 0) {
+    else if (arg === "--range-index" || arg.startsWith("--range-index=")) {
+      const value = arg === "--range-index" ? args[index + 1] : arg.slice("--range-index=".length);
+      const rangeIndex = Number.parseInt(value, 10);
+      if (!Number.isInteger(rangeIndex) || rangeIndex < 0) {
         throw new Error("--range-index must be a non-negative integer");
       }
       throw new Error("--range-index is not supported for Storj upload; upload the full config after every range archive exists.");
@@ -377,7 +379,7 @@ async function listCompletedArchives(archiveDir) {
   return archives;
 }
 
-async function loadArchivePlan(configPath, { rangeIndex = null } = {}) {
+async function loadArchivePlan(configPath) {
   if (!configPath) return null;
   const rawConfig = await loadJson(configPath);
   const configDir = path.dirname(configPath);
@@ -403,15 +405,9 @@ async function loadArchivePlan(configPath, { rangeIndex = null } = {}) {
     !directDownloaderConfig && Array.isArray(rawConfig.ranges) && rawConfig.ranges.length > 0
       ? rawConfig
       : sourceConfig;
-  let ranges = normalizeRanges(rangeConfig);
+  const ranges = normalizeRanges(rangeConfig);
   if (ranges.length === 0) {
     throw new Error("No ranges found. Add ranges to the config.");
-  }
-  if (rangeIndex !== null) {
-    if (rangeIndex >= ranges.length) {
-      throw new Error(`--range-index ${rangeIndex} is outside config range count ${ranges.length}`);
-    }
-    ranges = [ranges[rangeIndex]];
   }
 
   const layers =
@@ -551,7 +547,7 @@ async function main() {
   if (!opts.bucket) {
     throw new Error("STORJ_BUCKET is required, or pass --bucket=name");
   }
-  const plan = await loadArchivePlan(opts.configPath, { rangeIndex: opts.rangeIndex });
+  const plan = await loadArchivePlan(opts.configPath);
   opts.prefix = opts.prefix || plan?.jobName || process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX;
   const allArchives = await listCompletedArchives(opts.archiveDir);
   const { archives, missing } = filterArchivesByPlan(allArchives, plan);
@@ -601,6 +597,7 @@ async function main() {
       opts.uplinkConfigDir
     );
     if (shareResult) console.log(`[storj-result] ${JSON.stringify(shareResult)}`);
+    if (!shareResult?.ok) process.exitCode = 1;
   }
 }
 
