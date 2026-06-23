@@ -461,16 +461,25 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
               <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명 {storjLinks.length > 1 ? `${storjLinks.length}개` : ""}</span>
               <div className="mt-2 grid gap-2">
                 {storjLinks.map((link) => (
-                  <div key={link.shareUrl} className="min-w-0 rounded-[12px] border border-[rgba(0,166,118,0.28)] bg-white/70 px-3 py-2">
-                    <span className="block truncate text-[11px] font-[800] text-[var(--ptg-success)]">{link.configName || link.configId || "Config 화일"}</span>
-                    <a
-                      className="mt-1 block break-all font-mono text-[12px] font-[700] text-[var(--ptg-on-surface)] underline decoration-[var(--ptg-success)] underline-offset-4"
-                      href={link.shareUrl}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      {link.shareUrl}
-                    </a>
+                  <div key={link.shareUrl} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[12px] border border-[rgba(0,166,118,0.28)] bg-white/70 px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="block truncate text-[11px] font-[800] text-[var(--ptg-success)]">{link.configName || link.configId || "Config 화일"}</span>
+                      <a
+                        className="mt-1 block break-all font-mono text-[12px] font-[700] text-[var(--ptg-on-surface)] underline decoration-[var(--ptg-success)] underline-offset-4"
+                        href={link.shareUrl}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        {link.shareUrl}
+                      </a>
+                    </div>
+                    {link.machineId && link.jobId ? (
+                      <IconButton
+                        label="완료증명 삭제"
+                        icon="trash"
+                        onClick={() => actions.deleteMachineTask(link.machineId, link.jobId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                      />
+                    ) : null}
                   </div>
                 ))}
               </div>

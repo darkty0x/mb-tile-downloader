@@ -668,6 +668,7 @@ function buildStorjLinks(jobs = [], configs = []) {
       const config = configs.find((item) => item.configId === job.configId);
       return {
         jobId: job.jobId || job.id || "",
+        machineId: job.machineId || "",
         configId,
         configName: configDisplayNameFromJob({ job, config, shareUrl }),
         rangeId: job.rangeId || "",

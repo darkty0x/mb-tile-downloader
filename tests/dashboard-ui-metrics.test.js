@@ -749,11 +749,11 @@ test("overview model exposes completed upload share link as pipeline proof", () 
   assert.equal(model.pipelineEta, "완료");
   assert.equal(model.storjShareUrl, "https://link.storjshare.io/s/testshare/mapbox/range-1/");
   assert.deepEqual(
-    model.storjLinks.map((link) => [link.configName, link.shareUrl]),
+    model.storjLinks.map((link) => [link.machineId, link.jobId, link.configName, link.shareUrl]),
     [
-      ["1-pyongyang-esri-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-1/"],
-      ["2-chiba-mapbox-pbf", "https://link.storjshare.io/s/testshare/mapbox/range-2/"],
-      ["3-tokyo-mapbox-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-3/"],
+      ["server-09", "job-server-09", "1-pyongyang-esri-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-1/"],
+      ["server-09", "job-server-09-b", "2-chiba-mapbox-pbf", "https://link.storjshare.io/s/testshare/mapbox/range-2/"],
+      ["server-09", "job-server-09-c", "3-tokyo-mapbox-satellite", "https://link.storjshare.io/s/testshare/mapbox/range-3/"],
     ]
   );
 });
