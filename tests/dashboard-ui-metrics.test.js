@@ -475,13 +475,13 @@ test("selected server pipeline stats include pending assigned configs when only 
 
   assert.equal(model.pipelineSummary.totalConfigs, 3);
   assert.equal(model.pipelineSummary.completedConfigLabel, "0/3 완료");
-  assert.equal(model.pipelineProgress, "8%");
+  assert.equal(model.pipelineProgress, "25%");
   assert.equal(model.pipelineStage, "내리적재");
-  assert.equal(model.pipelineEta, "0/3 완료");
+  assert.equal(model.pipelineEta, "계산중");
   assert.deepEqual(
     model.pipeline.map((step) => [step.key, step.progress, step.status]),
     [
-      ["download", 33, "running"],
+      ["download", 100, "running"],
       ["validate", 0, "pending"],
       ["zip", 0, "pending"],
       ["upload", 0, "pending"],
@@ -493,6 +493,177 @@ test("selected server pipeline stats include pending assigned configs when only 
       ["1-pyongyang-mapbox-satellite", "대기중", "대기중", "0%"],
       ["1-pyongyang-mapbox-pbf", "대기중", "대기중", "0%"],
       ["1-pyongyang-esri-satellite", "내리적재", "진행중", "100%"],
+    ]
+  );
+});
+
+test("selected server pipeline step progress follows the active config job", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online", currentJobId: "job-satellite-active" }],
+    configs: [
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri-complete",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:00:00.000Z",
+        finishedAt: "2026-06-23T12:05:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/",
+        },
+      },
+      {
+        jobId: "job-pbf-complete",
+        machineId: "server-02",
+        configId: "cfg-pbf",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:10:00.000Z",
+        finishedAt: "2026-06-23T12:15:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-pbf/",
+        },
+      },
+      {
+        jobId: "job-satellite-old-complete",
+        machineId: "server-02",
+        configId: "cfg-satellite",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:20:00.000Z",
+        finishedAt: "2026-06-23T12:25:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-satellite/",
+        },
+      },
+      {
+        jobId: "job-satellite-active",
+        machineId: "server-02",
+        configId: "cfg-satellite",
+        status: "running",
+        stage: "download",
+        startedAt: "2026-06-23T14:03:00.000Z",
+        updatedAt: "2026-06-23T14:03:30.000Z",
+        progress: {
+          percent: 81,
+          tilesDone: 323,
+          tilesTotal: 399,
+          tilesPerSecond: 19,
+          etaSeconds: 3,
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "20%");
+  assert.equal(model.pipelineEta, "3초");
+  assert.equal(model.pipelineSummary.completedConfigLabel, "2/3 완료");
+  assert.equal(model.pipelineSummary.processedTiles, 323);
+  assert.equal(model.pipelineSummary.totalTiles, 399);
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 81, "running"],
+      ["validate", 0, "pending"],
+      ["zip", 0, "pending"],
+      ["upload", 0, "pending"],
+    ]
+  );
+  assert.deepEqual(
+    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.statusLabel, process.progressLabel]),
+    [
+      ["1-pyongyang-esri-satellite", "올리적재", "완료", "100%"],
+      ["1-pyongyang-mapbox-pbf", "올리적재", "완료", "100%"],
+      ["1-pyongyang-mapbox-satellite", "내리적재", "진행중", "81%"],
+    ]
+  );
+});
+
+test("selected server pipeline upload phase is not marked complete until active upload completes", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online", currentJobId: "job-satellite-upload" }],
+    configs: [
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri-complete",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:00:00.000Z",
+        finishedAt: "2026-06-23T12:05:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/",
+        },
+      },
+      {
+        jobId: "job-pbf-complete",
+        machineId: "server-02",
+        configId: "cfg-pbf",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:10:00.000Z",
+        finishedAt: "2026-06-23T12:15:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-pbf/",
+        },
+      },
+      {
+        jobId: "job-satellite-old-complete",
+        machineId: "server-02",
+        configId: "cfg-satellite",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T12:20:00.000Z",
+        finishedAt: "2026-06-23T12:25:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-satellite/",
+        },
+      },
+      {
+        jobId: "job-satellite-upload",
+        machineId: "server-02",
+        configId: "cfg-satellite",
+        status: "running",
+        stage: "upload",
+        startedAt: "2026-06-23T14:10:00.000Z",
+        updatedAt: "2026-06-23T14:10:30.000Z",
+        progress: {
+          percent: 0,
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "75%");
+  assert.equal(model.pipelineStage, "올리적재");
+  assert.equal(model.pipelineEta, "계산중");
+  assert.equal(model.pipelineSummary.completedConfigLabel, "2/3 완료");
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 100, "complete"],
+      ["validate", 100, "complete"],
+      ["zip", 100, "complete"],
+      ["upload", 0, "running"],
     ]
   );
 });

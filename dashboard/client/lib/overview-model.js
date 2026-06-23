@@ -872,15 +872,15 @@ function configPipelineSummary({
 }
 
 function buildConfigPipelineModel({ configs = [], scopedJobs = [], liveScopedJobs = [], completedStorjLinks = [], machine = null, nowMs = Date.now(), summary = {} } = {}) {
+  const activeConfigIds = new Set(liveScopedJobs.map((job) => configIdValue(job.configId)).filter(Boolean));
   const completedLinksByConfig = new Map();
   for (const link of completedStorjLinks) {
     const configId = configIdValue(link.configId);
+    if (activeConfigIds.has(configId)) continue;
     if (configId && !completedLinksByConfig.has(configId)) completedLinksByConfig.set(configId, link);
   }
 
-  const liveJobsByConfig = latestJobsByConfig(
-    liveScopedJobs.filter((job) => !completedLinksByConfig.has(configIdValue(job.configId)))
-  );
+  const liveJobsByConfig = latestJobsByConfig(liveScopedJobs);
   const liveJobs = [...liveJobsByConfig.values()].sort(newestFirst);
   const processes = configs.map((config) => {
     const configId = configIdValue(config.configId);
@@ -895,15 +895,28 @@ function buildConfigPipelineModel({ configs = [], scopedJobs = [], liveScopedJob
     completedLinksByConfig,
     baseSummary: summary,
   });
+  const focusedJob = liveJobs.length === 1 ? liveJobs[0] : null;
+  const focusedSteps = focusedJob
+    ? aggregatePipelineSteps([focusedJob], [], { allowStaleFallback: false })
+    : null;
+  const focusedProgress = focusedJob ? Math.round(jobPipelineProgress(focusedJob)) : null;
+  const focusedSummary = focusedJob
+    ? {
+        ...configSummary,
+        stageLabel: jobStageLabel(focusedJob),
+        progressLabel: `${focusedProgress}%`,
+        etaLabel: jobEtaLabel(focusedJob, { stale: jobProgressIsStale(focusedJob, machine, nowMs) }),
+      }
+    : configSummary;
   return {
-    steps: aggregateConfigPipelineSteps(configs, { liveJobsByConfig, completedLinksByConfig }),
+    steps: focusedSteps || aggregateConfigPipelineSteps(configs, { liveJobsByConfig, completedLinksByConfig }),
     activeJob: liveJobs[0] || null,
     activeJobs: liveJobs,
     pipelineProcesses: processes,
-    etaLabel: configSummary.etaLabel,
-    stageLabel: configSummary.stageLabel,
-    progressLabel: configSummary.progressLabel,
-    summary: configSummary,
+    etaLabel: focusedSummary.etaLabel,
+    stageLabel: focusedSummary.stageLabel,
+    progressLabel: focusedSummary.progressLabel,
+    summary: focusedSummary,
   };
 }
 
