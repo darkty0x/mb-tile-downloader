@@ -343,6 +343,7 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
     ["진행", overview.pipelineProgress || "0%"],
     ["단계", overview.pipelineStage || "대기중"],
     ["완료예상", overview.pipelineEta || "대기중"],
+    ...(pipelineSummary.completedConfigLabel ? [["Config 완료", pipelineSummary.completedConfigLabel]] : []),
     ...(activeProcessCount > 1 ? [["공정", `${activeProcessCount}개`]] : []),
   ];
   const activeJob = overview.activeJob;
@@ -353,6 +354,7 @@ function PipelineOverview({ overview, title = "실시간 공정흐름 상태", m
     : (pipelineSummary.machineLabel ? displayMachineId(pipelineSummary.machineLabel) : activeJob?.machineId ? displayMachineId(activeJob.machineId) : "대기중");
   const detailRows = [
     ["봉사기", machineLabel],
+    ...(pipelineSummary.completedConfigLabel ? [["Config 완료", pipelineSummary.completedConfigLabel]] : []),
     ...(activeProcessCount > 1 ? [["Config 공정", `${activeProcessCount}개 진행중`]] : []),
     ["작업단계", overview.pipelineStage || pipelineSummary.stageLabel || activeJob?.stage || "대기중"],
     ["타일", `${formatInteger(pipelineSummary.processedTiles)} / ${formatInteger(pipelineSummary.totalTiles)}`],

@@ -569,6 +569,67 @@ function jobNameForTarget({ baseJobName, target, multipleTargets }) {
   return `${baseJobName}-${target.splitName}`;
 }
 
+function coordinateAreaName(area = {}) {
+  const center = area.center || {};
+  const latitude = Number(center.latitude);
+  const longitude = Number(center.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return "Selected Area";
+  const latSuffix = latitude < 0 ? "S" : "N";
+  const lonSuffix = longitude < 0 ? "W" : "E";
+  return `Area ${Math.abs(latitude).toFixed(3)}${latSuffix} ${Math.abs(longitude).toFixed(3)}${lonSuffix}`;
+}
+
+function placeNameFromAddress(address = {}) {
+  return address.city
+    || address.town
+    || address.village
+    || address.municipality
+    || address.county
+    || address.state_district
+    || address.state
+    || address.region
+    || address.island
+    || address.country
+    || "";
+}
+
+export async function defaultLocationResolver({ center } = {}) {
+  const latitude = Number(center?.latitude);
+  const longitude = Number(center?.longitude);
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude) || typeof fetch !== "function") return "";
+  try {
+    const url = new URL("https://nominatim.openstreetmap.org/reverse");
+    url.searchParams.set("format", "jsonv2");
+    url.searchParams.set("lat", String(latitude));
+    url.searchParams.set("lon", String(longitude));
+    url.searchParams.set("zoom", "10");
+    url.searchParams.set("addressdetails", "1");
+    const response = await fetch(url, {
+      headers: {
+        "accept": "application/json",
+        "user-agent": "mb-tile-downloader-dashboard/1.0",
+      },
+      signal: AbortSignal.timeout(1500),
+    });
+    if (!response.ok) return "";
+    const payload = await response.json();
+    return String(placeNameFromAddress(payload.address) || payload.name || payload.display_name || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+async function inferBaseConfigName({ requestedName, rangeSummary, locationResolver } = {}) {
+  const cleanName = String(requestedName || "").trim();
+  if (cleanName) return { name: cleanName, inferred: false };
+  const area = rangeSummary?.area || null;
+  const resolvedName = area && locationResolver
+    ? String(await locationResolver(area) || "").trim()
+    : "";
+  const fallbackName = coordinateAreaName(area);
+  return { name: resolvedName || fallbackName, inferred: true };
+}
+
 function splitStrategyForBatch(body, { templateCount, targetCount } = {}) {
   if (!body.splitAcrossMachines || targetCount < 2) return "none";
   const requested = String(body.splitStrategy || body.splitMode || "").trim();
@@ -577,7 +638,7 @@ function splitStrategyForBatch(body, { templateCount, targetCount } = {}) {
   return templateCount > 1 ? "configTypes" : "ranges";
 }
 
-async function buildConfigDrafts({ store, body, configTemplatesDir }) {
+async function buildConfigDrafts({ store, body, configTemplatesDir, locationResolver = defaultLocationResolver }) {
   const parsedRanges = parseConfigRanges({
     input: body.rangeInput || body.ranges,
     zoom: body.zoom,
@@ -599,11 +660,16 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
     targetCount: targets.length,
   });
   const rangeSummary = summarizeRanges(parsedRanges);
+  const baseName = await inferBaseConfigName({
+    requestedName: body.name,
+    rangeSummary,
+    locationResolver,
+  });
   const drafts = [];
 
   for (const [templateIndex, template] of templates.entries()) {
     const sourceName = configNameForTemplate({
-      baseName: body.name,
+      baseName: baseName.name,
       template,
       multiple: multipleTemplates,
     });
@@ -666,7 +732,7 @@ async function buildConfigDrafts({ store, body, configTemplatesDir }) {
     }
   }
 
-  return { drafts, rangeSummary };
+  return { drafts, rangeSummary, suggestedName: baseName.inferred ? baseName.name : "" };
 }
 
 async function createConfigsFromDrafts({ store, drafts }) {
@@ -700,6 +766,7 @@ export function createDashboardApp({
   secretVault = null,
   secretValidator = createSecretValidator(),
   telegramNotifier = null,
+  locationResolver = defaultLocationResolver,
   agentToken = "",
   clientDir = DEFAULT_CLIENT_DIR,
   configTemplatesDir = DEFAULT_CONFIG_TEMPLATES_DIR,
@@ -1144,9 +1211,9 @@ export function createDashboardApp({
             return;
           }
 
-          const { drafts, rangeSummary } = await buildConfigDrafts({ store, body, configTemplatesDir });
+          const { drafts, rangeSummary, suggestedName } = await buildConfigDrafts({ store, body, configTemplatesDir, locationResolver });
           if (body.preview) {
-            json(res, 200, { drafts, rangeSummary });
+            json(res, 200, { drafts, rangeSummary, suggestedName });
             return;
           }
           const configs = await createConfigsFromDrafts({ store, drafts });

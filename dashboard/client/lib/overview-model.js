@@ -654,7 +654,7 @@ function configDisplayNameFromJob({ job = {}, config = null, shareUrl = "" } = {
 function buildStorjLinks(jobs = [], configs = []) {
   const seen = new Set();
   return jobs
-    .filter((job) => job.progress?.storjShareUrl)
+    .filter((job) => jobHasCompletedStorjProof(job))
     .sort(newestFirst)
     .map((job) => {
       const shareUrl = String(job.progress?.storjShareUrl || "").trim();
@@ -678,9 +678,63 @@ function buildStorjLinks(jobs = [], configs = []) {
     .filter(Boolean);
 }
 
+function jobHasCompletedStorjProof(job = {}) {
+  const progress = job.progress || {};
+  const percent = Number(progress.percent);
+  return jobStatus(job) === "completed"
+    && String(job.stage || "").toLowerCase() === "upload"
+    && String(progress.storjShareUrl || "").trim()
+    && (!Number.isFinite(percent) || percent >= 100);
+}
+
+function completedConfigSummaryFromLinks(storjLinks = [], configs = []) {
+  const total = configs.length;
+  if (total <= 1) return null;
+  const completed = Math.min(total, storjLinks.length);
+  if (completed <= 0) return null;
+  return {
+    completed,
+    total,
+    progress: Math.max(0, Math.min(100, Math.round((completed / total) * 100))),
+    label: `${completed}/${total} 완료`,
+    complete: completed >= total,
+  };
+}
+
+function completedConfigSteps(summary) {
+  const uploadProgress = summary?.progress ?? 0;
+  return PIPELINE_STEPS.map(([key, label], index) => {
+    if (index < PIPELINE_STEPS.length - 1) return { key, label, status: "complete", progress: 100 };
+    return {
+      key,
+      label,
+      status: uploadProgress >= 100 ? "complete" : "running",
+      progress: uploadProgress,
+    };
+  });
+}
+
+function storjLinksArePublishable({ storjLinks = [], configs = [], scopedJobs = [], liveScopedJobs = [] } = {}) {
+  if (!storjLinks.length) return false;
+  if (liveScopedJobs.length) return false;
+
+  const latestJob = scopedJobs[0] || null;
+  if (latestJob && jobStatus(latestJob) !== "completed") return false;
+
+  if (configs.length > 0) {
+    const completedConfigIds = new Set(storjLinks.map((link) => String(link.configId || "").trim()).filter(Boolean));
+    return configs.every((config) => completedConfigIds.has(String(config.configId || "").trim()));
+  }
+
+  return true;
+}
+
 function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [], configs = [], nowMs = Date.now() } = {}) {
   const isFleet = !normalizeMachineId(machineId);
   const scopedMachineId = normalizeMachineId(machineId);
+  const scopedConfigs = scopedMachineId
+    ? configs.filter((config) => !normalizeMachineId(config.machineId) || normalizeMachineId(config.machineId) === scopedMachineId)
+    : configs;
   const scopedJobs = jobs
     .filter((job) => jobMachineMatches(job, machineId))
     .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
@@ -693,8 +747,37 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
     : null;
   const pipelineProcesses = stepJobs
     .filter((job) => RUNNING_JOB_STATUSES.has(jobStatus(job)) || (!liveScopedJobs.length && job === activeJob))
-    .map((job) => pipelineProcessFromJob(job, { configs, machine, nowMs }));
-  const storjLinks = buildStorjLinks(scopedJobs, configs);
+    .map((job) => pipelineProcessFromJob(job, { configs: scopedConfigs, machine, nowMs }));
+  const completedStorjLinks = buildStorjLinks(scopedJobs, scopedConfigs);
+  const storjLinks = storjLinksArePublishable({ storjLinks: completedStorjLinks, configs: scopedConfigs, scopedJobs, liveScopedJobs })
+    ? completedStorjLinks
+    : [];
+  const completedConfigSummary = !isFleet && !liveScopedJobs.length
+    ? completedConfigSummaryFromLinks(completedStorjLinks, scopedConfigs)
+    : null;
+  if (completedConfigSummary && !completedConfigSummary.complete) {
+    return {
+      steps: completedConfigSteps(completedConfigSummary),
+      activeJob: null,
+      activeJobs: [],
+      pipelineProcesses,
+      etaLabel: completedConfigSummary.label,
+      stageLabel: "올리적재",
+      progressLabel: `${completedConfigSummary.progress}%`,
+      summary: {
+        ...summary,
+        completedConfigs: completedConfigSummary.completed,
+        totalConfigs: completedConfigSummary.total,
+        completedConfigLabel: completedConfigSummary.label,
+        progressLabel: `${completedConfigSummary.progress}%`,
+        stageLabel: "올리적재",
+        etaLabel: completedConfigSummary.label,
+      },
+      storjLinks,
+      storjShareUrl: storjLinks[0]?.shareUrl || "",
+      storjRawLinkPrefix: storjLinks[0]?.rawLinkPrefix || "",
+    };
+  }
   if (!activeJob) {
     return {
       steps: aggregatePipelineSteps(stepJobs, events, { allowStaleFallback: !isFleet }),

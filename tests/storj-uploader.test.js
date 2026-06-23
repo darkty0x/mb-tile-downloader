@@ -218,6 +218,60 @@ test("storj uploader does not share incomplete config uploads", async () => {
   );
 });
 
+test("storj uploader rejects range-scoped uploads because completion proof must cover the full config", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-range-scope-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "1-pyongyang-mapbox-satellite.config.json");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    path.join(archivesDir, "tiles_satellite_10_000870-000870_y000389-000390.zip"),
+    "zip"
+  );
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "1-pyongyang-mapbox-satellite",
+      provider: "mapbox",
+      layer: "satellite",
+      ranges: [
+        { zoom: 7, xStart: 109, xEnd: 109, yStart: 47, yEnd: 48 },
+        { zoom: 8, xStart: 218, xEnd: 218, yStart: 96, yEnd: 97 },
+        { zoom: 9, xStart: 435, xEnd: 435, yStart: 194, yEnd: 194 },
+        { zoom: 10, xStart: 870, xEnd: 870, yStart: 389, yEnd: 390 },
+        { zoom: 11, xStart: 1739, xEnd: 1740, yStart: 780, yEnd: 782 },
+        { zoom: 12, xStart: 3478, xEnd: 3480, yStart: 1562, yEnd: 1565 },
+        { zoom: 13, xStart: 6955, xEnd: 6960, yStart: 3126, yEnd: 3131 },
+        { zoom: 14, xStart: 13910, xEnd: 13920, yStart: 6254, yEnd: 6263 },
+        { zoom: 15, xStart: 27819, xEnd: 27839, yStart: 12510, yEnd: 12528 },
+        { zoom: 16, xStart: 55637, xEnd: 55678, yStart: 25021, yEnd: 25058 },
+      ],
+    })
+  );
+
+  await assert.rejects(
+    () =>
+      execFileAsync(
+        process.execPath,
+        [
+          "storj-uploader.js",
+          configPath,
+          `--archive-dir=${archivesDir}`,
+          "--bucket=mapbox",
+          "--dry-run",
+          "--range-index=3",
+        ],
+        { cwd: path.resolve(".") }
+      ),
+    (err) => {
+      const output = `${err.stdout || ""}${err.stderr || ""}${err.message || ""}`;
+      assert.match(output, /--range-index is not supported for Storj upload/);
+      assert.doesNotMatch(output, /Config ZIPs planned: 1/);
+      assert.doesNotMatch(output, /Share link:/);
+      return true;
+    }
+  );
+});
+
 test("storj uploader does not treat empty uplink ls output as remote existing", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");

@@ -887,6 +887,13 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
       input: JSON.stringify([{ zoom: 12, xStart: 1, xEnd: 2, yStart: 3, yEnd: 4 }]),
     },
   });
+  const latLonPoint = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: "lat: 37.5665, lon: 126.9780",
+    },
+  });
   const missingZoom = await request(server, {
     method: "POST",
     path: "/api/ranges/parse",
@@ -917,6 +924,20 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
   });
   assert.equal(jsonRanges.status, 200);
   assert.equal(jsonRanges.body.tiles, 4);
+  assert.equal(latLonPoint.status, 200);
+  assert.equal(latLonPoint.body.rangeCount, 19);
+  assert.deepEqual(latLonPoint.body.ranges.map((range) => range.zoomStart), Array.from({ length: 19 }, (_, index) => index + 1));
+  assert.deepEqual(latLonPoint.body.ranges[18], {
+    zoomStart: 19,
+    zoomEnd: 19,
+    xStart: 447069,
+    xEnd: 447069,
+    yStart: 203031,
+    yEnd: 203031,
+    label: "point z=19 lat=37.5665 lon=126.978",
+  });
+  assert.equal(latLonPoint.body.area.center.latitude, 37.5665);
+  assert.equal(latLonPoint.body.area.center.longitude, 126.978);
   assert.equal(missingZoom.status, 400);
   assert.match(missingZoom.body.error, /zoom/);
 });
@@ -1046,6 +1067,49 @@ test("dashboard batch config preview returns editable drafts without creating co
   assert.equal(confirm.body.configs[0].config.jobName, "edited-ukraine");
   assert.equal(confirm.body.configs[0].config.ranges[0].label, "edited range");
   assert.equal(afterConfirm.body.configs.length, 1);
+});
+
+test("dashboard batch config preview infers a name from the selected area", async (t) => {
+  const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
+  await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
+    layer: "satellite",
+    format: "jpg",
+  });
+  let resolvedCenter = null;
+  const server = await withServer(t, {
+    configTemplatesDir: templatesDir,
+    locationResolver: async ({ center }) => {
+      resolvedCenter = center;
+      return "Prince Edward Islands";
+    },
+  });
+  await request(server, {
+    method: "POST",
+    path: "/api/agents/register",
+    headers: { authorization: "Bearer agent-token" },
+    body: { machineId: "worker-a", agentInstanceId: "agent-a", displayName: "Worker A" },
+  });
+
+  const preview = await request(server, {
+    method: "POST",
+    path: "/api/configs/batch",
+    body: {
+      preview: true,
+      machineId: "worker-a",
+      name: "",
+      templateIds: ["mapbox-satellite"],
+      rangeInput: [
+        "12/3478/2530 - 12/3478/2533",
+        "13/6955/5060 - 13/6960/5065",
+      ].join("\n"),
+    },
+  });
+
+  assert.equal(preview.status, 200);
+  assert.deepEqual(resolvedCenter, { longitude: 125.771484, latitude: -39.095831 });
+  assert.equal(preview.body.suggestedName, "Prince Edward Islands");
+  assert.equal(preview.body.drafts[0].name, "Prince Edward Islands");
+  assert.equal(preview.body.drafts[0].config.jobName, "prince-edward-islands-mapbox-satellite");
 });
 
 test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {

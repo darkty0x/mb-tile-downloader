@@ -448,8 +448,8 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
 
 function ConfigRangeBuilder({ actions, onDirty }) {
   const [rangeInput, setRangeInput] = useState("");
-  const [zoomStart, setZoomStart] = useState("");
-  const [zoomEnd, setZoomEnd] = useState("");
+  const [zoomStart, setZoomStart] = useState("1");
+  const [zoomEnd, setZoomEnd] = useState("19");
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
 
@@ -481,8 +481,8 @@ function ConfigRangeBuilder({ actions, onDirty }) {
         <AppButton type="button" icon="check" onClick={validate}>범위 검증</AppButton>
       </div>
       <div className="grid grid-cols-2 gap-2">
-        <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} placeholder="1" />
-        <TextInput label="Zoom 끝" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} placeholder="19" />
+        <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} />
+        <TextInput label="Zoom 끝" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} />
       </div>
       <label className="grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)]">
         <span>범위입력</span>
@@ -495,7 +495,7 @@ function ConfigRangeBuilder({ actions, onDirty }) {
             setError("");
             onDirty?.();
           }}
-          placeholder={'LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\n또는 19/312824/339498 - 19/321475/351754\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
+          placeholder={'lat: 37.5665, lon: 126.9780\\n\\n또는 LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\n또는 19/312824/339498 - 19/321475/351754\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
           spellCheck="false"
           value={rangeInput}
         />
@@ -637,6 +637,7 @@ function ConfigForm({ record, state, actions, editor }) {
   const [submitting, setSubmitting] = useState(false);
   const [batchPreview, setBatchPreview] = useState(null);
   const [draftTexts, setDraftTexts] = useState([]);
+  const [nameValue, setNameValue] = useState(record?.name || editor?.name || "");
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && (selectedTemplateIds.length > 0 || groupEditing);
   const effectiveMachineIds = id ? [record?.machineId || state.selectedMachineId].filter(Boolean) : selectedMachineIds;
@@ -674,6 +675,7 @@ function ConfigForm({ record, state, actions, editor }) {
             const preview = await actions.previewConfigBatch(new FormData(event.currentTarget));
             setBatchPreview(preview);
             setDraftTexts((preview.drafts || []).map((draft) => JSON.stringify(draft.config, null, 2)));
+            if (preview.suggestedName && !nameValue.trim()) setNameValue(preview.suggestedName);
             return;
           }
           const drafts = (batchPreview.drafts || []).map((draft, index) => ({
@@ -690,7 +692,16 @@ function ConfigForm({ record, state, actions, editor }) {
         setSubmitting(false);
       }
     }}>
-      <TextInput label="이름" name="name" defaultValue={record?.name || editor?.name || ""} onChange={clearBatchPreview} required />
+      <TextInput
+        label="이름"
+        name="name"
+        onChange={(event) => {
+          setNameValue(event.target.value);
+          clearBatchPreview();
+        }}
+        required={!templateMode || groupEditing}
+        value={nameValue}
+      />
       {!id ? (
         <ConfigServerPicker
           machines={state.machines}

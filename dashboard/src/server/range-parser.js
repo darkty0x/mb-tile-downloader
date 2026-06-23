@@ -52,6 +52,14 @@ function normalizeZooms({ zoom, zoomStart, zoomEnd } = {}) {
   return { zoomStart: zStart, zoomEnd: zEnd };
 }
 
+function normalizePointZooms(zoomOptions = {}) {
+  return normalizeZooms({
+    zoomStart: zoomOptions.zoomStart === undefined || zoomOptions.zoomStart === null || zoomOptions.zoomStart === "" ? 1 : zoomOptions.zoomStart,
+    zoomEnd: zoomOptions.zoomEnd === undefined || zoomOptions.zoomEnd === null || zoomOptions.zoomEnd === "" ? 19 : zoomOptions.zoomEnd,
+    zoom: zoomOptions.zoom,
+  });
+}
+
 function rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd, label }) {
   const ranges = [];
   for (let zoom = zoomStart; zoom <= zoomEnd; zoom++) {
@@ -65,6 +73,45 @@ function rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd, label 
     });
   }
   return normalizeRanges({ ranges });
+}
+
+function rangesFromPoint({ latitude, longitude, zoomStart, zoomEnd }) {
+  const ranges = [];
+  for (let zoom = zoomStart; zoom <= zoomEnd; zoom++) {
+    const x = longitudeToTileX(longitude, zoom);
+    const y = latitudeToTileY(latitude, zoom);
+    ranges.push({
+      zoom,
+      xStart: x,
+      xEnd: x,
+      yStart: y,
+      yEnd: y,
+      label: `point z=${zoom} lat=${latitude} lon=${longitude}`,
+    });
+  }
+  return normalizeRanges({ ranges });
+}
+
+function parseLatLonInput(input, zoomOptions) {
+  const namedLat = input.match(/\b(?:lat|latitude)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
+  const namedLon = input.match(/\b(?:lon|lng|longitude)\s*[:=]\s*(-?\d+(?:\.\d+)?)/i);
+  if (namedLat && namedLon) {
+    const { zoomStart, zoomEnd } = normalizePointZooms(zoomOptions);
+    return rangesFromPoint({
+      latitude: parseNumber(namedLat[1], "latitude"),
+      longitude: parseNumber(namedLon[1], "longitude"),
+      zoomStart,
+      zoomEnd,
+    });
+  }
+
+  const pairMatch = input.trim().match(/^(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)$/);
+  if (!pairMatch) return null;
+  const latitude = parseNumber(pairMatch[1], "latitude");
+  const longitude = parseNumber(pairMatch[2], "longitude");
+  if (Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+  const { zoomStart, zoomEnd } = normalizePointZooms(zoomOptions);
+  return rangesFromPoint({ latitude, longitude, zoomStart, zoomEnd });
 }
 
 function parseJsonRangeInput(input, zoomOptions) {
@@ -86,11 +133,34 @@ function parseJsonRangeInput(input, zoomOptions) {
       ...zooms,
     });
   }
+  const latitude = parsed?.latitude ?? parsed?.lat;
+  const longitude = parsed?.longitude ?? parsed?.lon ?? parsed?.lng;
+  if (latitude !== undefined && longitude !== undefined) {
+    const zooms = normalizePointZooms({ ...zoomOptions, ...parsed });
+    return rangesFromPoint({
+      latitude: parseNumber(latitude, "latitude"),
+      longitude: parseNumber(longitude, "longitude"),
+      ...zooms,
+    });
+  }
   return normalizeRanges({ ranges: [parsed] });
 }
 
 function parseTileRangeInput(input) {
   const compact = input.replace(/\s+/g, " ").trim();
+  const lines = input.split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  if (lines.length > 1) {
+    const ranges = [];
+    for (const line of lines) {
+      const parsed = parseTileRangeInput(line);
+      if (!parsed) return null;
+      ranges.push(...parsed);
+    }
+    return normalizeRanges({ ranges });
+  }
+
   const slashMatch = compact.match(/^(\d+)\/(\d+)\/(\d+)\/?\s*[-–—]\s*(?:(\d+)\/)?(\d+)\/(\d+)\/?$/);
   if (slashMatch) {
     const zoomStart = parseInteger(slashMatch[1], "zoom");
@@ -135,12 +205,30 @@ function parseBoundsInput(input, zoomOptions) {
   return rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd });
 }
 
+function pointFromRanges(ranges = []) {
+  let point = null;
+  for (const range of ranges) {
+    const match = String(range.label || "").match(/^point z=\d+ lat=(-?\d+(?:\.\d+)?) lon=(-?\d+(?:\.\d+)?)/);
+    if (!match) return null;
+    const current = {
+      latitude: parseNumber(match[1], "latitude"),
+      longitude: parseNumber(match[2], "longitude"),
+    };
+    if (point && (point.latitude !== current.latitude || point.longitude !== current.longitude)) return null;
+    point = current;
+  }
+  return point;
+}
+
 export function parseConfigRanges({ input, zoom, zoomStart, zoomEnd } = {}) {
   const text = String(input || "").trim();
   if (!text) throw new Error("range input is required");
   if (/^[\[{]/.test(text)) return parseJsonRangeInput(text, { zoom, zoomStart, zoomEnd });
-  return parseTileRangeInput(text) || parseBoundsInput(text, { zoom, zoomStart, zoomEnd }) || (() => {
-    throw new Error("Unsupported range input. Use LB/TR bounds, z/x/y - z/x/y, z/x-y y-y, JSON ranges, or a config JSON with ranges.");
+  return parseTileRangeInput(text)
+    || parseLatLonInput(text, { zoom, zoomStart, zoomEnd })
+    || parseBoundsInput(text, { zoom, zoomStart, zoomEnd })
+    || (() => {
+    throw new Error("Unsupported range input. Use latitude/longitude, LB/TR bounds, z/x/y - z/x/y, z/x-y y-y, JSON ranges, or a config JSON with ranges.");
   })();
 }
 
@@ -150,6 +238,29 @@ export function summarizeRanges(ranges) {
     (sum, range) => sum + (range.zoomEnd - range.zoomStart + 1) * (range.xEnd - range.xStart + 1) * (range.yEnd - range.yStart + 1),
     0
   );
+  const point = pointFromRanges(normalized);
+  if (point) {
+    const roundedLatitude = roundCoordinate(point.latitude);
+    const roundedLongitude = roundCoordinate(point.longitude);
+    return {
+      ranges: normalized,
+      rangeCount: normalized.length,
+      tiles,
+      area: {
+        label: `lat ${roundedLatitude}, lon ${roundedLongitude}`,
+        bounds: {
+          west: roundedLongitude,
+          south: roundedLatitude,
+          east: roundedLongitude,
+          north: roundedLatitude,
+        },
+        center: {
+          longitude: roundedLongitude,
+          latitude: roundedLatitude,
+        },
+      },
+    };
+  }
   const bounds = normalized.reduce((acc, range) => {
     const zoom = range.zoomStart;
     const west = tileXToLongitude(range.xStart, zoom);

@@ -117,6 +117,7 @@ function parseArgs(argv) {
       if (!Number.isInteger(opts.rangeIndex) || opts.rangeIndex < 0) {
         throw new Error("--range-index must be a non-negative integer");
       }
+      throw new Error("--range-index is not supported for Storj upload; upload the full config after every range archive exists.");
     }
     else if (!arg.startsWith("-") && !opts.configPath) opts.configPath = arg;
     else throw new Error(`Unknown argument: ${arg}`);

@@ -160,8 +160,8 @@ The agent never executes arbitrary shell commands from the dashboard.
 download selected range
 validate selected range
 zip selected range
-upload selected range to Storj
 continue with next range
+upload the full config to Storj only after every selected range is zipped
 ```
 
-This uses `--range-index` on `downloader.js`, `zip-maker.js`, and `storj-uploader.js` so each range can complete and upload before the next range starts.
+This uses `--range-index` on `downloader.js` and `zip-maker.js` so each range can complete before the next range starts. `storj-uploader.js` always runs against the full config and refuses range-scoped uploads, because the Storj share link is the completed-config proof.

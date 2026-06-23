@@ -758,6 +758,119 @@ test("overview model exposes completed upload share link as pipeline proof", () 
   );
 });
 
+test("overview model shows partial config completion from storj proofs", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: [
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-pbf",
+        machineId: "server-02",
+        configId: "cfg-pbf",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T01:40:00.000Z",
+        finishedAt: "2026-06-23T01:45:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-mapbox-pbf/",
+        },
+      },
+      {
+        jobId: "job-esri",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T01:35:00.000Z",
+        finishedAt: "2026-06-23T01:39:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/",
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "67%");
+  assert.equal(model.pipelineEta, "2/3 완료");
+  assert.equal(model.pipelineSummary.completedConfigLabel, "2/3 완료");
+  assert.equal(model.pipeline[3].status, "running");
+  assert.equal(model.pipeline[3].progress, 67);
+  assert.equal(model.storjLinks.length, 0);
+});
+
+test("overview model only publishes storj links after every selected config completes", () => {
+  const base = {
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: [
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+    ],
+    machineId: "server-02",
+  };
+  const completedJobs = [
+    ["cfg-satellite", "1-pyongyang-mapbox-satellite", "2026-06-23T01:50:00.000Z"],
+    ["cfg-pbf", "1-pyongyang-mapbox-pbf", "2026-06-23T01:45:00.000Z"],
+    ["cfg-esri", "1-pyongyang-esri-satellite", "2026-06-23T01:40:00.000Z"],
+  ].map(([configId, name, startedAt]) => ({
+    jobId: `job-${configId}`,
+    machineId: "server-02",
+    configId,
+    status: "completed",
+    stage: "upload",
+    startedAt,
+    finishedAt: startedAt,
+    progress: {
+      percent: 100,
+      storjShareUrl: `https://link.storjshare.io/s/token/mapbox/${name}/`,
+    },
+  }));
+
+  const incomplete = buildOverviewModel({
+    ...base,
+    jobs: [
+      ...completedJobs.slice(0, 2),
+      {
+        jobId: "job-stopped-upload",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "stopped",
+        stage: "upload",
+        startedAt: "2026-06-23T01:55:00.000Z",
+        progress: {
+          percent: 75,
+          rangeIndex: 3,
+          rangeCount: 10,
+        },
+      },
+    ],
+  });
+
+  assert.equal(incomplete.pipelineProgress, "67%");
+  assert.equal(incomplete.pipelineEta, "2/3 완료");
+  assert.equal(incomplete.storjLinks.length, 0);
+  assert.equal(incomplete.storjShareUrl, "");
+
+  const complete = buildOverviewModel({
+    ...base,
+    jobs: completedJobs,
+  });
+
+  assert.equal(complete.pipelineProgress, "100%");
+  assert.equal(complete.pipelineEta, "완료");
+  assert.deepEqual(
+    complete.storjLinks.map((link) => link.configName),
+    ["1-pyongyang-mapbox-satellite", "1-pyongyang-mapbox-pbf", "1-pyongyang-esri-satellite"]
+  );
+});
+
 test("overview model collapses multiple range upload proofs to one link per config", () => {
   const jobs = Array.from({ length: 10 }, (_, index) => ({
     jobId: `job-range-${index}`,
