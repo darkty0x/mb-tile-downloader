@@ -607,8 +607,13 @@ export function useDashboardState() {
           method: "DELETE",
         });
         const count = result.count ?? result.jobs?.length ?? 0;
+        const deletedJobIds = new Set((result.jobs || []).map((job) => job.jobId).filter(Boolean));
+        if (deletedJobIds.size) {
+          setJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
+          setGlobalJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
+        }
         setNotice({ message: `작업 ${count}개가 삭제되였습니다`, kind: "success" });
-        await refreshMachineData(targetMachineId);
+        await refreshAll({ showLoading: false });
       },
       async pauseAllMachines() {
         const targets = machines.filter((machine) => machine.status !== "offline").map((machine) => machine.machineId);

@@ -48,3 +48,15 @@ test("completed config cleanup uses the shared confirmation before delete APIs",
   assert.match(cleanupSource, /\/api\/configs\/\$\{encodeURIComponent\(candidate\.configId\)\}/);
   assert.ok(cleanupSource.indexOf("confirmDanger({") < cleanupSource.indexOf("/api/configs/"));
 });
+
+test("machine task deletion clears global job state after confirmation", () => {
+  const deleteTaskSource = stateSource.slice(
+    stateSource.indexOf("async deleteMachineTask"),
+    stateSource.indexOf("async pauseAllMachines", stateSource.indexOf("async deleteMachineTask")),
+  );
+
+  assert.match(deleteTaskSource, /confirmDanger\(\{/);
+  assert.match(deleteTaskSource, /setJobs\(\(current\) => current\.filter/);
+  assert.match(deleteTaskSource, /setGlobalJobs\(\(current\) => current\.filter/);
+  assert.ok(deleteTaskSource.indexOf("confirmDanger({") < deleteTaskSource.indexOf("/api/machines/"));
+});
