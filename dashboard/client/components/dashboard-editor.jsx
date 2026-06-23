@@ -450,7 +450,6 @@ function ConfigRangeBuilder({ actions, onDirty }) {
   const [rangeInput, setRangeInput] = useState("");
   const [zoomStart, setZoomStart] = useState("1");
   const [zoomEnd, setZoomEnd] = useState("19");
-  const [inputYScheme, setInputYScheme] = useState("auto");
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
 
@@ -464,7 +463,6 @@ function ConfigRangeBuilder({ actions, onDirty }) {
           input: rangeInput,
           zoomStart,
           zoomEnd,
-          inputYScheme,
         }),
       });
       setPreview(result);
@@ -486,21 +484,6 @@ function ConfigRangeBuilder({ actions, onDirty }) {
         <TextInput label="Zoom 시작" name="zoomStart" type="number" min="0" max="24" value={zoomStart} onChange={(event) => setZoomStart(event.target.value)} />
         <TextInput label="Zoom 끝" name="zoomEnd" type="number" min="0" max="24" value={zoomEnd} onChange={(event) => setZoomEnd(event.target.value)} />
       </div>
-      <SelectInput
-        label="Raw 타일 Y 좌표계"
-        name="inputYScheme"
-        value={inputYScheme}
-        onChange={(event) => {
-          setInputYScheme(event.target.value);
-          setPreview(null);
-          setError("");
-          onDirty?.();
-        }}
-      >
-        <option value="auto">자동검출</option>
-        <option value="xyz">XYZ</option>
-        <option value="tms">TMS / inverted Y</option>
-      </SelectInput>
       <label className="grid gap-1.5 text-[11.5px] font-[750] text-[var(--ptg-on-surface-variant)]">
         <span>범위입력</span>
         <textarea

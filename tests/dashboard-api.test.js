@@ -1162,7 +1162,7 @@ test("dashboard batch config preview infers a name from the selected area", asyn
   assert.equal(preview.body.drafts[0].config.jobName, "prince-edward-islands-mapbox-satellite");
 });
 
-test("dashboard batch config preview auto-resolves unnamed TMS tile ranges through reverse geocoding", async (t) => {
+test("dashboard batch config preview auto-resolves unnamed Mapbox tile ranges through reverse geocoding", async (t) => {
   const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
   await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
     layer: "satellite",
@@ -1173,7 +1173,7 @@ test("dashboard batch config preview auto-resolves unnamed TMS tile ranges throu
     configTemplatesDir: templatesDir,
     locationResolver: async ({ center }) => {
       resolvedCenters.push(center);
-      return center.latitude > 0 ? "Pyongyang" : "";
+      return "Pyongyang";
     },
   });
   await request(server, {
@@ -1192,35 +1192,28 @@ test("dashboard batch config preview auto-resolves unnamed TMS tile ranges throu
       name: "",
       templateIds: ["mapbox-satellite"],
       rangeInput: [
-        "7/109/79/ - 7/109/80/",
-        "8/218/158/ - 8/218/159/",
-        "9/435/317/ - 9/435/317/",
-        "10/870/633/ - 10/870/634/",
-        "11/1739/1265/ - 11/1740/1267/",
-        "12/3478/2530/ - 12/3480/2533/",
-        "13/6955/5060/ - 13/6960/5065/",
-        "14/13910/10120/ - 14/13920/10129/",
-        "15/27819/20239/ - 15/27839/20257/",
-        "16/55637/40477/ - 16/55678/40514/",
+        "14/13910/6254/ - 14/13920/6263/",
+        "15/27819/12510/ - 15/27839/12528/",
+        "16/55637/25021/ - 16/55678/25058/",
       ].join("\n"),
     },
   });
 
   assert.equal(preview.status, 200);
-  assert.deepEqual(resolvedCenters.map((center) => Math.sign(center.latitude)), [-1, 1]);
+  assert.equal(resolvedCenters.length, 1);
+  assert.ok(resolvedCenters[0].latitude > 0);
   assert.equal(preview.body.rangeSummary.area.label, "Pyongyang");
-  assert.equal(preview.body.rangeSummary.inputYScheme, "tms");
   assert.equal(preview.body.suggestedName, "Pyongyang");
   assert.equal(preview.body.drafts[0].name, "Pyongyang");
   assert.equal(preview.body.drafts[0].config.jobName, "pyongyang-mapbox-satellite");
-  assert.deepEqual(preview.body.drafts[0].config.ranges.slice(0, 3), [
-    { zoomStart: 7, zoomEnd: 7, xStart: 109, xEnd: 109, yStart: 47, yEnd: 48, label: "range#1: z=7 x=109-109 y=79-80 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
-    { zoomStart: 8, zoomEnd: 8, xStart: 218, xEnd: 218, yStart: 96, yEnd: 97, label: "range#1: z=8 x=218-218 y=158-159 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
-    { zoomStart: 9, zoomEnd: 9, xStart: 435, xEnd: 435, yStart: 194, yEnd: 194, label: "range#1: z=9 x=435-435 y=317-317 y=tms->xyz", autoCorrectedY: "tms-to-xyz" },
+  assert.deepEqual(preview.body.drafts[0].config.ranges, [
+    { zoomStart: 14, zoomEnd: 14, xStart: 13910, xEnd: 13920, yStart: 6254, yEnd: 6263, label: "range#1: z=14 x=13910-13920 y=6254-6263" },
+    { zoomStart: 15, zoomEnd: 15, xStart: 27819, xEnd: 27839, yStart: 12510, yEnd: 12528, label: "range#1: z=15 x=27819-27839 y=12510-12528" },
+    { zoomStart: 16, zoomEnd: 16, xStart: 55637, xEnd: 55678, yStart: 25021, yEnd: 25058, label: "range#1: z=16 x=55637-55678 y=25021-25058" },
   ]);
 });
 
-test("dashboard batch config preview rejects unnamed raw tile ranges when geocoding is ambiguous", async (t) => {
+test("dashboard batch config preview rejects unnamed Mapbox tile ranges when reverse geocoding fails", async (t) => {
   const templatesDir = await mkdtemp(path.join(os.tmpdir(), "mb-config-templates-"));
   await writeConfigTemplate(templatesDir, "mapbox-satellite.config.json", {
     layer: "satellite",
@@ -1250,7 +1243,7 @@ test("dashboard batch config preview rejects unnamed raw tile ranges when geocod
   });
 
   assert.equal(preview.status, 400);
-  assert.match(preview.body.error, /enter a name|choose XYZ or TMS/i);
+  assert.match(preview.body.error, /Could not resolve a location name/i);
 });
 
 test("dashboard batch config creation assigns selected config types to selected servers", async (t) => {

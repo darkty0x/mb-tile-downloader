@@ -23,7 +23,7 @@ import {
   stripTemplateRanges,
 } from "./config-templates.js";
 import { createPostgresDashboardStore } from "./postgres-store.js";
-import { parseConfigRangeInput, rangesForYScheme, summarizeRanges } from "./range-parser.js";
+import { parseConfigRangeInput, summarizeRanges } from "./range-parser.js";
 import { createSecretValidator, isValidatableSecretType } from "./secret-validators.js";
 import { createPostgresSecretVault, createSecretVault, splitSecretValues } from "./secrets.js";
 import { createDashboardStore } from "./store.js";
@@ -631,49 +631,26 @@ async function inferBaseConfigName({ requestedName, rangeSummary, locationResolv
   return { name: resolvedName || fallbackName, inferred: true };
 }
 
-function normalizeInputYScheme(value) {
-  const normalized = String(value || "auto").trim().toLowerCase();
-  if (["xyz", "tms", "auto"].includes(normalized)) return normalized;
-  throw new Error("inputYScheme must be one of: auto, xyz, tms");
-}
-
-function labelResolvedArea(summary, name, inputYScheme) {
+async function resolveMapboxTileRangeName({ parsedInput, locationResolver }) {
+  const rangeSummary = summarizeRanges(parsedInput.ranges, { includeArea: true });
+  const name = rangeSummary.area && locationResolver
+    ? String(await locationResolver(rangeSummary.area) || "").trim()
+    : "";
+  if (!name) {
+    throw new Error("Could not resolve a location name from this Mapbox tile range; enter a name manually.");
+  }
   return {
-    ...summary,
-    inputYScheme,
-    area: summary.area ? { ...summary.area, label: name || summary.area.label } : null,
+    ranges: parsedInput.ranges,
+    rangeSummary: {
+      ...rangeSummary,
+      area: rangeSummary.area ? { ...rangeSummary.area, label: name } : null,
+    },
+    baseName: { name, inferred: true },
   };
 }
 
-async function resolveRawTileRangeName({ parsedInput, inputYScheme, locationResolver }) {
-  const schemes = inputYScheme === "auto" ? ["xyz", "tms"] : [inputYScheme];
-  const candidates = [];
-  for (const scheme of schemes) {
-    const ranges = rangesForYScheme(parsedInput.ranges, scheme);
-    const summary = summarizeRanges(ranges, { includeArea: true });
-    const name = summary.area && locationResolver
-      ? String(await locationResolver(summary.area) || "").trim()
-      : "";
-    if (name) {
-      candidates.push({
-        scheme,
-        ranges,
-        summary: labelResolvedArea(summary, name, scheme),
-        name,
-      });
-    }
-  }
-
-  if (candidates.length === 1) return candidates[0];
-  if (inputYScheme !== "auto") {
-    throw new Error("Could not resolve a location name from this tile range; enter a name manually.");
-  }
-  throw new Error("Could not uniquely resolve this raw tile range; enter a name manually or choose XYZ or TMS.");
-}
-
-async function resolveRangeInputForBatch({ parsedInput, requestedName, inputYScheme, locationResolver }) {
+async function resolveRangeInputForBatch({ parsedInput, requestedName, locationResolver }) {
   const cleanName = String(requestedName || "").trim();
-  const scheme = normalizeInputYScheme(inputYScheme);
 
   if (parsedInput.source !== "tile-ranges") {
     return {
@@ -684,25 +661,14 @@ async function resolveRangeInputForBatch({ parsedInput, requestedName, inputYSch
   }
 
   if (cleanName) {
-    const resolvedScheme = scheme === "auto" ? "xyz" : scheme;
-    const ranges = rangesForYScheme(parsedInput.ranges, resolvedScheme);
     return {
-      ranges,
-      rangeSummary: summarizeRanges(ranges, { includeArea: false }),
+      ranges: parsedInput.ranges,
+      rangeSummary: summarizeRanges(parsedInput.ranges, { includeArea: false }),
       baseName: { name: cleanName, inferred: false },
     };
   }
 
-  const resolved = await resolveRawTileRangeName({
-    parsedInput,
-    inputYScheme: scheme,
-    locationResolver,
-  });
-  return {
-    ranges: resolved.ranges,
-    rangeSummary: resolved.summary,
-    baseName: { name: resolved.name, inferred: true },
-  };
+  return resolveMapboxTileRangeName({ parsedInput, locationResolver });
 }
 
 function splitStrategyForBatch(body, { templateCount, targetCount } = {}) {
@@ -737,7 +703,6 @@ async function buildConfigDrafts({ store, body, configTemplatesDir, locationReso
   const rangeResolution = await resolveRangeInputForBatch({
     parsedInput,
     requestedName: body.name,
-    inputYScheme: body.inputYScheme || body.rangeYScheme,
     locationResolver,
   });
   const parsedRanges = rangeResolution.ranges;
@@ -1275,14 +1240,7 @@ export function createDashboardApp({
             zoomStart: body.zoomStart,
             zoomEnd: body.zoomEnd,
           });
-          const inputYScheme = normalizeInputYScheme(body.inputYScheme || body.rangeYScheme);
-          const ranges = parsedInput.source === "tile-ranges" && inputYScheme !== "auto"
-            ? rangesForYScheme(parsedInput.ranges, inputYScheme)
-            : parsedInput.ranges;
-          const summary = summarizeRanges(ranges, {
-            includeArea: parsedInput.canInferArea || (parsedInput.source === "tile-ranges" && inputYScheme !== "auto"),
-          });
-          summary.inputYScheme = parsedInput.source === "tile-ranges" ? inputYScheme : undefined;
+          const summary = summarizeRanges(parsedInput.ranges, { includeArea: parsedInput.canInferArea });
           json(res, 200, summary);
           return;
         }

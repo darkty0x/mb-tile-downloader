@@ -17,10 +17,8 @@ test("range builder defaults point previews to zoom 1 through 19", () => {
   assert.match(editorSource, /lat: 37\.5665, lon: 126\.9780/);
 });
 
-test("range builder exposes raw tile y scheme selection", () => {
-  assert.match(editorSource, /const \[inputYScheme, setInputYScheme\] = useState\("auto"\)/);
-  assert.match(editorSource, /name="inputYScheme"/);
-  assert.match(editorSource, /<option value="xyz">XYZ<\/option>/);
-  assert.match(editorSource, /<option value="tms">TMS \/ inverted Y<\/option>/);
-  assert.match(stateSource, /inputYScheme: formData\.get\("inputYScheme"\) \|\| "auto"/);
+test("range builder treats raw zxy input as Mapbox coordinates without y-scheme choice", () => {
+  assert.doesNotMatch(editorSource, /name="inputYScheme"/);
+  assert.doesNotMatch(editorSource, /TMS \/ inverted Y/);
+  assert.doesNotMatch(stateSource, /inputYScheme/);
 });
