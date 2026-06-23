@@ -60,6 +60,59 @@ test("agent sync materializes active dashboard config env and secrets", async ()
   assert.equal(await readFile(path.join(dir, "proxy.txt"), "utf8"), "http://proxy-a:8080\nhttp://proxy-b:8080\n");
 });
 
+test("agent sync materializes every active dashboard config for ordered pipeline starts", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-sync-configs-"));
+  const client = {
+    async listConfigs() {
+      return {
+        configs: [
+          {
+            configId: "cfg-first",
+            version: 1,
+            active: true,
+            config: {
+              provider: "esri",
+              jobName: "first-config",
+              ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+            },
+          },
+          {
+            configId: "cfg-second",
+            version: 1,
+            active: true,
+            config: {
+              provider: "mapbox",
+              jobName: "second-config",
+              ranges: [{ zoom: 2, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1 }],
+            },
+          },
+        ],
+      };
+    },
+    async listEnvProfiles() {
+      return { envProfiles: [] };
+    },
+    async listSecrets() {
+      return { secrets: [] };
+    },
+  };
+
+  const synced = await syncManagedState({
+    client,
+    machineId: "worker-a",
+    stateDir: path.join(dir, ".tile-state"),
+    projectDir: dir,
+  });
+
+  assert.deepEqual(
+    synced.configPaths.map((configPath) => path.basename(configPath)),
+    ["cfg-first.json", "cfg-second.json"]
+  );
+  assert.equal(path.basename(synced.configPath), "cfg-first.json");
+  assert.match(await readFile(synced.configPaths[0], "utf8"), /first-config/);
+  assert.match(await readFile(synced.configPaths[1], "utf8"), /second-config/);
+});
+
 test("direct downloader dashboard secret sync materializes server-assigned proxies", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "dashboard-secret-sync-"));
   const env = {

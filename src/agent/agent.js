@@ -185,7 +185,24 @@ function activeCommandMatchesConfig(runner, configId) {
   );
 }
 
-export async function runCommand(command, { client, runner, machineId, control = null, syncNow = null, projectDir = process.cwd(), agentLogPath = path.join(".tile-state", "dashboard-agent.log") }) {
+function scheduleAgentRestart({ delayMs = 250, exitCode = 0 } = {}) {
+  const timer = setTimeout(() => process.exit(exitCode), Math.max(0, delayMs));
+  timer.unref?.();
+}
+
+export async function runCommand(
+  command,
+  {
+    client,
+    runner,
+    machineId,
+    control = null,
+    syncNow = null,
+    projectDir = process.cwd(),
+    agentLogPath = path.join(".tile-state", "dashboard-agent.log"),
+    requestAgentRestart = scheduleAgentRestart,
+  }
+) {
   try {
     if (command.commandType === "pause_after_range") {
       await control?.requestPauseAfterRange?.();
@@ -206,22 +223,25 @@ export async function runCommand(command, { client, runner, machineId, control =
       const restartResult = await runner.restartActiveAfter(async () => {
         pullResult = await gitPullProject(projectDir);
       });
+      const restartWhen = restartResult.restarted ? "idle" : "now";
       await client.postEvent({
         machineId,
         severity: "success",
         type: "command.accepted",
         message: restartResult.restarted
-          ? "Git pull completed and active command restarted."
-          : "Git pull completed; no active command was running.",
+          ? "Git pull completed; active command restarted and agent will reload when idle."
+          : "Git pull completed; agent is restarting.",
         data: {
           commandId: command.id,
           commandType: command.commandType,
           restarted: restartResult.restarted,
+          agentRestart: restartWhen,
           stdout: pullResult?.stdout || "",
           stderr: pullResult?.stderr || "",
         },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      requestAgentRestart({ when: restartWhen, commandId: command.id });
       return;
     }
 
@@ -361,16 +381,20 @@ export async function syncManagedState({ client, machineId, stateDir, projectDir
     client.listEnvProfiles(machineId),
     client.listSecrets(machineId),
   ]);
-  const activeConfig = configs.find((config) => config.active) || null;
+  const activeConfigs = configs.filter((config) => config.active);
+  const activeConfig = activeConfigs[0] || null;
   const activeEnv = envProfiles.find((profile) => profile.active) || null;
   const result = {
     configPath: null,
+    configPaths: [],
     envPath: null,
     secretsEnvPath: null,
     proxyPath: null,
   };
-  if (activeConfig) {
-    result.configPath = (await materializeConfig({ stateDir, configRecord: activeConfig })).configPath;
+  for (const configRecord of activeConfigs) {
+    const materialized = await materializeConfig({ stateDir, configRecord });
+    result.configPaths.push(materialized.configPath);
+    if (configRecord === activeConfig) result.configPath = materialized.configPath;
   }
   if (activeEnv) {
     const envResult = await materializeEnvProfile({ stateDir, profile: activeEnv });
@@ -420,6 +444,7 @@ export async function runAgent({
     [DASHBOARD_MANAGED_RUN_ENV]: "1",
   };
   const managedEnv = {};
+  let agentRestartRequested = null;
   const runner = createRunner({
     env: managedEnv,
     onLine: async (line, stream) => {
@@ -442,6 +467,20 @@ export async function runAgent({
       });
     },
   });
+
+  function requestAgentRestart({ when = "now", commandId = null } = {}) {
+    agentRestartRequested = { when, commandId };
+  }
+
+  function restartAgentIfReady() {
+    if (!agentRestartRequested) return false;
+    if (agentRestartRequested.when === "idle" && runner.active) return false;
+    log(
+      `dashboard agent restarting after git pull command=${agentRestartRequested.commandId || "unknown"} when=${agentRestartRequested.when}`
+    );
+    scheduleAgentRestart();
+    return true;
+  }
 
   async function syncAndPublishSnapshot({ reason = "heartbeat" } = {}) {
     const synced = await syncManagedState({
@@ -489,9 +528,11 @@ export async function runAgent({
         syncNow: syncAndPublishSnapshot,
         projectDir,
         agentLogPath,
+        requestAgentRestart,
       });
     }
     await syncAndPublishSnapshot({ reason: "heartbeat" });
+    restartAgentIfReady();
   }
 
   await tick();

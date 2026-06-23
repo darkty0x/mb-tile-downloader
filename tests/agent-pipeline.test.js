@@ -155,6 +155,7 @@ test("agent git pull restart trusts the managed project directory", async () => 
       return { restarted: false };
     },
   };
+  const restartRequests = [];
   const originalPath = process.env.PATH;
   process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`;
   try {
@@ -170,6 +171,7 @@ test("agent git pull restart trusts the managed project directory", async () => 
         runner,
         machineId: "worker-a",
         projectDir,
+        requestAgentRestart: (request) => restartRequests.push(request),
       }
     );
   } finally {
@@ -178,9 +180,77 @@ test("agent git pull restart trusts the managed project directory", async () => 
 
   assert.equal(await readFile(gitLogPath, "utf8"), `-c safe.directory=${projectDir} pull --ff-only\n`);
   assert.deepEqual(calls, [
-    ["event", "success", "command.accepted", "Git pull completed; no active command was running."],
+    ["event", "success", "command.accepted", "Git pull completed; agent is restarting."],
     ["ack", "cmd-git", null],
   ]);
+  assert.deepEqual(restartRequests, [{ when: "now", commandId: "cmd-git" }]);
+});
+
+test("agent git pull restart defers agent reload while managed command is active", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-git-idle-"));
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(projectDir, { recursive: true });
+  const gitPath = path.join(binDir, "git");
+  await writeFile(
+    gitPath,
+    [
+      "#!/bin/sh",
+      `if [ \"$1\" = \"-c\" ] && [ \"$2\" = \"safe.directory=${projectDir}\" ] && [ \"$3\" = \"pull\" ] && [ \"$4\" = \"--ff-only\" ]; then`,
+      "  echo pull-ok",
+      "  exit 0",
+      "fi",
+      "exit 128",
+      "",
+    ].join("\n"),
+    { mode: 0o755 }
+  );
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId, payload = {}) => calls.push(["ack", commandId, payload.error || null]),
+    postEvent: async (event) => calls.push(["event", event.severity, event.type, event.message, event.data?.agentRestart]),
+  };
+  const runner = {
+    restartActiveAfter: async (task) => {
+      await task();
+      return { restarted: true };
+    },
+  };
+  const restartRequests = [];
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`;
+  try {
+    await runCommand(
+      {
+        id: "cmd-git-active",
+        commandType: "git_pull_restart",
+        payload: {},
+        claimedAt: "claim-git-active",
+      },
+      {
+        client,
+        runner,
+        machineId: "worker-a",
+        projectDir,
+        requestAgentRestart: (request) => restartRequests.push(request),
+      }
+    );
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  assert.deepEqual(calls, [
+    [
+      "event",
+      "success",
+      "command.accepted",
+      "Git pull completed; active command restarted and agent will reload when idle.",
+      "idle",
+    ],
+    ["ack", "cmd-git-active", null],
+  ]);
+  assert.deepEqual(restartRequests, [{ when: "idle", commandId: "cmd-git-active" }]);
 });
 
 test("process runner uses root env over stale service env for managed child commands", async () => {
