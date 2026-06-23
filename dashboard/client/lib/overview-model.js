@@ -790,18 +790,16 @@ function completedConfigSteps(summary) {
 
 function aggregateConfigPipelineSteps(configs = [], { liveJobsByConfig = new Map(), completedLinksByConfig = new Map() } = {}) {
   const totalConfigs = Math.max(1, configs.length);
+  const completedConfigCount = configs.filter((config) => completedLinksByConfig.has(configIdValue(config.configId))).length;
+  if (configs.length > 0 && completedConfigCount >= configs.length) {
+    return PIPELINE_STEPS.map(([key, label]) => ({ key, label, status: "complete", progress: 100 }));
+  }
   return PIPELINE_STEPS.map(([key, label], index) => {
     let progressTotal = 0;
     const sameStageJobs = [];
 
     for (const config of configs) {
       const configId = configIdValue(config.configId);
-      const completed = completedLinksByConfig.has(configId);
-      if (completed) {
-        progressTotal += 100;
-        continue;
-      }
-
       const job = liveJobsByConfig.get(configId);
       if (!job) continue;
 

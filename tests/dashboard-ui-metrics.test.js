@@ -863,9 +863,57 @@ test("overview model shows partial config completion from storj proofs", () => {
   assert.equal(model.pipelineProgress, "67%");
   assert.equal(model.pipelineEta, "2/3 완료");
   assert.equal(model.pipelineSummary.completedConfigLabel, "2/3 완료");
-  assert.equal(model.pipeline[3].status, "running");
-  assert.equal(model.pipeline[3].progress, 67);
+  assert.equal(model.pipelineStage, "대기중");
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 0, "pending"],
+      ["validate", 0, "pending"],
+      ["zip", 0, "pending"],
+      ["upload", 0, "pending"],
+    ]
+  );
   assert.equal(model.storjLinks.length, 0);
+});
+
+test("overview model does not turn completed proofs into active stage progress", () => {
+  const model = buildOverviewModel({
+    machines: [{ machineId: "server-02", status: "online" }],
+    configs: [
+      { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
+      { configId: "cfg-pbf", machineId: "server-02", name: "1-pyongyang-mapbox-pbf" },
+      { configId: "cfg-satellite", machineId: "server-02", name: "1-pyongyang-mapbox-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri",
+        machineId: "server-02",
+        configId: "cfg-esri",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-23T11:40:00.000Z",
+        finishedAt: "2026-06-23T11:45:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/1-pyongyang-esri-satellite/",
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "33%");
+  assert.equal(model.pipelineEta, "1/3 완료");
+  assert.equal(model.pipelineStage, "대기중");
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 0, "pending"],
+      ["validate", 0, "pending"],
+      ["zip", 0, "pending"],
+      ["upload", 0, "pending"],
+    ]
+  );
 });
 
 test("overview model only publishes storj links after every selected config completes", () => {
