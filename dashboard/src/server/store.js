@@ -26,6 +26,7 @@ const COMMAND_TYPES = new Set([
   "run_preflight",
 ]);
 const RUNTIME_START_COMMAND_TYPES = new Set(["start_pipeline", "resume_pipeline", "run_preflight"]);
+const NON_REPLAYABLE_CONTROL_COMMAND_TYPES = new Set(["stop_pipeline", "pause_after_range"]);
 
 function requireNonEmpty(value, name) {
   if (typeof value !== "string" || value.trim() === "") {
@@ -556,7 +557,18 @@ export function createDashboardStore({
       const atDate = now();
       const at = iso(atDate);
       const claimed = [];
+      const expireBeforeMs = atDate.getTime() - commandLeaseMs;
       for (const record of commands.values()) {
+        if (
+          record.machineId === normalizedMachineId
+          && record.status === "queued"
+          && NON_REPLAYABLE_CONTROL_COMMAND_TYPES.has(record.commandType)
+          && new Date(record.requestedAt).getTime() <= expireBeforeMs
+        ) {
+          record.status = "cancelled";
+          record.completedAt = at;
+          record.error = "control command expired before agent claim";
+        }
         if (
           record.machineId === normalizedMachineId
           && record.status === "claimed"
@@ -564,8 +576,14 @@ export function createDashboardStore({
           && record.claimedAt
           && addMs(new Date(record.claimedAt), commandLeaseMs).getTime() <= atDate.getTime()
         ) {
-          record.status = "queued";
-          record.claimedAt = null;
+          if (NON_REPLAYABLE_CONTROL_COMMAND_TYPES.has(record.commandType)) {
+            record.status = "cancelled";
+            record.completedAt = at;
+            record.error = "control command lease expired";
+          } else {
+            record.status = "queued";
+            record.claimedAt = null;
+          }
         }
       }
       for (const record of commands.values()) {
@@ -582,6 +600,9 @@ export function createDashboardStore({
     completeCommand({ commandId, error = null, claimedAt = null }) {
       const record = commands.get(commandId);
       if (!record) throw new Error(`command "${commandId}" not found`);
+      if (record.status !== "claimed" || record.completedAt !== null) {
+        throw new Error(`command "${commandId}" is not currently claimed`);
+      }
       if (claimedAt && record.claimedAt !== claimedAt) {
         throw new Error(`command "${commandId}" claim expired or was reclaimed`);
       }

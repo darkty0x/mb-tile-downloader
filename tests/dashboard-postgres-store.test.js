@@ -150,6 +150,39 @@ function createFakePgDb() {
         return rows([{ ...row }]);
       }
       if (/UPDATE machine_commands\s+SET status='cancelled'/s.test(sql)) {
+        if (/requested_at <=/.test(sql)) {
+          const [machine_id, expiredBefore, completed_at, commandTypes] = params;
+          for (const row of tables.machine_commands.values()) {
+            if (
+              row.machine_id === machine_id
+              && row.status === "queued"
+              && new Date(row.requested_at).getTime() <= new Date(expiredBefore).getTime()
+              && commandTypes.includes(row.command_type)
+            ) {
+              row.status = "cancelled";
+              row.completed_at = completed_at;
+              row.error = "control command expired before agent claim";
+            }
+          }
+          return rows([]);
+        }
+        if (/claimed_at <=/.test(sql)) {
+          const [machine_id, expiredBefore, completed_at, commandTypes] = params;
+          for (const row of tables.machine_commands.values()) {
+            if (
+              row.machine_id === machine_id
+              && row.status === "claimed"
+              && row.completed_at === null
+              && new Date(row.claimed_at).getTime() <= new Date(expiredBefore).getTime()
+              && commandTypes.includes(row.command_type)
+            ) {
+              row.status = "cancelled";
+              row.completed_at = completed_at;
+              row.error = "control command lease expired";
+            }
+          }
+          return rows([]);
+        }
         const [completed_at, error, machine_id, commandTypes] = params;
         const canceled = [];
         for (const row of tables.machine_commands.values()) {
@@ -200,7 +233,7 @@ function createFakePgDb() {
       if (/UPDATE machine_commands SET status=\$1.*claimed_at=\$5/s.test(sql)) {
         const [status, completed_at, error, id, claimed_at] = params;
         const row = tables.machine_commands.get(String(id));
-        if (!row || row.claimed_at !== claimed_at) return rows([]);
+        if (!row || row.claimed_at !== claimed_at || row.status !== "claimed" || row.completed_at !== null) return rows([]);
         row.status = status;
         row.completed_at = completed_at;
         row.error = error;
@@ -209,6 +242,7 @@ function createFakePgDb() {
       if (/UPDATE machine_commands SET status=\$1/.test(sql)) {
         const [status, completed_at, error, id] = params;
         const row = tables.machine_commands.get(String(id));
+        if (!row || row.status !== "claimed" || row.completed_at !== null) return rows([]);
         row.status = status;
         row.completed_at = completed_at;
         row.error = error;
@@ -789,6 +823,53 @@ test("postgres store rejects stale command acknowledgement after lease is reclai
   });
 
   assert.equal(completed.status, "completed");
+});
+
+test("postgres store does not replay expired stop commands", async () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queuedStop = await store.queueCommand({
+    machineId: "worker-a",
+    commandType: "stop_pipeline",
+  });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  assert.deepEqual(await store.claimCommands({ machineId: "worker-a" }), []);
+
+  await assert.rejects(
+    () => store.completeCommand({ commandId: queuedStop.id }),
+    /not found/
+  );
+});
+
+test("postgres store does not reclaim expired claimed stop commands", async () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const db = createFakePgDb();
+  const store = createPostgresDashboardStore({
+    db,
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queuedStop = await store.queueCommand({
+    machineId: "worker-a",
+    commandType: "stop_pipeline",
+  });
+  const [firstClaim] = await store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  assert.deepEqual(await store.claimCommands({ machineId: "worker-a" }), []);
+
+  await assert.rejects(
+    () => store.completeCommand({ commandId: queuedStop.id, claimedAt: firstClaim.claimedAt }),
+    /claim expired|not found/
+  );
 });
 
 test("postgres store persists config and env profile versions", async () => {

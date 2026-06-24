@@ -945,6 +945,7 @@ test("overview model marks online running jobs stale when progress stops updatin
   assert.equal(model.machineProcesses["server-08"].statusLabel, "멈춤");
   assert.equal(model.machineProcesses["server-08"].etaLabel, "진행 멈춤");
   assert.equal(model.machineProcesses["server-08"].tone, "error");
+  assert.equal(model.machineProcesses["server-08"].stale, true);
   assert.equal(model.machineProcesses["server-09"].statusLabel, "진행중");
   assert.equal(model.machineProcesses["server-09"].stale, false);
 });
@@ -1414,6 +1415,21 @@ test("server command rows follow selected machine lifecycle state", () => {
       jobs: [{ machineId: "server-01", status: "running", startedAt: "2026-06-18T01:00:00.000Z" }],
     }).map(([type]) => type),
     ["pause_after_range", "stop_pipeline", "sync_config", "sync_env"]
+  );
+
+  assert.deepEqual(
+    buildMachineCommandRows({
+      machineId: "server-01",
+      machines: [{ machineId: "server-01", status: "online" }],
+      jobs: [{
+        machineId: "server-01",
+        status: "running",
+        stage: "download",
+        updatedAt: "2026-06-18T01:00:00.000Z",
+      }],
+      nowMs: Date.parse("2026-06-18T01:05:01.000Z"),
+    }).map(([type]) => type),
+    ["start_pipeline", "sync_config", "sync_env"]
   );
 
   assert.deepEqual(

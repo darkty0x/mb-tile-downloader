@@ -27,6 +27,7 @@ const COMMAND_TYPES = new Set([
   "run_preflight",
 ]);
 const RUNTIME_START_COMMAND_TYPES = new Set(["start_pipeline", "resume_pipeline", "run_preflight"]);
+const NON_REPLAYABLE_CONTROL_COMMAND_TYPES = new Set(["stop_pipeline", "pause_after_range"]);
 
 function iso(value) {
   if (!value) return null;
@@ -615,6 +616,25 @@ export function createPostgresDashboardStore({
       const expiredBefore = new Date(at.getTime() - commandLeaseMs).toISOString();
       await db.query(
         `UPDATE machine_commands
+        SET status='cancelled', completed_at=$3, error='control command expired before agent claim'
+        WHERE machine_id=$1
+          AND status='queued'
+          AND requested_at <= $2
+          AND command_type = ANY($4::text[])`,
+        [normalizedMachineId, expiredBefore, at.toISOString(), [...NON_REPLAYABLE_CONTROL_COMMAND_TYPES]]
+      );
+      await db.query(
+        `UPDATE machine_commands
+        SET status='cancelled', completed_at=$3, error='control command lease expired'
+        WHERE machine_id=$1
+          AND status='claimed'
+          AND completed_at IS NULL
+          AND claimed_at <= $2
+          AND command_type = ANY($4::text[])`,
+        [normalizedMachineId, expiredBefore, at.toISOString(), [...NON_REPLAYABLE_CONTROL_COMMAND_TYPES]]
+      );
+      await db.query(
+        `UPDATE machine_commands
         SET status='queued', claimed_at=NULL
         WHERE machine_id=$1
           AND status='claimed'
@@ -642,12 +662,12 @@ export function createPostgresDashboardStore({
       const row = claimedAt
         ? await firstRow(
             db,
-            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 AND claimed_at=$5 RETURNING *",
+            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 AND claimed_at=$5 AND status='claimed' AND completed_at IS NULL RETURNING *",
             [error ? "failed" : "completed", now().toISOString(), error, commandId, claimedAt]
           )
         : await firstRow(
             db,
-            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 RETURNING *",
+            "UPDATE machine_commands SET status=$1, completed_at=$2, error=$3 WHERE id=$4 AND status='claimed' AND completed_at IS NULL RETURNING *",
             [error ? "failed" : "completed", now().toISOString(), error, commandId]
           );
       if (!row) {

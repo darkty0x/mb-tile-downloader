@@ -231,3 +231,46 @@ test("rejects stale command acknowledgement after lease is reclaimed", () => {
 
   assert.equal(completed.status, "completed");
 });
+
+test("does not replay expired stop commands", () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const store = createDashboardStore({
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queuedStop = store.queueCommand({
+    machineId: "worker-a",
+    commandType: "stop_pipeline",
+  });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  assert.deepEqual(store.claimCommands({ machineId: "worker-a" }), []);
+
+  assert.throws(
+    () => store.completeCommand({ commandId: queuedStop.id }),
+    /not currently claimed/
+  );
+});
+
+test("does not reclaim expired claimed stop commands", () => {
+  let now = new Date("2026-06-16T00:00:00.000Z");
+  const store = createDashboardStore({
+    now: () => now,
+    commandLeaseMs: 60_000,
+  });
+
+  const queuedStop = store.queueCommand({
+    machineId: "worker-a",
+    commandType: "stop_pipeline",
+  });
+  const [firstClaim] = store.claimCommands({ machineId: "worker-a" });
+
+  now = new Date("2026-06-16T00:01:01.000Z");
+  assert.deepEqual(store.claimCommands({ machineId: "worker-a" }), []);
+
+  assert.throws(
+    () => store.completeCommand({ commandId: queuedStop.id, claimedAt: firstClaim.claimedAt }),
+    /not currently claimed/
+  );
+});

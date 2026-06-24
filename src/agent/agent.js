@@ -23,6 +23,11 @@ const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_AGENT_NODE_MAJOR = "24";
 const DEFAULT_STALE_JOB_RESTART_MS = 5 * 60 * 1000;
 const ACTIVE_DASHBOARD_JOB_STATUSES = new Set(["running", "claimed"]);
+const MANAGED_CHILD_PROTECTED_ENV_NAMES = new Set([
+  "DASHBOARD_URL",
+  "AGENT_TOKEN",
+  "MACHINE_ID",
+]);
 export const AGENT_PROTOCOL_VERSION = 1;
 const execFileAsync = promisify(execFile);
 enableWindowsUtf8Console();
@@ -709,6 +714,9 @@ export async function runAgent({
   const forwarder = createProgressEventForwarder({ machineId: identity.machineId, client });
   const agentLogPath = path.join(stateDir, "dashboard-agent.log");
   const agentControlEnv = {
+    DASHBOARD_URL: env.DASHBOARD_URL,
+    AGENT_TOKEN: env.AGENT_TOKEN,
+    MACHINE_ID: identity.machineId,
     DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE: control.pauseAfterRangeFile,
     DASHBOARD_AGENT_STOP_FILE: control.stopPipelineFile,
     DASHBOARD_AGENT_LOG_PATH: agentLogPath,
@@ -718,6 +726,7 @@ export async function runAgent({
   let agentRestartRequested = null;
   const runner = createRunner({
     env: managedEnv,
+    protectedEnvNames: MANAGED_CHILD_PROTECTED_ENV_NAMES,
     onLine: async (line, stream) => {
       await mkdir(path.dirname(agentLogPath), { recursive: true });
       await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");

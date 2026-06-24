@@ -55,11 +55,15 @@ export function parseRootEnvText(text = "") {
   return parseEnvLines(text);
 }
 
-export function mergeRootEnvIntoEnv({ projectDir = process.cwd(), env = process.env } = {}) {
+export function mergeRootEnvIntoEnv({ projectDir = process.cwd(), env = process.env, protectedEnvNames = new Set() } = {}) {
   const envPath = path.resolve(projectDir, ".env");
   const rootEnv = parseEnvLines(readExistingEnvSync(envPath));
   assertNoMaskedEnvValues(rootEnv);
-  return { ...env, ...Object.fromEntries(rootEnv.entries()) };
+  const merged = { ...env, ...Object.fromEntries(rootEnv.entries()) };
+  for (const name of protectedEnvNames) {
+    if (env[name] !== undefined) merged[name] = env[name];
+  }
+  return merged;
 }
 
 export async function writeRootEnvFile({ projectDir = process.cwd(), envText = "" } = {}) {

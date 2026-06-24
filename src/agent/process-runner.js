@@ -71,6 +71,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
 export function createProcessRunner({
   cwd = process.cwd(),
   env = process.env,
+  protectedEnvNames = new Set(),
   onLine = () => {},
   onStaleRestart = () => {},
   now = () => Date.now(),
@@ -128,6 +129,7 @@ export function createProcessRunner({
     const childEnv = mergeRootEnvIntoEnv({
       projectDir: cwd,
       env: { ...process.env, ...env },
+      protectedEnvNames,
     });
     const child = spawn(command, args, {
       cwd,

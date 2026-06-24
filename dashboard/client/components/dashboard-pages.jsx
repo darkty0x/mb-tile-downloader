@@ -1056,10 +1056,11 @@ export function ServerManagementPage({ state, actions }) {
     jobs: state.jobs,
     events: state.events,
     machineId: targetMachineId,
+    machines: machine ? [machine] : [],
   });
   const selectedProcess = serverOverview.machineProcesses?.[normalizeMachineId(targetMachineId)] || null;
   const selectedProcessStatus = String(selectedProcess?.status || "").toLowerCase();
-  const selectedProcessIsActive = ["running", "claimed", "queued"].includes(selectedProcessStatus);
+  const selectedProcessIsActive = ["running", "claimed", "queued"].includes(selectedProcessStatus) && !selectedProcess?.stale;
   const canDeleteTask = Boolean(selectedProcess?.jobId);
   const startConfigChoices = buildStartConfigChoices({
     dashboardConfigs: serverState.configs || [],

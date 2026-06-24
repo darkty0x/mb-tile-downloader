@@ -415,6 +415,52 @@ test("process runner uses root env over stale service env for managed child comm
   assert.deepEqual(lines, ["real passphrase", "https://correct.example", "kept"]);
 });
 
+test("process runner protects dashboard identity env from project .env", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-runner-protected-env-"));
+  await writeFile(
+    path.join(dir, ".env"),
+    [
+      "DASHBOARD_URL=https://wrong.example",
+      "AGENT_TOKEN=wrong-token",
+      "MACHINE_ID=wrong-machine",
+      "MAPBOX_ACCESS_TOKENS=local-mapbox-token",
+    ].join("\n") + "\n",
+    "utf8"
+  );
+  const scriptPath = path.join(dir, "print-protected-env.mjs");
+  await writeFile(
+    scriptPath,
+    [
+      "console.log(process.env.DASHBOARD_URL);",
+      "console.log(process.env.AGENT_TOKEN);",
+      "console.log(process.env.MACHINE_ID);",
+      "console.log(process.env.MAPBOX_ACCESS_TOKENS);",
+    ].join("\n"),
+    "utf8"
+  );
+  const lines = [];
+  const runner = createProcessRunner({
+    cwd: dir,
+    env: {
+      DASHBOARD_URL: "https://dashboard.example",
+      AGENT_TOKEN: "live-agent-token",
+      MACHINE_ID: "server-08",
+    },
+    protectedEnvNames: new Set(["DASHBOARD_URL", "AGENT_TOKEN", "MACHINE_ID"]),
+    onLine: (line) => lines.push(line),
+  });
+
+  const result = await runner.run({ command: process.execPath, args: [scriptPath] });
+
+  assert.deepEqual(result, { code: 0, signal: null });
+  assert.deepEqual(lines, [
+    "https://dashboard.example",
+    "live-agent-token",
+    "server-08",
+    "local-mapbox-token",
+  ]);
+});
+
 test("process runner restarts a managed process when output goes stale", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-stale-restart-"));
   const countPath = path.join(dir, "runs.txt");

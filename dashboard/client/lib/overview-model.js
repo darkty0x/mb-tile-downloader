@@ -334,10 +334,11 @@ function isConsoleOutputEvent(event = {}) {
   return event.type === "process.output";
 }
 
-export function buildMachineCommandRows({ jobs = [], events = [], machineId } = {}) {
+export function buildMachineCommandRows({ jobs = [], events = [], machineId, machines = [], nowMs = Date.now() } = {}) {
   if (!normalizeMachineId(machineId)) return [];
   const scopedJobs = jobs.filter((job) => jobMachineMatches(job, machineId)).sort(newestFirst);
-  const activeJob = scopedJobs.find((job) => RUNNING_JOB_STATUSES.has(job.status));
+  const machine = machines.find((item) => normalizeMachineId(item.machineId) === normalizeMachineId(machineId)) || null;
+  const activeJob = scopedJobs.find((job) => RUNNING_JOB_STATUSES.has(job.status) && !jobProgressIsStale(job, machine, nowMs));
   if (activeJob) {
     return [
       ["pause_after_range", "일시중지", "pause"],
@@ -352,7 +353,8 @@ export function buildMachineCommandRows({ jobs = [], events = [], machineId } = 
     .sort(newestFirst)[0] || null;
   const latestPauseTime = String(latestPause?.createdAt || "");
   const latestJobTime = String(latestJob?.finishedAt || latestJob?.updatedAt || latestJob?.startedAt || "");
-  const isPaused = latestPause && (!latestJob || latestPauseTime >= latestJobTime || latestJob.status === "completed");
+  const latestJobIsStale = latestJob ? jobProgressIsStale(latestJob, machine, nowMs) : false;
+  const isPaused = !latestJobIsStale && latestPause && (!latestJob || latestPauseTime >= latestJobTime || latestJob.status === "completed");
   const lifecycleCommands = isPaused
     ? [
         ["resume_pipeline", "재개", "play"],
