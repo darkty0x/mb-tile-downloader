@@ -862,6 +862,23 @@ export function useDashboardState() {
         setEditor({ type: "summary" });
         await refreshAll({ showLoading: false });
       },
+      async deleteConfigs(configsToDelete) {
+        const configIds = [...new Set((configsToDelete || []).map((config) => config?.configId).filter(Boolean))];
+        if (!configIds.length) return;
+        const confirmed = await confirmDanger({
+          title: "Config 모두 삭제 확인",
+          message: `Config 화일 ${configIds.length}개를 모두 삭제하겠습니까? 진행중인 해당 작업은 정지됩니다.`,
+          confirmLabel: "모두 삭제",
+          storageKey: "delete",
+        });
+        if (!confirmed) return;
+        for (const configId of configIds) {
+          await api(`/api/configs/${encodeURIComponent(configId)}`, { method: "DELETE" });
+        }
+        setEditor({ type: "summary" });
+        setNotice({ message: `Config 화일 ${configIds.length}개가 삭제되였습니다`, kind: "success" });
+        await refreshAll({ showLoading: false });
+      },
       async deleteCompletedConfigs(candidates) {
         const uniqueCandidates = [...new Map((candidates || [])
           .filter((candidate) => candidate?.configId)

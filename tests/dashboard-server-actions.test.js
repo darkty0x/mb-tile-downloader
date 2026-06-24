@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import test from "node:test";
 
 const pagesSource = readFileSync(new URL("../dashboard/client/components/dashboard-pages.jsx", import.meta.url), "utf8");
+const stateSource = readFileSync(new URL("../dashboard/client/components/dashboard-state.js", import.meta.url), "utf8");
 
 test("server table action controls stay vertically centered", () => {
   const serversTableSource = pagesSource.slice(
@@ -27,4 +28,17 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(proofSource, /label="완료증명 삭제"/);
   assert.match(proofSource, /event\.stopPropagation\(\)/);
   assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);
+});
+
+test("selected server config tab exposes bulk delete action", () => {
+  const configTabSource = pagesSource.slice(
+    pagesSource.indexOf("function ServerPageConfigs"),
+    pagesSource.indexOf("function envVariablesWithoutApiKeys", pagesSource.indexOf("function ServerPageConfigs")),
+  );
+
+  assert.match(configTabSource, /const deleteAllConfigs = \(\) => actions\.deleteConfigs\(state\.configs\)/);
+  assert.match(configTabSource, /<AppButton variant="danger" icon="trash" disabled=\{!state\.configs\.length\} onClick=\{deleteAllConfigs\}>모두 삭제<\/AppButton>/);
+  assert.match(stateSource, /async deleteConfigs\(configsToDelete\)/);
+  assert.match(stateSource, /title: "Config 모두 삭제 확인"/);
+  assert.match(stateSource, /confirmLabel: "모두 삭제"/);
 });

@@ -1336,9 +1336,18 @@ function ServerPageStorage({ machine }) {
 
 function ServerPageConfigs({ state, actions }) {
   const localConfigs = state.selectedMachine?.agentSnapshot?.configs || [];
+  const deleteAllConfigs = () => actions.deleteConfigs(state.configs).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
   return (
     <section className="grid gap-2">
-      <SectionTitle title="Config 화일" action={<AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>} />
+      <SectionTitle
+        title="Config 화일"
+        action={(
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>
+            <AppButton variant="danger" icon="trash" disabled={!state.configs.length} onClick={deleteAllConfigs}>모두 삭제</AppButton>
+          </div>
+        )}
+      />
       {state.configs.length ? state.configs.map((config) => (
         <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
           <div className="min-w-0">
