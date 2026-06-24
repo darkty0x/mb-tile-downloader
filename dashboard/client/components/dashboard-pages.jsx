@@ -6,6 +6,7 @@ import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "
 import { eventNotificationId } from "../lib/event-identity";
 import { buildConfigGroups, configGroupName, inferConfigTemplateId } from "../lib/config-groups";
 import { groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice } from "../lib/config-order";
+import { compareMachineIds } from "../lib/machine-sort";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, ModalShell, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
@@ -948,7 +949,12 @@ export function ServersDashboard({ state, actions }) {
 }
 
 function ServerConnectionsSection({ state, actions }) {
-  const connections = state.secretPool.filter(isServerConnection);
+  const connections = state.secretPool
+    .filter(isServerConnection)
+    .sort((a, b) => compareMachineIds(
+      a.targetMachineId || a.credential?.machineId || a.machineId || a.label,
+      b.targetMachineId || b.credential?.machineId || b.machineId || b.label,
+    ) || String(a.label || "").localeCompare(String(b.label || ""), undefined, { numeric: true }));
   const onlineAgents = state.machines.filter((machine) => machine.status !== "offline").length;
   return (
     <Surface className="p-4">

@@ -8,7 +8,7 @@ import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { configIdsFromCommandSpec, ensureNativeDependencies, preparePreferredNodeRuntime, resolveStaleDashboardJobRestartMs, runAgent, runCommand, staleActiveDashboardJobsForCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
-import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
+import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runPipelineBatch, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -1362,6 +1362,68 @@ test("range pipeline treats all ranges in a config as one stage unit", async () 
     { stage: "validate", rangeIndex: null },
     { stage: "zip", rangeIndex: null },
     { stage: "upload", rangeIndex: null },
+  ]);
+});
+
+test("range pipeline retries failed download stage before marking config failed", async () => {
+  const calls = [];
+  const events = [];
+
+  await runRangePipeline({
+    config: { jobName: "retry-download", ranges: [{ label: "r1" }] },
+    configPath: "configs/retry.json",
+    stageRetryLimit: (stage) => (stage === "download" ? 1 : 0),
+    runStage: async (stage, context) => {
+      calls.push([stage, context.attempt, context.retryLimit]);
+      if (stage === "download" && context.attempt === 0) {
+        return { ok: false, error: "downloader.js exited with code 1" };
+      }
+      return { ok: true };
+    },
+    emitEvent: (event) => events.push(event.type),
+  });
+
+  assert.deepEqual(calls, [
+    ["download", 0, 1],
+    ["download", 1, 1],
+    ["validate", 0, 0],
+    ["zip", 0, 0],
+    ["upload", 0, 0],
+  ]);
+  assert.equal(events.includes("pipeline.download.retrying"), true);
+  assert.equal(events.includes("pipeline.download.failed"), false);
+  assert.equal(events.at(-1), "pipeline.completed");
+});
+
+test("pipeline batch continues later configs after one config fails", async () => {
+  const calls = [];
+
+  await assert.rejects(
+    () =>
+      runPipelineBatch({
+        configPaths: ["configs/a.json", "configs/b.json"],
+        loadConfigFile: async (configPath) => ({ jobName: path.basename(configPath, ".json"), ranges: [{ label: "r1" }] }),
+        createJobReporterFactory: () => null,
+        runStage: async (stage, context) => {
+          calls.push([context.configPath, stage]);
+          if (context.configPath === "configs/a.json" && stage === "download") {
+            return { ok: false, error: "downloader.js exited with code 1" };
+          }
+          return { ok: true };
+        },
+        env: {
+          TILE_DOWNLOADER_PIPELINE_DOWNLOAD_RETRY_LIMIT: "0",
+        },
+      }),
+    /1\/2 config pipeline\(s\) failed/
+  );
+
+  assert.deepEqual(calls, [
+    ["configs/a.json", "download"],
+    ["configs/b.json", "download"],
+    ["configs/b.json", "validate"],
+    ["configs/b.json", "zip"],
+    ["configs/b.json", "upload"],
   ]);
 });
 

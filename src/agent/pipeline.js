@@ -30,6 +30,25 @@ async function defaultStageRunner(stage) {
   throw new Error(`no stage runner configured for ${stage}`);
 }
 
+function parseNonNegativeInt(value, fallback = 0) {
+  if (value === null || value === undefined || value === "") return fallback;
+  const parsed = Number.parseInt(String(value), 10);
+  return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+export function resolveStageRetryLimit(stage, { env = process.env } = {}) {
+  const stageKey = `TILE_DOWNLOADER_PIPELINE_${String(stage || "").toUpperCase()}_RETRY_LIMIT`;
+  const stageValue = parseNonNegativeInt(env[stageKey], null);
+  if (stageValue !== null) return stageValue;
+  const genericValue = parseNonNegativeInt(env.TILE_DOWNLOADER_PIPELINE_STAGE_RETRY_LIMIT, null);
+  if (genericValue !== null) return genericValue;
+  return stage === "download" ? 2 : 0;
+}
+
+function isPipelineStoppedError(error) {
+  return String(error?.message || error || "") === "pipeline stopped";
+}
+
 async function pauseFileExists(filePath) {
   if (!filePath) return false;
   try {
@@ -253,6 +272,7 @@ export async function runRangePipeline({
   createJobReporter = null,
   shouldPauseAfterRange = null,
   shouldStop = null,
+  stageRetryLimit = () => 0,
 } = {}) {
   if (!config || !Array.isArray(config.ranges)) throw new Error("config.ranges is required");
   const reporter = createJobReporter ? createJobReporter({ config, configPath, rangeIndex: null, range: null }) : null;
@@ -292,13 +312,43 @@ export async function runRangePipeline({
       message: `${stage} started`,
       data: pipelineEventData({ config, configPath, stage }),
     });
-    const result = await runStage(stage, {
-      configPath,
-      rangeIndex: null,
-      range: null,
-      reporter,
-      progress,
-    });
+    const retryLimit = Math.max(0, Number(stageRetryLimit(stage, { config, configPath, stageIndex }) || 0));
+    let result = null;
+    for (let attempt = 0; attempt <= retryLimit; attempt++) {
+      result = await runStage(stage, {
+        configPath,
+        rangeIndex: null,
+        range: null,
+        reporter,
+        progress,
+        attempt,
+        retryLimit,
+      });
+      if (result?.ok === true) break;
+      if (processStopRequested || attempt >= retryLimit) break;
+      emitEvent({
+        severity: "warn",
+        type: `pipeline.${stage}.retrying`,
+        message: `${stage} failed; retrying`,
+        data: {
+          ...pipelineEventData({ config, configPath, stage }),
+          attempt: attempt + 1,
+          retryLimit,
+          error: result?.error || `${stage} failed`,
+        },
+      });
+      if (reporter) {
+        await reporter.stage({
+          stage,
+          progress: {
+            ...progress,
+            retryAttempt: attempt + 1,
+            retryLimit,
+            heartbeatAt: new Date().toISOString(),
+          },
+        });
+      }
+    }
     if (!result || result.ok !== true) {
       const error = result?.error || `${stage} failed`;
       const errorObject = new Error(error);
@@ -365,6 +415,42 @@ export async function runRangePipeline({
   });
 }
 
+export async function runPipelineBatch({
+  configPaths = [],
+  loadConfigFile = loadConfig,
+  runConfigPipeline = runRangePipeline,
+  env = process.env,
+  createJobReporterFactory = createCliJobReporterFactory,
+  runStage,
+  shouldPauseAfterRange = () => pauseFileExists(env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
+  shouldStop = () => pauseFileExists(env.DASHBOARD_AGENT_STOP_FILE),
+} = {}) {
+  const failures = [];
+  for (const configPath of configPaths) {
+    try {
+      const config = await loadConfigFile(configPath, { env });
+      await runConfigPipeline({
+        config,
+        configPath,
+        createJobReporter: createJobReporterFactory({ env, configPath }),
+        runStage,
+        stageRetryLimit: (stage, context) => resolveStageRetryLimit(stage, { env, ...context }),
+        shouldPauseAfterRange,
+        shouldStop,
+      });
+    } catch (err) {
+      if (isPipelineStoppedError(err) || processStopRequested) throw err;
+      failures.push({ configPath, error: err });
+      console.error(`Config failed: ${configPath}: ${err.message}`);
+    }
+  }
+  if (failures.length > 0) {
+    const error = new Error(`${failures.length}/${configPaths.length} config pipeline(s) failed`);
+    error.failures = failures;
+    throw error;
+  }
+}
+
 if (process.argv[1] === fileURLToPath(import.meta.url)) {
   const configPaths = process.argv.slice(2).filter(Boolean);
   if (!configPaths.length) {
@@ -373,27 +459,21 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
   }
 
   try {
-    for (const configPath of configPaths) {
-      const config = await loadConfig(configPath, { env: process.env });
-      await runRangePipeline({
-        config,
-        configPath,
-        createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
-        runStage: async (stage, context) => {
-          for (const args of stagePreparationArgs(stage)) {
-            const prepared = await runNode(args);
-            if (!prepared.ok) return prepared;
-          }
-          return runNode(stageArgs(stage, context), {
-            reporter: context.reporter,
-            stage,
-            baseProgress: context.progress,
-          });
-        },
-        shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
-        shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
-      });
-    }
+    await runPipelineBatch({
+      configPaths,
+      env: process.env,
+      runStage: async (stage, context) => {
+        for (const args of stagePreparationArgs(stage)) {
+          const prepared = await runNode(args);
+          if (!prepared.ok) return prepared;
+        }
+        return runNode(stageArgs(stage, context), {
+          reporter: context.reporter,
+          stage,
+          baseProgress: context.progress,
+        });
+      },
+    });
   } catch (err) {
     console.error(`Fatal: ${err.message}`);
     process.exit(1);

@@ -1,3 +1,5 @@
+import { compareMachineIds } from "./machine-sort.js";
+
 function cleanName(value) {
   return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "").replace(/\s+-\s+/g, "-").trim();
 }
@@ -127,7 +129,7 @@ export function buildConfigGroups(configs = [], templates = [], machines = []) {
   }
 
   return [...byKey.values()].sort((a, b) => (
-    (a.machineId || "").localeCompare(b.machineId || "")
+    compareMachineIds(a.machineId || "", b.machineId || "")
     || a.name.localeCompare(b.name)
   ));
 }

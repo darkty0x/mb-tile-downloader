@@ -43,6 +43,31 @@ test("config page groups matching server configs by base name and exposes enable
   );
 });
 
+test("config groups sort machine ids by numeric server order", () => {
+  const groups = buildConfigGroups([
+    {
+      configId: "cfg-10",
+      machineId: "server-10",
+      name: "10-late-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-02",
+      machineId: "server-02",
+      name: "2-early-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+    {
+      configId: "cfg-01",
+      machineId: "server-01",
+      name: "1-first-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", ranges: [] },
+    },
+  ], templates);
+
+  assert.deepEqual(groups.map((group) => group.machineId), ["server-01", "server-02", "server-10"]);
+});
+
 test("sidebar config badge should count assigned config groups, not available template types", () => {
   const configs = [
     {

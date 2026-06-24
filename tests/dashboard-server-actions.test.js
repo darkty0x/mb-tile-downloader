@@ -111,6 +111,7 @@ test("server connection rows show exact stored endpoint and only verify action",
 
   assert.match(sectionSource, /serverConnectionProtocolUrl\(connection\)/);
   assert.match(sectionSource, /serverConnectionEndpointLabel\(connection\)/);
+  assert.match(sectionSource, /\.sort\(\(a, b\) => compareMachineIds\(/);
   assert.match(sectionSource, /\[endpointLabel, connection\.credential\?\.username, machineNameForId\(state, targetMachineId\)\]/);
   assert.match(sectionSource, /serverConnectionTypeLabel\(connection\)/);
   assert.match(sectionSource, />검증<\/AppButton>/);
