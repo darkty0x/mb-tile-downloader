@@ -8,7 +8,7 @@ import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { ensureNativeDependencies, preparePreferredNodeRuntime, runCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
-import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
+import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -524,6 +524,29 @@ test("job reporter retries failed coalesced progress with the newest snapshot", 
     updates.map((update) => [update.status, update.stage, update.progress.percent]),
     [["running", "download", 3]]
   );
+});
+
+test("stage output heartbeat keeps running jobs fresh between parseable progress lines", async () => {
+  const updates = [];
+  const reporter = {
+    progress: async (payload) => updates.push(payload),
+  };
+  const handleOutput = createStageOutputProgressHandler({
+    reporter,
+    stage: "download",
+    baseProgress: { percent: 0, stageIndex: 0, stageCount: 4 },
+    now: () => "2026-06-24T06:40:00.000Z",
+  });
+
+  await handleOutput("  ↳ 범위 1/19 행 1/100 z=19 x=1 타일 1/324641 내리적재=1 보관됨=0 빠짐=0 실패=0 건너뛴행=0 속도=1.0 행/초 1.0 타일/초 완료예상=1d 2h 3m 4s");
+  await handleOutput("proxy-trace: retrying provider request");
+
+  assert.equal(updates.length, 2);
+  assert.equal(updates[0].progress.tilesDone, 1);
+  assert.equal(updates[0].progress.tilesTotal, 324641);
+  assert.equal(updates[1].progress.tilesDone, 1);
+  assert.equal(updates[1].progress.tilesTotal, 324641);
+  assert.equal(updates[1].progress.heartbeatAt, "2026-06-24T06:40:00.000Z");
 });
 
 test("agent clear_agent_log command truncates the local downloader console log", async () => {

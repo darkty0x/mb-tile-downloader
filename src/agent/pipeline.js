@@ -95,6 +95,34 @@ export function parseStorjProofFromLine(line, current = {}) {
   return current;
 }
 
+export function createStageOutputProgressHandler({
+  reporter = null,
+  stage = null,
+  baseProgress = {},
+  now = () => new Date().toISOString(),
+} = {}) {
+  let lastProgress = { ...baseProgress };
+  return async function handleStageOutputProgress(line) {
+    if (!reporter || !stage) return null;
+    const text = String(line || "");
+    if (!text.trim()) return null;
+    const parsed = parseStageProgressLine(text, stage);
+    if (parsed) {
+      lastProgress = mergeProgress(lastProgress, parsed);
+    } else {
+      lastProgress = {
+        ...lastProgress,
+        heartbeatAt: now(),
+      };
+    }
+    await (reporter.progress || reporter.stage).call(reporter, {
+      stage,
+      progress: lastProgress,
+    });
+    return lastProgress;
+  };
+}
+
 function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null, stage = null, baseProgress = {} } = {}) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
@@ -106,6 +134,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
     let stdoutBuffer = "";
     let stderrBuffer = "";
     let storjProof = {};
+    const handleStageOutputProgress = createStageOutputProgressHandler({ reporter, stage, baseProgress });
 
     const handleOutput = (chunk, stream) => {
       const target = stream === "stderr" ? process.stderr : process.stdout;
@@ -117,15 +146,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
       if (stream === "stderr") stderrBuffer = parts.at(-1) || "";
       else stdoutBuffer = parts.at(-1) || "";
       for (const line of completeLines) {
-        const parsed = parseStageProgressLine(line, stage);
-        if (parsed && reporter) {
-          Promise.resolve(
-            (reporter.progress || reporter.stage).call(reporter, {
-              stage,
-              progress: mergeProgress(baseProgress, parsed),
-            })
-          ).catch(() => {});
-        }
+        Promise.resolve(handleStageOutputProgress(line)).catch(() => {});
         if (stage === "upload") {
           storjProof = parseStorjProofFromLine(line, storjProof);
         }
