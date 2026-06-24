@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
-import { ensureNativeDependencies, preparePreferredNodeRuntime, runCommand } from "../src/agent/agent.js";
+import { configIdsFromCommandSpec, ensureNativeDependencies, preparePreferredNodeRuntime, resolveStaleDashboardJobRestartMs, runCommand, staleActiveDashboardJobsForCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
@@ -450,6 +450,87 @@ test("process runner restarts a managed process when output goes stale", async (
   assert.equal(staleRestarts.length, 1);
   assert.equal(staleRestarts[0].timeoutMs, 50);
   assert.equal(await readFile(countPath, "utf8"), "2");
+});
+
+test("process runner can restart an active process without failing the managed command", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-active-restart-"));
+  const countPath = path.join(dir, "runs.txt");
+  const scriptPath = path.join(dir, "child.mjs");
+  await writeFile(
+    scriptPath,
+    [
+      'import { readFileSync, writeFileSync } from "node:fs";',
+      'const countPath = process.argv[2];',
+      'let count = 0;',
+      'try { count = Number(readFileSync(countPath, "utf8")) || 0; } catch {}',
+      'count += 1;',
+      'writeFileSync(countPath, String(count));',
+      'console.log(`run:${count}`);',
+      'if (count === 1) setInterval(() => {}, 1000);',
+      'else process.exit(0);',
+    ].join("\n"),
+    "utf8"
+  );
+  const lines = [];
+  const runner = createProcessRunner({
+    cwd: dir,
+    env: { DASHBOARD_AGENT_STALE_OUTPUT_RESTART_MS: "0" },
+    onLine: (line) => {
+      lines.push(line);
+      if (line === "run:1") runner.restartStaleActive();
+    },
+  });
+
+  const result = await runner.run({ command: process.execPath, args: [scriptPath, countPath] });
+
+  assert.deepEqual(result, { code: 0, signal: null });
+  assert.deepEqual(lines, ["run:1", "run:2"]);
+  assert.equal(await readFile(countPath, "utf8"), "2");
+});
+
+test("agent selects only stale dashboard jobs for the active pipeline command", () => {
+  const commandSpec = {
+    command: process.execPath,
+    args: [
+      "src/agent/pipeline.js",
+      ".tile-state/dashboard/configs/cfg-active.json",
+      ".tile-state/dashboard/configs/cfg-next.json",
+    ],
+  };
+  const staleJobs = staleActiveDashboardJobsForCommand({
+    commandSpec,
+    nowMs: Date.parse("2026-06-24T06:45:00.000Z"),
+    staleMs: resolveStaleDashboardJobRestartMs({ DASHBOARD_AGENT_STALE_JOB_RESTART_MS: "300000" }),
+    jobs: [
+      {
+        jobId: "stale-active",
+        configId: "cfg-active",
+        status: "running",
+        updatedAt: "2026-06-24T06:39:59.000Z",
+      },
+      {
+        jobId: "fresh-active",
+        configId: "cfg-next",
+        status: "running",
+        updatedAt: "2026-06-24T06:44:30.000Z",
+      },
+      {
+        jobId: "stale-unrelated",
+        configId: "cfg-other",
+        status: "running",
+        updatedAt: "2026-06-24T06:30:00.000Z",
+      },
+      {
+        jobId: "stale-completed",
+        configId: "cfg-active",
+        status: "completed",
+        updatedAt: "2026-06-24T06:30:00.000Z",
+      },
+    ],
+  });
+
+  assert.deepEqual(configIdsFromCommandSpec(commandSpec), ["cfg-active", "cfg-next"]);
+  assert.deepEqual(staleJobs.map((job) => job.jobId), ["stale-active"]);
 });
 
 test("job reporter coalesces burst progress updates and flushes the latest before completion", async () => {

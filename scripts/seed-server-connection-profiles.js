@@ -4,6 +4,7 @@ import { loadServerConfig } from "../dashboard/src/server/config.js";
 import { createPostgresSecretVault } from "../dashboard/src/server/secrets.js";
 
 const DEFAULT_PORTS = {
+  agent: null,
   rdp: 3389,
   ssh: 22,
   winrm: 5985,
@@ -15,19 +16,19 @@ function printUsage(exitCode = 0) {
     "Seed saved server connection profiles into the encrypted dashboard DB.",
     "",
     "Usage:",
-    "  node scripts/seed-server-connection-profiles.js --from 1 --to 9 --protocol rdp --host-template \"server-{NN}\" --username USER --password PASSWORD",
-    "  SERVER_CONNECTION_PASSWORD=... node scripts/seed-server-connection-profiles.js --from 1 --to 9 --username USER",
+    "  node scripts/seed-server-connection-profiles.js --from 1 --to 9",
+    "  node scripts/seed-server-connection-profiles.js --from 1 --to 9 --protocol rdp --host-template \"10.0.0.{n}\" --username USER --password PASSWORD",
     "",
     "Options:",
     "  --from N                 First server number. Default: 1",
     "  --to N                   Last server number. Default: 9",
-    "  --protocol rdp|ssh|winrm|winrms  Default: rdp",
-    "  --port N                 Default comes from protocol",
+    "  --protocol agent|rdp|ssh|winrm|winrms  Default: agent",
+    "  --port N                 Default comes from protocol; ignored for agent",
     "  --label-template TEXT    Default: 봉사기 {n}",
     "  --machine-template TEXT  Default: server-{NN}",
-    "  --host-template TEXT     Default: {machineId}",
-    "  --username USER          Required",
-    "  --password PASSWORD      Required, or set SERVER_CONNECTION_PASSWORD",
+    "  --host-template TEXT     Required for non-agent protocols. Default: {machineId}",
+    "  --username USER          Required for non-agent protocols",
+    "  --password PASSWORD      Required for non-agent protocols, or set SERVER_CONNECTION_PASSWORD",
     "  --dry-run                Print planned rows without writing",
     "",
     "Template tokens: {n}, {N}, {NN}, {machineId}",
@@ -56,7 +57,7 @@ function parseArgs(argv = process.argv.slice(2)) {
   const opts = {
     from: 1,
     to: 9,
-    protocol: "rdp",
+    protocol: "agent",
     port: null,
     labelTemplate: "봉사기 {n}",
     machineTemplate: "server-{NN}",
@@ -91,14 +92,16 @@ function parseArgs(argv = process.argv.slice(2)) {
     else throw new Error(`Unknown option: ${arg}`);
   }
 
-  if (!DEFAULT_PORTS[opts.protocol]) throw new Error("--protocol must be one of: rdp, ssh, winrm, winrms");
-  if (!opts.port) opts.port = DEFAULT_PORTS[opts.protocol];
+  if (!Object.hasOwn(DEFAULT_PORTS, opts.protocol)) throw new Error("--protocol must be one of: agent, rdp, ssh, winrm, winrms");
+  if (!opts.port && opts.protocol !== "agent") opts.port = DEFAULT_PORTS[opts.protocol];
   if (opts.from > opts.to) throw new Error("--from must be less than or equal to --to");
   if (!String(opts.labelTemplate).trim()) throw new Error("--label-template is required");
   if (!String(opts.machineTemplate).trim()) throw new Error("--machine-template is required");
-  if (!String(opts.hostTemplate).trim()) throw new Error("--host-template is required");
-  if (!String(opts.username).trim()) throw new Error("--username is required");
-  if (!String(opts.password).trim()) throw new Error("--password is required or SERVER_CONNECTION_PASSWORD must be set");
+  if (opts.protocol !== "agent") {
+    if (!String(opts.hostTemplate).trim()) throw new Error("--host-template is required");
+    if (!String(opts.username).trim()) throw new Error("--username is required");
+    if (!String(opts.password).trim()) throw new Error("--password is required or SERVER_CONNECTION_PASSWORD must be set");
+  }
   return opts;
 }
 
@@ -108,12 +111,13 @@ function buildRows(opts) {
     const machineId = renderTemplate(opts.machineTemplate, number);
     const label = renderTemplate(opts.labelTemplate, number, machineId);
     const host = renderTemplate(opts.hostTemplate, number, machineId);
+    const isAgentProfile = opts.protocol === "agent";
     rows.push({
       label,
       machineId,
-      protocolUrl: `${opts.protocol}://${host}:${opts.port}`,
-      username: opts.username,
-      password: opts.password,
+      protocolUrl: isAgentProfile ? `agent://${machineId}` : `${opts.protocol}://${host}:${opts.port}`,
+      username: isAgentProfile ? "" : opts.username,
+      password: isAgentProfile ? "" : opts.password,
     });
   }
   return rows;

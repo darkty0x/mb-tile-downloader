@@ -35,6 +35,15 @@ const PROCESS_LABEL_ICONS = {
   "대기중": "clock",
 };
 
+const PROCESS_STATUS_ICONS = {
+  running: "running",
+  claimed: "running",
+  queued: "clock",
+  completed: "checkCircle",
+  failed: "failed",
+  stopped: "stop",
+};
+
 const HELP_GUIDES = [
   {
     id: "overview",
@@ -520,8 +529,14 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                   <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{process.configName}</strong>
                   <span className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{process.rangeId ? `범위 ${process.rangeId}` : process.configId || "Config 공정"}</span>
                 </div>
-                <span className="text-[12px] font-[800] text-[var(--ptg-on-surface)]">{process.stageLabel}</span>
-                <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
+                <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
+                  <Icon name={processStageIcon(process)} className="h-3.5 w-3.5 shrink-0 text-[var(--ptg-primary)]" />
+                  <span className="truncate">{process.stageLabel}</span>
+                </span>
+                <StatusPill status={process.tone}>
+                  <Icon name={processStatusIcon(process)} className="h-3 w-3 shrink-0" />
+                  <span className="truncate">{process.statusLabel}</span>
+                </StatusPill>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#d9e3f0]">
@@ -942,7 +957,7 @@ function ServerConnectionsSection({ state, actions }) {
           const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
           const validation = state.serverValidationResults[connection.secretId];
           const typeLabel = serverConnectionTypeLabel(connection);
-          const protocolUrl = serverConnectionProtocolUrl(connection);
+          const endpointLabel = serverConnectionEndpointLabel(connection);
           return (
             <div
               key={connection.secretId}
@@ -959,7 +974,7 @@ function ServerConnectionsSection({ state, actions }) {
                   </StatusPill>
                 </div>
                 <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                  {[protocolUrl, connection.credential?.username, machineNameForId(state, targetMachineId)].filter(Boolean).join(" | ")}
+                  {[endpointLabel, connection.credential?.username, machineNameForId(state, targetMachineId)].filter(Boolean).join(" | ")}
                 </p>
                 {validation ? (
                   <p className="mt-1 truncate text-[11px] font-[620] text-[var(--ptg-on-surface-variant)]">
@@ -1003,6 +1018,13 @@ function serverConnectionProtocolUrl(connection) {
   return protocol && host && port ? `${protocol}://${host}:${port}` : "";
 }
 
+function serverConnectionEndpointLabel(connection) {
+  if (connection?.credential?.protocol === "agent") return serverConnectionProtocolUrl(connection);
+  const host = String(connection?.credential?.host || "").trim();
+  const port = connection?.credential?.port;
+  return host && port ? `${host}:${port}` : serverConnectionProtocolUrl(connection);
+}
+
 export function ServerManagementPage({ state, actions }) {
   const [startOrderRequest, setStartOrderRequest] = useState(null);
   const connection = state.secretPool.find((item) => item.secretId === state.editor.id);
@@ -1021,7 +1043,7 @@ export function ServerManagementPage({ state, actions }) {
   }
   const snapshot = machine?.agentSnapshot || {};
   const validation = connection ? state.serverValidationResults[connection.secretId] : null;
-  const endpoint = connection ? serverConnectionProtocolUrl(connection) : "Agent 련결";
+  const endpoint = connection ? serverConnectionEndpointLabel(connection) : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const serverState = {
     ...state,
@@ -1198,6 +1220,14 @@ function activeJobMeta(activeJob, configs = []) {
       ? `범위 ${activeJob.rangeId}`
       : null;
   return [configName, rangeText].filter(Boolean).join(" | ");
+}
+
+function processStageIcon(process = {}) {
+  return STEP_ICONS[process.stage] || PROCESS_LABEL_ICONS[process.stageLabel] || "pipelines";
+}
+
+function processStatusIcon(process = {}) {
+  return PROCESS_STATUS_ICONS[process.status] || (process.stale ? "failed" : "clock");
 }
 
 function pipelineMeta(overview, configs = []) {

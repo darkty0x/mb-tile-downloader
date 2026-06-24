@@ -365,11 +365,18 @@ function serverConnectionProtocolUrl(connection) {
   return protocol && host && port ? `${protocol}://${host}:${port}` : "";
 }
 
+function serverConnectionEndpointLabel(connection) {
+  if (connection?.credential?.protocol === "agent") return serverConnectionProtocolUrl(connection);
+  const host = String(connection?.credential?.host || "").trim();
+  const port = connection?.credential?.port;
+  return host && port ? `${host}:${port}` : serverConnectionProtocolUrl(connection);
+}
+
 function ConnectionDetail({ connection, state, actions }) {
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
   const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const validation = state.serverValidationResults[connection.secretId];
-  const endpoint = serverConnectionProtocolUrl(connection);
+  const endpoint = serverConnectionEndpointLabel(connection);
   const copy = (text) => navigator.clipboard?.writeText(String(text || "")).catch(() => {});
   return (
     <section className="grid gap-3">

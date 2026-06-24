@@ -21,6 +21,8 @@ import { enableWindowsUtf8Console } from "../runtime/windows-console.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
 const DEFAULT_AGENT_NODE_MAJOR = "24";
+const DEFAULT_STALE_JOB_RESTART_MS = 5 * 60 * 1000;
+const ACTIVE_DASHBOARD_JOB_STATUSES = new Set(["running", "claimed"]);
 export const AGENT_PROTOCOL_VERSION = 1;
 const execFileAsync = promisify(execFile);
 enableWindowsUtf8Console();
@@ -32,6 +34,41 @@ export function isCliEntrypoint(metaUrl = import.meta.url, argvPath = process.ar
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function parseNonNegativeInt(value) {
+  const parsed = Number(value);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : null;
+}
+
+export function resolveStaleDashboardJobRestartMs(env = process.env) {
+  return parseNonNegativeInt(env.DASHBOARD_AGENT_STALE_JOB_RESTART_MS)
+    ?? parseNonNegativeInt(env.DASHBOARD_AGENT_STALE_OUTPUT_RESTART_MS)
+    ?? DEFAULT_STALE_JOB_RESTART_MS;
+}
+
+export function configIdsFromCommandSpec(spec = {}) {
+  return [spec.command, ...(spec.args || [])]
+    .map((part) => String(part || "").replace(/\\/g, "/"))
+    .map((part) => /(?:^|\/)\.tile-state\/dashboard\/configs\/([^/]+)\.json$/i.exec(part)?.[1])
+    .filter(Boolean);
+}
+
+export function staleActiveDashboardJobsForCommand({
+  jobs = [],
+  commandSpec = null,
+  nowMs = Date.now(),
+  staleMs = DEFAULT_STALE_JOB_RESTART_MS,
+} = {}) {
+  if (!commandSpec || staleMs <= 0 || !Number.isFinite(nowMs)) return [];
+  const activeConfigIds = new Set(configIdsFromCommandSpec(commandSpec));
+  if (!activeConfigIds.size) return [];
+  return jobs.filter((job) => {
+    if (!ACTIVE_DASHBOARD_JOB_STATUSES.has(String(job.status || "").toLowerCase())) return false;
+    if (!activeConfigIds.has(String(job.configId || ""))) return false;
+    const updatedAt = Date.parse(job.updatedAt || "");
+    return Number.isFinite(updatedAt) && nowMs - updatedAt >= staleMs;
+  });
 }
 
 async function safeDiskSnapshot(collectDiskInfoImpl = collectDiskInfo, options = {}) {
@@ -690,6 +727,48 @@ export async function runAgent({
     return true;
   }
 
+  async function restartStaleDashboardJobIfNeeded() {
+    if (!runner.activeCommandSpec || !client.listJobs) return false;
+    const staleMs = resolveStaleDashboardJobRestartMs(env);
+    if (staleMs <= 0) return false;
+    const { jobs = [] } = await client.listJobs(identity.machineId);
+    const staleJobs = staleActiveDashboardJobsForCommand({
+      jobs,
+      commandSpec: runner.activeCommandSpec,
+      nowMs: Date.now(),
+      staleMs,
+    });
+    if (!staleJobs.length) return false;
+    const staleJob = staleJobs.sort((a, b) => String(a.updatedAt || "").localeCompare(String(b.updatedAt || "")))[0];
+    await client.stopRunningJobs(identity.machineId, {
+      configId: staleJob.configId,
+      stage: staleJob.stage || null,
+      progress: {
+        ...(staleJob.progress || {}),
+        restartedAt: new Date().toISOString(),
+      },
+      error: `pipeline restarted after dashboard progress stayed stale for ${staleMs}ms`,
+    }).catch(() => null);
+    const restartResult = runner.restartStaleActive
+      ? runner.restartStaleActive()
+      : await runner.restartActive?.();
+    if (!restartResult?.restarted) return false;
+    await client.postEvent({
+      machineId: identity.machineId,
+      severity: "warn",
+      type: "managed_process.dashboard_job_stale_restart",
+      message: "Managed downloader process restarted after dashboard job progress stayed stale.",
+      data: {
+        jobId: staleJob.jobId || staleJob.id || null,
+        configId: staleJob.configId || null,
+        stage: staleJob.stage || null,
+        updatedAt: staleJob.updatedAt || null,
+        staleMs,
+      },
+    });
+    return true;
+  }
+
   async function syncAndPublishSnapshot({ reason = "heartbeat" } = {}) {
     const synced = await syncManagedState({
       client,
@@ -739,6 +818,7 @@ export async function runAgent({
         requestAgentRestart,
       });
     }
+    await restartStaleDashboardJobIfNeeded();
     await syncAndPublishSnapshot({ reason: "heartbeat" });
     restartAgentIfReady();
   }

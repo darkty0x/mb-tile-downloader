@@ -204,6 +204,14 @@ export function createProcessRunner({
       return true;
     },
 
+    restartStaleActive() {
+      if (!active || !activeSpec || restartingStaleProcess) return { restarted: false };
+      clearStaleTimer();
+      restartingStaleProcess = true;
+      active.kill();
+      return { restarted: true };
+    },
+
     async restartActive() {
       if (!active || !activeSpec) return { restarted: false };
       const spec = { command: activeSpec.command, args: [...activeSpec.args] };
