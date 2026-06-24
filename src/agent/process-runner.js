@@ -187,6 +187,13 @@ export function createProcessRunner({
     get activeCommandSpec() {
       return activeSpec;
     },
+    get lastOutputAt() {
+      return lastOutputAt;
+    },
+    hasRecentOutput(windowMs = staleOutputRestartMs()) {
+      if (!active || !lastOutputAt || windowMs <= 0) return false;
+      return now() - lastOutputAt < windowMs;
+    },
 
     async run(commandSpec) {
       if (active) throw new Error("another managed process is already running");
