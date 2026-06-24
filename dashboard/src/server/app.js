@@ -1345,7 +1345,7 @@ export function createDashboardApp({
               configId: config.configId,
               error: "config deleted",
             });
-            if (config.active || stoppedJobs.length) {
+            if (stoppedJobs.length) {
               command = await store.queueCommand({
                 machineId: config.machineId,
                 commandType: "stop_pipeline",

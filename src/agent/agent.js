@@ -740,15 +740,6 @@ export async function runAgent({
     });
     if (!staleJobs.length) return false;
     const staleJob = staleJobs.sort((a, b) => String(a.updatedAt || "").localeCompare(String(b.updatedAt || "")))[0];
-    await client.stopRunningJobs(identity.machineId, {
-      configId: staleJob.configId,
-      stage: staleJob.stage || null,
-      progress: {
-        ...(staleJob.progress || {}),
-        restartedAt: new Date().toISOString(),
-      },
-      error: `pipeline restarted after dashboard progress stayed stale for ${staleMs}ms`,
-    }).catch(() => null);
     const restartResult = runner.restartStaleActive
       ? runner.restartStaleActive()
       : await runner.restartActive?.();

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
-import { configIdsFromCommandSpec, ensureNativeDependencies, preparePreferredNodeRuntime, resolveStaleDashboardJobRestartMs, runCommand, staleActiveDashboardJobsForCommand } from "../src/agent/agent.js";
+import { configIdsFromCommandSpec, ensureNativeDependencies, preparePreferredNodeRuntime, resolveStaleDashboardJobRestartMs, runAgent, runCommand, staleActiveDashboardJobsForCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
@@ -531,6 +531,61 @@ test("agent selects only stale dashboard jobs for the active pipeline command", 
 
   assert.deepEqual(configIdsFromCommandSpec(commandSpec), ["cfg-active", "cfg-next"]);
   assert.deepEqual(staleJobs.map((job) => job.jobId), ["stale-active"]);
+});
+
+test("agent stale dashboard job restart does not mark the job stopped", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-dashboard-stale-restart-"));
+  const calls = [];
+  const runner = {
+    activeCommandSpec: {
+      command: process.execPath,
+      args: ["src/agent/pipeline.js", ".tile-state/dashboard/configs/cfg-active.json"],
+    },
+    restartStaleActive() {
+      calls.push(["restart"]);
+      return { restarted: true };
+    },
+  };
+  const client = {
+    register: async () => calls.push(["register"]),
+    pollCommands: async () => ({ commands: [] }),
+    listJobs: async () => ({
+      jobs: [{
+        jobId: "job-active",
+        configId: "cfg-active",
+        status: "running",
+        stage: "download",
+        updatedAt: "2026-06-24T06:30:00.000Z",
+      }],
+    }),
+    postEvent: async (event) => calls.push(["event", event.type]),
+    heartbeat: async () => ({}),
+    listConfigs: async () => ({ configs: [] }),
+    listEnvProfiles: async () => ({ envProfiles: [] }),
+    listSecrets: async () => ({ secrets: [] }),
+  };
+
+  await runAgent({
+    env: {
+      DASHBOARD_URL: "https://dashboard.example",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "server-01",
+      DASHBOARD_AGENT_STALE_JOB_RESTART_MS: "1",
+    },
+    argv: ["--once"],
+    stateDir: dir,
+    projectDir: dir,
+    createClient: () => client,
+    createRunner: () => runner,
+    collectDiskInfoImpl: async () => [],
+    collectLocalSnapshotImpl: async () => ({}),
+  });
+
+  assert.deepEqual(calls, [
+    ["register"],
+    ["restart"],
+    ["event", "managed_process.dashboard_job_stale_restart"],
+  ]);
 });
 
 test("job reporter coalesces burst progress updates and flushes the latest before completion", async () => {

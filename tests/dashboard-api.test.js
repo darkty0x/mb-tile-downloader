@@ -150,6 +150,39 @@ test("deleting an active config stops matching running jobs and queues a scoped 
   assert.equal(commands[0].payload.configId, config.configId);
 });
 
+test("deleting an active config without a running job does not queue a stop command", async (t) => {
+  const store = createDashboardStore({
+    now: () => new Date("2026-06-16T00:00:00.000Z"),
+  });
+  await store.registerMachine({
+    machineId: "server-01",
+    agentInstanceId: "agent-01",
+  });
+  const config = await store.createConfig({
+    machineId: "server-01",
+    name: "range-idle",
+    active: true,
+    config: {
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      ranges: [{ zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 }],
+    },
+  });
+
+  const server = await withServer(t, { store });
+  const deleted = await request(server, {
+    method: "DELETE",
+    path: `/api/configs/${encodeURIComponent(config.configId)}`,
+  });
+  const commands = await store.claimCommands({ machineId: "server-01" });
+
+  assert.equal(deleted.status, 200);
+  assert.deepEqual(deleted.body.stoppedJobs, []);
+  assert.equal(deleted.body.command, null);
+  assert.deepEqual(commands, []);
+});
+
 test("deleting a machine job removes task state and clears active job", async (t) => {
   const store = createDashboardStore({
     now: () => new Date("2026-06-16T00:00:00.000Z"),

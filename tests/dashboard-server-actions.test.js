@@ -42,9 +42,9 @@ test("pipeline process table shows stage and status icons", () => {
   );
 
   assert.match(pagesSource, /const PROCESS_STATUS_ICONS = \{/);
-  assert.match(pagesSource, /function processStageIcon\(process = \{\}\)/);
+  assert.match(pagesSource, /function processStageIcon\(processLabel\)/);
   assert.match(pagesSource, /function processStatusIcon\(process = \{\}\)/);
-  assert.match(processTableSource, /<Icon name=\{processStageIcon\(process\)\}/);
+  assert.match(processTableSource, /<Icon name=\{processStageIcon\(process\.stageLabel \|\| process\.stage\)\}/);
   assert.match(processTableSource, /<Icon name=\{processStatusIcon\(process\)\}/);
 });
 
