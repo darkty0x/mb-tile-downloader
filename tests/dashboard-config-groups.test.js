@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 
-import { buildConfigGroups, planConfigGroupUpdate } from "../dashboard/client/lib/config-groups.js";
+import { buildConfigGroups, planConfigGroupAssignmentUpdate, planConfigGroupUpdate } from "../dashboard/client/lib/config-groups.js";
 
 const templates = [
   { id: "esri-satellite", label: "esri-satellite", provider: "esri", layer: "esri-satellite", format: "jpg" },
@@ -119,6 +119,44 @@ test("config group update plan adds missing selected types and removes unchecked
       addTemplateIds: ["mapbox-dem"],
       removeConfigIds: ["cfg-2"],
     }
+  );
+});
+
+test("config group assignment update plan renames and moves selected existing types", () => {
+  const [group] = buildConfigGroups([
+    {
+      configId: "cfg-1",
+      machineId: "server-01",
+      name: "1-pyongyang-esri-satellite",
+      config: { provider: "esri", layer: "esri-satellite", format: "jpg", jobName: "1-pyongyang-esri-satellite", ranges: [] },
+    },
+    {
+      configId: "cfg-2",
+      machineId: "server-01",
+      name: "1-pyongyang-mapbox-pbf",
+      config: { provider: "mapbox", layer: "vector", format: "pbf", jobName: "1-pyongyang-mapbox-pbf", ranges: [] },
+    },
+  ], templates);
+
+  assert.deepEqual(
+    planConfigGroupAssignmentUpdate(group, ["esri-satellite", "mapbox-pbf"], {
+      name: "10-jeju-naval-base",
+      machineIds: ["server-02"],
+    }),
+    [
+      {
+        configId: "cfg-1",
+        machineId: "server-02",
+        name: "10-jeju-naval-base-esri-satellite",
+        config: { provider: "esri", layer: "esri-satellite", format: "jpg", jobName: "10-jeju-naval-base-esri-satellite", ranges: [] },
+      },
+      {
+        configId: "cfg-2",
+        machineId: "server-02",
+        name: "10-jeju-naval-base-mapbox-pbf",
+        config: { provider: "mapbox", layer: "vector", format: "pbf", jobName: "10-jeju-naval-base-mapbox-pbf", ranges: [] },
+      },
+    ]
   );
 });
 

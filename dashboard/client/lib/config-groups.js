@@ -144,3 +144,31 @@ export function planConfigGroupUpdate(group = {}, selectedTemplateIds = []) {
       .map((template) => template.config.configId),
   };
 }
+
+export function planConfigGroupAssignmentUpdate(group = {}, selectedTemplateIds = [], { name, machineIds = [] } = {}) {
+  const selected = new Set(selectedTemplateIds.map((id) => String(id || "").trim()).filter(Boolean));
+  const targetName = cleanName(name || group.name || "");
+  const targetMachineIds = machineIds.map((id) => String(id || "").trim()).filter(Boolean);
+  const targetMachineId = targetMachineIds.length === 1 ? targetMachineIds[0] : String(group.machineId || "").trim();
+  return (group.templates || [])
+    .filter((template) => selected.has(template.id) && template.enabled && template.config?.configId)
+    .map((template) => {
+      const current = template.config;
+      const nextName = targetName && template.id ? `${targetName}-${template.id}` : current.name;
+      const nextConfig = {
+        ...(current.config || {}),
+        jobName: nextName,
+      };
+      const machineChanged = String(current.machineId || "").trim() !== targetMachineId;
+      const nameChanged = String(current.name || "").trim() !== nextName;
+      const jobNameChanged = String(current.config?.jobName || "").trim() !== nextName;
+      if (!machineChanged && !nameChanged && !jobNameChanged) return null;
+      return {
+        configId: current.configId,
+        machineId: targetMachineId || null,
+        name: nextName,
+        config: nextConfig,
+      };
+    })
+    .filter(Boolean);
+}

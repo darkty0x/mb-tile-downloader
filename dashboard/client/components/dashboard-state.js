@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 
 import { buildCredentialSecretValue } from "../lib/overview-model";
-import { planConfigGroupUpdate } from "../lib/config-groups";
+import { planConfigGroupAssignmentUpdate, planConfigGroupUpdate } from "../lib/config-groups";
 import { completedConfigDeleteCandidates, completedConfigPromptKey } from "../lib/completed-configs";
 import { eventDisplayMessage, eventDisplayTitle } from "../lib/event-display";
 import { eventNotificationId, eventRecordId } from "../lib/event-identity";
@@ -797,7 +797,11 @@ export function useDashboardState() {
       },
       async saveConfigGroup(formData, configGroup) {
         const templateIds = formData.getAll("templateIds").map((item) => String(item || "").trim()).filter(Boolean);
+        const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
+        if (machineIds.length !== 1) throw new Error("Config 그룹 편집은 봉사기 하나만 선택할수 있습니다");
+        const name = String(formData.get("name") || configGroup.name || "").trim();
         const plan = planConfigGroupUpdate(configGroup, templateIds);
+        const assignmentUpdates = planConfigGroupAssignmentUpdate(configGroup, templateIds, { name, machineIds });
         if (plan.removeConfigIds.length) {
           const confirmed = await confirmDanger({
             title: "Config 류형 삭제 확인",
@@ -814,12 +818,26 @@ export function useDashboardState() {
           await api("/api/configs/batch", {
             method: "POST",
             body: JSON.stringify({
-              machineId: configGroup.machineId || null,
-              name: formData.get("name") || configGroup.name,
+              machineId: machineIds[0] || null,
+              name: name || configGroup.name,
               templateIds: plan.addTemplateIds,
               rangeInput: JSON.stringify(ranges),
             }),
           });
+        }
+        for (const update of assignmentUpdates) {
+          const { config: updated } = await api(`/api/configs/${encodeURIComponent(update.configId)}`, {
+            method: "PUT",
+            body: JSON.stringify({
+              machineId: update.machineId,
+              name: update.name,
+              config: update.config,
+              active: true,
+            }),
+          });
+          if (updated?.configId && updated.configId !== update.configId) {
+            await api(`/api/configs/${encodeURIComponent(update.configId)}`, { method: "DELETE" });
+          }
         }
         for (const configId of plan.removeConfigIds) {
           await api(`/api/configs/${encodeURIComponent(configId)}`, { method: "DELETE" });

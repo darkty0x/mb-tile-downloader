@@ -235,8 +235,19 @@ function checkTcpEndpoint({ host, port, timeoutMs = 3000 }) {
   });
 }
 
-async function serveClient(req, res, clientDir) {
-  const url = new URL(req.url || "/", "http://127.0.0.1");
+function parseRequestUrl(req) {
+  try {
+    return new URL(req.url || "/", "http://127.0.0.1");
+  } catch {
+    return null;
+  }
+}
+
+async function serveClient(req, res, clientDir, url = parseRequestUrl(req)) {
+  if (!url) {
+    json(res, 400, { error: "invalid request url" });
+    return true;
+  }
   const requested = url.pathname === "/" ? "/index.html" : url.pathname;
   const filePath = path.resolve(clientDir, `.${requested}`);
   if (!filePath.startsWith(clientDir)) {
@@ -858,9 +869,13 @@ export function createDashboardApp({
   secureCookies = false,
 } = {}) {
   return http.createServer(async (req, res) => {
-    const url = new URL(req.url || "/", "http://127.0.0.1");
-
     try {
+      const url = parseRequestUrl(req);
+      if (!url) {
+        json(res, 400, { error: "invalid request url" });
+        return;
+      }
+
       if (req.method === "GET" && url.pathname === "/health") {
         const health = healthCheck ? await healthCheck() : { ok: true };
         json(res, health.ok === false ? 503 : 200, health);
@@ -1675,7 +1690,7 @@ export function createDashboardApp({
       }
 
       if (req.method === "GET" || req.method === "HEAD") {
-        if (await serveClient(req, res, clientDir)) return;
+        if (await serveClient(req, res, clientDir, url)) return;
       }
 
       json(res, 404, { error: "not found" });

@@ -74,6 +74,29 @@ test("dashboard config storage supports rename and delete", () => {
   );
 });
 
+test("dashboard config storage persists machine assignment changes on update", () => {
+  const store = createDashboardStore({ idGenerator: () => "cfg-a" });
+
+  const created = store.createConfig({
+    machineId: "worker-a",
+    name: "old-name",
+    config: validConfig,
+    active: true,
+  });
+  const moved = store.updateConfig(created.configId, {
+    machineId: "worker-b",
+    name: "new-name",
+    config: { ...validConfig, jobName: "new-name" },
+  });
+
+  assert.equal(moved.machineId, "worker-b");
+  assert.equal(moved.name, "new-name");
+  assert.deepEqual(
+    store.listConfigs({ machineId: "worker-b" }).map((config) => config.configId),
+    [moved.configId]
+  );
+});
+
 test("agent materializes dashboard config without editing root configs", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-config-"));
 

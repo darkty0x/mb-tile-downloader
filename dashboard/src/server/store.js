@@ -362,6 +362,7 @@ export function createDashboardStore({
       const next = {
         ...existing,
         configId: `${existing.configId}-v${existing.version + 1}`,
+        machineId: Object.hasOwn(input, "machineId") ? optionalStoredMachineId(input.machineId) : existing.machineId,
         name: input.name ? requireNonEmpty(input.name, "name") : existing.name,
         version: existing.version + 1,
         config: validateConfig(input.config ?? existing.config),

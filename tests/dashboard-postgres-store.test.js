@@ -810,6 +810,8 @@ test("postgres store persists config and env profile versions", async () => {
     },
   });
   const configV2 = await store.updateConfig(config.configId, {
+    machineId: "worker-b",
+    name: "ukraine-v2",
     active: true,
     config: {
       provider: "esri",
@@ -826,9 +828,15 @@ test("postgres store persists config and env profile versions", async () => {
 
   assert.equal(config.version, 1);
   assert.equal(configV2.version, 2);
+  assert.equal(configV2.machineId, "worker-b");
+  assert.equal(configV2.name, "ukraine-v2");
   assert.deepEqual(
     (await store.listConfigs({ machineId: "worker-a" })).map((item) => item.active),
-    [true, true]
+    [true]
+  );
+  assert.deepEqual(
+    (await store.listConfigs({ machineId: "worker-b" })).map((item) => item.configId),
+    [configV2.configId]
   );
   assert.equal((await store.listEnvProfiles({ machineId: "worker-a" }))[0].envProfileId, env.envProfileId);
 });

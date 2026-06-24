@@ -401,7 +401,7 @@ export function createPostgresDashboardStore({
         RETURNING *`,
         [
           `${existing.config_id}-v${existing.version + 1}`,
-          existing.machine_id,
+          Object.hasOwn(input, "machineId") ? optionalStoredMachineId(input.machineId) : existing.machine_id,
           input.name ? requireNonEmpty(input.name, "name") : existing.name,
           existing.version + 1,
           toJsonbParam(validateConfig(input.config ?? jsonValue(existing.config_json, {})), {}),

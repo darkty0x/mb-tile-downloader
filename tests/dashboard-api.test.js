@@ -41,6 +41,24 @@ async function requestText(server, { method = "GET", path = "/", headers = {} } 
   };
 }
 
+async function rawHttpRequest(server, requestText) {
+  const { port } = server.address();
+  return await new Promise((resolve, reject) => {
+    const socket = net.createConnection({ host: "127.0.0.1", port });
+    let data = "";
+    socket.setEncoding("utf8");
+    socket.once("connect", () => socket.write(requestText));
+    socket.on("data", (chunk) => {
+      data += chunk;
+    });
+    socket.once("error", reject);
+    socket.once("end", () => resolve(data));
+    socket.setTimeout(2_000, () => {
+      socket.destroy(new Error("raw request timed out"));
+    });
+  });
+}
+
 async function withServer(t, options = {}) {
   const app = createDashboardApp({
     store: createDashboardStore({
@@ -246,6 +264,17 @@ test("health endpoint does not require authentication", async (t) => {
 
   assert.equal(response.status, 200);
   assert.deepEqual(response.body, { ok: true });
+});
+
+test("dashboard rejects malformed request target without crashing", async (t) => {
+  const server = await withServer(t);
+
+  const response = await rawHttpRequest(server, "GET // HTTP/1.1\r\nHost: 127.0.0.1\r\nConnection: close\r\n\r\n");
+  const health = await request(server, { path: "/health" });
+
+  assert.match(response, /^HTTP\/1\.1 400 Bad Request/m);
+  assert.match(response, /invalid request url/);
+  assert.equal(health.status, 200);
 });
 
 test("dashboard serves static assets from configured built client directory", async (t) => {
