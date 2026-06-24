@@ -35,17 +35,17 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);
 });
 
-test("pipeline process table shows stage and status icons", () => {
+test("pipeline process table keeps stage and status text-only", () => {
   const processTableSource = pagesSource.slice(
     pagesSource.indexOf("{pipelineProcesses.length > 1 ? ("),
     pagesSource.indexOf("{storjLinks.length ? (", pagesSource.indexOf("{pipelineProcesses.length > 1 ? (")),
   );
 
-  assert.match(pagesSource, /const PROCESS_STATUS_ICONS = \{/);
-  assert.match(pagesSource, /function processStageIcon\(processLabel\)/);
-  assert.match(pagesSource, /function processStatusIcon\(process = \{\}\)/);
-  assert.match(processTableSource, /<Icon name=\{processStageIcon\(process\.stageLabel \|\| process\.stage\)\}/);
-  assert.match(processTableSource, /<Icon name=\{processStatusIcon\(process\)\}/);
+  assert.doesNotMatch(pagesSource, /const PROCESS_STATUS_ICONS = \{/);
+  assert.doesNotMatch(pagesSource, /function processStatusIcon\(process = \{\}\)/);
+  assert.doesNotMatch(processTableSource, /<Icon name=\{processStageIcon\(process\.stageLabel \|\| process\.stage\)\}/);
+  assert.doesNotMatch(processTableSource, /<Icon name=\{processStatusIcon\(process\)\}/);
+  assert.match(processTableSource, /<StatusPill status=\{process\.tone\}>\{process\.statusLabel\}<\/StatusPill>/);
 });
 
 test("selected server config tab exposes bulk delete action", () => {

@@ -874,15 +874,25 @@ function configPipelineSummary({
 }
 
 function buildConfigPipelineModel({ configs = [], scopedJobs = [], liveScopedJobs = [], completedStorjLinks = [], machine = null, nowMs = Date.now(), summary = {} } = {}) {
-  const activeConfigIds = new Set(liveScopedJobs.map((job) => configIdValue(job.configId)).filter(Boolean));
+  const latestJobsByConfigId = latestJobsByConfig(scopedJobs);
+  const activeConfigIds = new Set(
+    [...latestJobsByConfigId.values()]
+      .filter((job) => RUNNING_JOB_STATUSES.has(jobStatus(job)))
+      .map((job) => configIdValue(job.configId))
+      .filter(Boolean)
+  );
   const completedLinksByConfig = new Map();
   for (const link of completedStorjLinks) {
     const configId = configIdValue(link.configId);
     if (activeConfigIds.has(configId)) continue;
+    const latestJob = latestJobsByConfigId.get(configId);
+    if (latestJob && jobStatus(latestJob) !== "completed") continue;
     if (configId && !completedLinksByConfig.has(configId)) completedLinksByConfig.set(configId, link);
   }
 
-  const liveJobsByConfig = latestJobsByConfig(liveScopedJobs);
+  const liveJobsByConfig = new Map(
+    [...latestJobsByConfigId.entries()].filter(([, job]) => RUNNING_JOB_STATUSES.has(jobStatus(job)))
+  );
   const liveJobs = [...liveJobsByConfig.values()].sort(newestFirst);
   const processes = configs.map((config) => {
     const configId = configIdValue(config.configId);

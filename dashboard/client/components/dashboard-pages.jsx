@@ -520,8 +520,7 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                   <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{process.configName}</strong>
                   <span className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{process.rangeId ? `범위 ${process.rangeId}` : process.configId || "Config 공정"}</span>
                 </div>
-                <span className="inline-flex min-w-0 items-center gap-1.5 text-[12px] font-[800] text-[var(--ptg-on-surface)]">
-                  <Icon name={processStageIcon(process.stageLabel || process.stage)} className="h-3.5 w-3.5 shrink-0 text-[var(--ptg-primary)]" />
+                <span className="inline-flex min-w-0 items-center text-[12px] font-[800] text-[var(--ptg-on-surface)]">
                   <span className="truncate">{process.stageLabel}</span>
                 </span>
                 <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>

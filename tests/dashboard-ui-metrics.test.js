@@ -678,6 +678,84 @@ test("selected server pipeline upload phase is not marked complete until active 
   );
 });
 
+test("selected server config process ignores older stale running row after newer completed proof", () => {
+  const model = buildOverviewModel({
+    now: new Date("2026-06-24T08:15:00.000Z"),
+    machines: [{ machineId: "server-04", status: "online", currentJobId: null }],
+    configs: [
+      { configId: "cfg-esri", machineId: "server-04", name: "9-jinhae-submarine-command-esri-satellite" },
+      { configId: "cfg-pbf", machineId: "server-04", name: "9-jinhae-submarine-command-mapbox-pbf" },
+      { configId: "cfg-satellite", machineId: "server-04", name: "9-jinhae-submarine-command-mapbox-satellite" },
+    ],
+    jobs: [
+      {
+        jobId: "job-esri-complete",
+        machineId: "server-04",
+        configId: "cfg-esri",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-24T07:00:00.000Z",
+        updatedAt: "2026-06-24T07:14:00.000Z",
+        finishedAt: "2026-06-24T07:14:00.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/9-jinhae-submarine-command-esri-satellite/",
+        },
+      },
+      {
+        jobId: "job-pbf-stale-running",
+        machineId: "server-04",
+        configId: "cfg-pbf",
+        status: "running",
+        stage: "zip",
+        startedAt: "2026-06-24T07:14:53.000Z",
+        updatedAt: "2026-06-24T07:33:16.000Z",
+        progress: { percent: 0 },
+      },
+      {
+        jobId: "job-pbf-complete",
+        machineId: "server-04",
+        configId: "cfg-pbf",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-24T07:39:30.000Z",
+        updatedAt: "2026-06-24T07:43:08.000Z",
+        finishedAt: "2026-06-24T07:43:08.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/9-jinhae-submarine-command-mapbox-pbf/",
+        },
+      },
+      {
+        jobId: "job-satellite-complete",
+        machineId: "server-04",
+        configId: "cfg-satellite",
+        status: "completed",
+        stage: "upload",
+        startedAt: "2026-06-24T07:43:09.000Z",
+        updatedAt: "2026-06-24T08:11:09.000Z",
+        finishedAt: "2026-06-24T08:11:09.000Z",
+        progress: {
+          percent: 100,
+          storjShareUrl: "https://link.storjshare.io/s/token/mapbox/9-jinhae-submarine-command-mapbox-satellite/",
+        },
+      },
+    ],
+    machineId: "server-04",
+  });
+
+  assert.equal(model.pipelineSummary.completedConfigLabel, "3/3 완료");
+  assert.equal(model.pipelineProgress, "100%");
+  assert.deepEqual(
+    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.statusLabel, process.progressLabel]),
+    [
+      ["9-jinhae-submarine-command-esri-satellite", "올리적재", "완료", "100%"],
+      ["9-jinhae-submarine-command-mapbox-pbf", "올리적재", "완료", "100%"],
+      ["9-jinhae-submarine-command-mapbox-satellite", "올리적재", "완료", "100%"],
+    ]
+  );
+});
+
 test("overview model aggregates fleet pipeline status across active servers", () => {
   const model = buildOverviewModel({
     machines: [
