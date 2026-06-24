@@ -553,7 +553,17 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
         <div className="mt-4 rounded-[16px] border border-[var(--ptg-success)] bg-[rgba(0,166,118,0.10)] p-3">
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0 flex-1">
-              <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명 {storjLinks.length > 1 ? `${storjLinks.length}개` : ""}</span>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명 {storjLinks.length > 1 ? `${storjLinks.length}개` : ""}</span>
+                <AppButton
+                  variant="danger"
+                  icon="trash"
+                  disabled={!storjLinks.some((link) => link.machineId && link.jobId)}
+                  onClick={() => actions.deleteMachineTasks(storjLinks).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+                >
+                  모두 삭제
+                </AppButton>
+              </div>
               <div className="mt-2 grid gap-2">
                 {storjLinks.map((link) => (
                   <div key={link.shareUrl} className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-[12px] border border-[rgba(0,166,118,0.28)] bg-white/70 px-3 py-2">

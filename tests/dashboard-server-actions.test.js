@@ -30,6 +30,10 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(pagesSource, /function PipelineOverview\(\{ overview, actions,/);
   assert.match(pagesSource, /<PipelineOverview overview=\{overview\} actions=\{actions\}/);
   assert.match(pagesSource, /<PipelineOverview\s+overview=\{overview\}\s+actions=\{actions\}/);
+  assert.match(proofSource, /actions\.deleteMachineTasks\(storjLinks\)/);
+  assert.match(proofSource, /disabled=\{!storjLinks\.some\(\(link\) => link\.machineId && link\.jobId\)\}/);
+  assert.match(stateSource, /async deleteMachineTasks\(jobRefs = \[\]\)/);
+  assert.match(stateSource, /title: "완료증명 모두 삭제 확인"/);
   assert.match(proofSource, /label="완료증명 삭제"/);
   assert.match(proofSource, /event\.stopPropagation\(\)/);
   assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);

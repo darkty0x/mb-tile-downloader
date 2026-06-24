@@ -630,6 +630,40 @@ export function useDashboardState() {
         setNotice({ message: `작업 ${count}개가 삭제되였습니다`, kind: "success" });
         await refreshAll({ showLoading: false });
       },
+      async deleteMachineTasks(jobRefs = []) {
+        const refs = [...new Map((jobRefs || [])
+          .map((ref) => ({
+            machineId: normalizeMachineId(ref?.machineId),
+            jobId: String(ref?.jobId || "").trim(),
+          }))
+          .filter((ref) => ref.machineId && ref.jobId)
+          .map((ref) => [`${ref.machineId}:${ref.jobId}`, ref])).values()];
+        if (!refs.length) throw new Error("삭제할 작업이 없습니다");
+        const confirmed = await confirmDanger({
+          title: "완료증명 모두 삭제 확인",
+          message: `올리적재 완료증명 작업상태 ${refs.length}개를 삭제하겠습니까?`,
+          confirmLabel: "모두 삭제",
+          storageKey: "delete-machine-task",
+        });
+        if (!confirmed) return;
+        const deletedJobIds = new Set();
+        let count = 0;
+        for (const ref of refs) {
+          const result = await api(`/api/machines/${encodeURIComponent(ref.machineId)}/jobs/${encodeURIComponent(ref.jobId)}`, {
+            method: "DELETE",
+          });
+          count += result.count ?? result.jobs?.length ?? 0;
+          for (const job of result.jobs || []) {
+            if (job.jobId) deletedJobIds.add(job.jobId);
+          }
+        }
+        if (deletedJobIds.size) {
+          setJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
+          setGlobalJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
+        }
+        setNotice({ message: `완료증명 작업상태 ${count}개가 삭제되였습니다`, kind: "success" });
+        await refreshAll({ showLoading: false });
+      },
       async pauseAllMachines() {
         const targets = machines.filter((machine) => machine.status !== "offline").map((machine) => machine.machineId);
         if (!targets.length) throw new Error("일시중지할 련결된 봉사기가 없습니다");
