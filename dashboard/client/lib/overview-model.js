@@ -727,33 +727,39 @@ function configDisplayNameFromJob({ job = {}, config = null, shareUrl = "" } = {
 }
 
 function buildStorjLinks(jobs = [], configs = []) {
-  const seen = new Set();
+  const linksByKey = new Map();
   const currentConfigIds = new Set(configs.map((config) => configIdValue(config.configId)).filter(Boolean));
-  return jobs
-    .filter((job) => jobHasCompletedStorjProof(job))
-    .sort(newestFirst)
-    .map((job) => {
-      const shareUrl = String(job.progress?.storjShareUrl || "").trim();
-      const configId = String(job.configId || "").trim();
-      if (currentConfigIds.size > 0 && !currentConfigIds.has(configId)) return null;
-      const urlConfigName = configNameFromStorjShareUrl(shareUrl);
-      const seenKey = urlConfigName
-        ? `folder:${normalizeMachineId(job.machineId)}:${urlConfigName}`
-        : configId ? `config:${normalizeMachineId(job.machineId)}:${configId}` : `url:${shareUrl}`;
-      if (!shareUrl || seen.has(seenKey)) return null;
-      seen.add(seenKey);
-      const config = configs.find((item) => item.configId === job.configId);
-      return {
-        jobId: job.jobId || job.id || "",
-        machineId: job.machineId || "",
-        configId,
-        configName: configDisplayNameFromJob({ job, config, shareUrl }),
-        rangeId: job.rangeId || "",
-        shareUrl,
-        rawLinkPrefix: job.progress?.storjRawLinkPrefix || "",
-      };
-    })
-    .filter(Boolean);
+  for (const job of jobs.filter((item) => jobHasCompletedStorjProof(item)).sort(newestFirst)) {
+    const shareUrl = String(job.progress?.storjShareUrl || "").trim();
+    const configId = String(job.configId || "").trim();
+    if (currentConfigIds.size > 0 && !currentConfigIds.has(configId)) continue;
+    const urlConfigName = configNameFromStorjShareUrl(shareUrl);
+    const linkKey = urlConfigName
+      ? `folder:${normalizeMachineId(job.machineId)}:${urlConfigName}`
+      : configId ? `config:${normalizeMachineId(job.machineId)}:${configId}` : `url:${shareUrl}`;
+    if (!shareUrl) continue;
+    const jobRef = {
+      jobId: job.jobId || job.id || "",
+      machineId: job.machineId || "",
+    };
+    const existing = linksByKey.get(linkKey);
+    if (existing) {
+      if (jobRef.machineId && jobRef.jobId) existing.jobRefs.push(jobRef);
+      continue;
+    }
+    const config = configs.find((item) => item.configId === job.configId);
+    linksByKey.set(linkKey, {
+      jobId: job.jobId || job.id || "",
+      machineId: job.machineId || "",
+      configId,
+      configName: configDisplayNameFromJob({ job, config, shareUrl }),
+      rangeId: job.rangeId || "",
+      shareUrl,
+      rawLinkPrefix: job.progress?.storjRawLinkPrefix || "",
+      jobRefs: jobRef.machineId && jobRef.jobId ? [jobRef] : [],
+    });
+  }
+  return [...linksByKey.values()];
 }
 
 function jobHasCompletedStorjProof(job = {}) {

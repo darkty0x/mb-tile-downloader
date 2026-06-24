@@ -661,6 +661,7 @@ export function useDashboardState() {
           setJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
           setGlobalJobs((current) => current.filter((job) => !deletedJobIds.has(job.jobId)));
         }
+        if (count <= 0) throw new Error("삭제된 완료증명 작업상태가 없습니다");
         setNotice({ message: `완료증명 작업상태 ${count}개가 삭제되였습니다`, kind: "success" });
         await refreshAll({ showLoading: false });
       },

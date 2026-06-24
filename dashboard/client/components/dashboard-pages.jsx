@@ -420,10 +420,20 @@ function MiniMetric({ label, value }) {
   );
 }
 
+function storjLinkJobRefs(link = {}) {
+  const refs = Array.isArray(link.jobRefs) && link.jobRefs.length
+    ? link.jobRefs
+    : [{ machineId: link.machineId, jobId: link.jobId }];
+  return refs
+    .map((ref) => ({ machineId: normalizeMachineId(ref?.machineId), jobId: String(ref?.jobId || "").trim() }))
+    .filter((ref) => ref.machineId && ref.jobId);
+}
+
 function PipelineOverview({ overview, actions, title = "실시간 공정흐름 상태", meta = "모든 봉사기에서의 공정흐름 상태", onClick }) {
   const pipelineSummary = overview.pipelineSummary || {};
   const pipelineProcesses = overview.pipelineProcesses || [];
   const storjLinks = overview.storjLinks || (overview.storjShareUrl ? [{ shareUrl: overview.storjShareUrl, configName: "올리적재 완료증명" }] : []);
+  const storjJobRefs = storjLinks.flatMap(storjLinkJobRefs);
   const activeProcessCount = Number(pipelineSummary.activeProcesses) || pipelineProcesses.length || 0;
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
@@ -559,10 +569,10 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                 <AppButton
                   variant="danger"
                   icon="trash"
-                  disabled={!storjLinks.some((link) => link.machineId && link.jobId)}
+                  disabled={!storjJobRefs.length}
                   onClick={(event) => {
                     event.stopPropagation();
-                    return actions.deleteMachineTasks(storjLinks).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                    return actions.deleteMachineTasks(storjJobRefs).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                   }}
                 >
                   모두 삭제
@@ -584,13 +594,13 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                       {link.shareUrl}
                     </a>
                   </div>
-                  {link.machineId && link.jobId ? (
+                  {storjLinkJobRefs(link).length ? (
                     <IconButton
                       label="완료증명 삭제"
                       icon="trash"
                       onClick={(event) => {
                         event.stopPropagation();
-                        return actions.deleteMachineTask(link.machineId, link.jobId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        return actions.deleteMachineTasks(storjLinkJobRefs(link)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                       }}
                     />
                   ) : null}
@@ -2829,7 +2839,7 @@ function ServersTable({ state, actions }) {
                           event.stopPropagation();
                           return actions.manageMachine(machine.machineId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                         }}
-                        className="state-layer inline-flex h-10 w-10 items-center justify-center rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] leading-none text-white disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
+                        className="state-layer inline-flex h-10 w-10 items-center justify-center gap-1.5 rounded-lg bg-[var(--ptg-primary)] px-0 text-[12px] font-[760] leading-none text-white disabled:cursor-not-allowed disabled:bg-[var(--ptg-outline-strong)] sm:w-auto sm:px-3"
                       >
                         <Icon name="tool" className="h-3.5 w-3.5 sm:hidden" />
                         <span className="hidden sm:inline">관리</span>

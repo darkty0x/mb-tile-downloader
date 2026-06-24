@@ -18,7 +18,7 @@ test("server table action controls stay vertically centered", () => {
 
   assert.match(serversTableSource, /text-right align-middle/);
   assert.match(serversTableSource, /className="flex items-center justify-end gap-1\.5"/);
-  assert.match(serversTableSource, /className="state-layer inline-flex h-10 w-10 items-center justify-center[^"]*leading-none[^"]*"/);
+  assert.match(serversTableSource, /className="state-layer inline-flex h-10 w-10 items-center justify-center gap-1\.5[^"]*leading-none[^"]*"/);
 });
 
 test("storj completion proof rows expose a delete action", () => {
@@ -30,15 +30,17 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(pagesSource, /function PipelineOverview\(\{ overview, actions,/);
   assert.match(pagesSource, /<PipelineOverview overview=\{overview\} actions=\{actions\}/);
   assert.match(pagesSource, /<PipelineOverview\s+overview=\{overview\}\s+actions=\{actions\}/);
-  assert.match(proofSource, /actions\.deleteMachineTasks\(storjLinks\)/);
-  assert.match(proofSource, /disabled=\{!storjLinks\.some\(\(link\) => link\.machineId && link\.jobId\)\}/);
+  assert.match(pagesSource, /function storjLinkJobRefs\(link = \{\}\)/);
+  assert.match(pagesSource, /const storjJobRefs = storjLinks\.flatMap\(storjLinkJobRefs\)/);
+  assert.match(proofSource, /actions\.deleteMachineTasks\(storjJobRefs\)/);
+  assert.match(proofSource, /actions\.deleteMachineTasks\(storjLinkJobRefs\(link\)\)/);
+  assert.match(proofSource, /disabled=\{!storjJobRefs\.length\}/);
   assert.match(proofSource, /className="flex shrink-0 items-center gap-3"[\s\S]*<Icon name="upload"/);
-  assert.match(proofSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*return actions\.deleteMachineTasks\(storjLinks\)/);
+  assert.match(proofSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*return actions\.deleteMachineTasks\(storjJobRefs\)/);
   assert.match(stateSource, /async deleteMachineTasks\(jobRefs = \[\]\)/);
   assert.match(stateSource, /title: "완료증명 모두 삭제 확인"/);
   assert.match(proofSource, /label="완료증명 삭제"/);
   assert.match(proofSource, /event\.stopPropagation\(\)/);
-  assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);
 });
 
 test("pipeline process table shows stage icons and text-only status", () => {

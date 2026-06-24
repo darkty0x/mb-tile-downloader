@@ -1345,6 +1345,11 @@ test("overview model collapses multiple range upload proofs to one link per conf
   assert.equal(model.storjLinks[0].configId, "old-partial-cfg-9");
   assert.equal(model.storjLinks[0].configName, "1-pyongyang-esri-satellite");
   assert.equal(model.storjLinks[0].shareUrl, "https://link.storjshare.io/s/token-9/mapbox/1-pyongyang-esri-satellite/");
+  assert.equal(model.storjLinks[0].jobRefs.length, 10);
+  assert.deepEqual(
+    model.storjLinks[0].jobRefs.map((ref) => ref.jobId).sort(),
+    Array.from({ length: 10 }, (_, index) => `job-range-${index}`).sort()
+  );
 });
 
 test("overview model uses storj url path as config label when completed config was deleted", () => {
