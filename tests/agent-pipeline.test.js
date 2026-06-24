@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
-import { runCommand } from "../src/agent/agent.js";
+import { ensureNativeDependencies, runCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
@@ -173,6 +173,7 @@ test("agent git pull restart trusts the managed project directory", async () => 
         machineId: "worker-a",
         projectDir,
         requestAgentRestart: (request) => restartRequests.push(request),
+        repairNativeDependencies: async () => ({ rebuilt: false }),
       }
     );
   } finally {
@@ -235,6 +236,7 @@ test("agent git pull restart defers agent reload while managed command is active
         machineId: "worker-a",
         projectDir,
         requestAgentRestart: (request) => restartRequests.push(request),
+        repairNativeDependencies: async () => ({ rebuilt: false }),
       }
     );
   } finally {
@@ -252,6 +254,105 @@ test("agent git pull restart defers agent reload while managed command is active
     ["ack", "cmd-git-active", null],
   ]);
   assert.deepEqual(restartRequests, [{ when: "idle", commandId: "cmd-git-active", reinstallInstalledAgent: true }]);
+});
+
+test("agent git pull restart repairs native dependencies after pulling", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-git-deps-"));
+  const binDir = path.join(dir, "bin");
+  const projectDir = path.join(dir, "project");
+  await mkdir(binDir, { recursive: true });
+  await mkdir(projectDir, { recursive: true });
+  await writeFile(
+    path.join(binDir, "git"),
+    [
+      "#!/bin/sh",
+      `if [ \"$1\" = \"-c\" ] && [ \"$2\" = \"safe.directory=${projectDir}\" ] && [ \"$3\" = \"pull\" ] && [ \"$4\" = \"--ff-only\" ]; then`,
+      "  echo pull-ok",
+      "  exit 0",
+      "fi",
+      "exit 128",
+      "",
+    ].join("\n"),
+    { mode: 0o755 }
+  );
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId, payload = {}) => calls.push(["ack", commandId, payload.error || null]),
+    postEvent: async (event) => calls.push(["event", event.type, event.data?.dependencyRepair?.reason || null]),
+  };
+  const runner = {
+    restartActiveAfter: async (task) => {
+      calls.push(["restart-task-before"]);
+      await task();
+      calls.push(["restart-task-after"]);
+      return { restarted: false };
+    },
+  };
+  const originalPath = process.env.PATH;
+  process.env.PATH = `${binDir}${path.delimiter}${originalPath || ""}`;
+  try {
+    await runCommand(
+      {
+        id: "cmd-git-deps",
+        commandType: "git_pull_restart",
+        payload: {},
+        claimedAt: "claim-git-deps",
+      },
+      {
+        client,
+        runner,
+        machineId: "worker-a",
+        projectDir,
+        requestAgentRestart: () => calls.push(["restart"]),
+        repairNativeDependencies: async (options) => {
+          calls.push(["repair", options.projectDir]);
+          return { rebuilt: true, reason: "native module ABI mismatch" };
+        },
+      }
+    );
+  } finally {
+    process.env.PATH = originalPath;
+  }
+
+  assert.deepEqual(calls, [
+    ["restart-task-before"],
+    ["repair", projectDir],
+    ["restart-task-after"],
+    ["event", "command.accepted", "native module ABI mismatch"],
+    ["ack", "cmd-git-deps", null],
+    ["restart"],
+  ]);
+});
+
+test("native dependency repair runs yarn install before better-sqlite3 rebuild", async () => {
+  const projectDir = await mkdtemp(path.join(os.tmpdir(), "agent-native-deps-"));
+  await writeFile(path.join(projectDir, "yarn.lock"), "# yarn lock\n", "utf8");
+  const calls = [];
+  let checks = 0;
+
+  const result = await ensureNativeDependencies({
+    projectDir,
+    execFileImpl: async (command, args, options) => {
+      calls.push([command, args, options.cwd]);
+      return { stdout: `${command} ${args.join(" ")}`, stderr: "" };
+    },
+    checkNativeDependenciesImpl: async () => {
+      checks += 1;
+      if (checks === 1) {
+        const err = new Error("native mismatch");
+        err.stderr = "NODE_MODULE_VERSION 147";
+        throw err;
+      }
+    },
+  });
+
+  assert.deepEqual(calls.map(([command, args]) => [command, args]), [
+    [process.platform === "win32" ? "yarn.cmd" : "yarn", ["install", "--frozen-lockfile"]],
+    [process.platform === "win32" ? "npm.cmd" : "npm", ["rebuild", "better-sqlite3"]],
+  ]);
+  assert.equal(calls.every((call) => call[2] === projectDir), true);
+  assert.equal(result.rebuilt, true);
+  assert.equal(result.installCommand, `${process.platform === "win32" ? "yarn.cmd" : "yarn"} install --frozen-lockfile`);
 });
 
 test("process runner uses root env over stale service env for managed child commands", async () => {
@@ -703,7 +804,7 @@ test("agent accepts long pipeline commands without blocking until process comple
       payload: { configPath: "configs/a.json" },
       claimedAt: "claim-1",
     },
-    { client, runner, machineId: "worker-a", control, syncNow }
+    { client, runner, machineId: "worker-a", control, syncNow, repairNativeDependencies: async () => ({ rebuilt: false }) }
   );
 
   assert.deepEqual(calls.slice(0, 3).map((call) => call[0]), ["sync", "clear-pause", "ack"]);
@@ -716,6 +817,60 @@ test("agent accepts long pipeline commands without blocking until process comple
   assert.equal(calls.at(-1)[0], "event");
   assert.equal(calls.at(-1)[1].type, "command.failed");
   assert.match(calls.at(-1)[1].message, /exited with code 1/);
+});
+
+test("agent repairs native dependencies before starting pipeline commands", async () => {
+  const calls = [];
+  const runner = {
+    run() {
+      calls.push(["run"]);
+      return Promise.resolve({ code: 0, signal: null });
+    },
+    stop() {
+      return false;
+    },
+  };
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.data?.reason || null]),
+  };
+  const control = {
+    clearPauseAfterRange: async () => calls.push(["clear-pause"]),
+    clearStopPipeline: async () => calls.push(["clear-stop"]),
+  };
+  const syncNow = async ({ reason }) => calls.push(["sync", reason]);
+  const projectDir = path.resolve(".");
+
+  await runCommand(
+    {
+      id: "cmd-start-deps",
+      commandType: "start_pipeline",
+      payload: { configPath: "configs/a.json" },
+      claimedAt: "claim-start-deps",
+    },
+    {
+      client,
+      runner,
+      machineId: "worker-a",
+      control,
+      syncNow,
+      projectDir,
+      repairNativeDependencies: async (options) => {
+        calls.push(["repair", options.projectDir]);
+        return { rebuilt: true, reason: "native module ABI mismatch" };
+      },
+    }
+  );
+
+  assert.deepEqual(calls.slice(0, 7), [
+    ["sync", "start_pipeline"],
+    ["repair", projectDir],
+    ["event", "agent.dependencies.rebuilt", "native module ABI mismatch"],
+    ["clear-pause"],
+    ["clear-stop"],
+    ["run"],
+    ["ack", "cmd-start-deps"],
+  ]);
 });
 
 test("agent pause command records a pause request and acknowledges command", async () => {

@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import { existsSync } from "node:fs";
 import { appendFile, mkdir, rm, writeFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { execFile, spawn } from "node:child_process";
@@ -120,6 +121,87 @@ async function gitPullProject(projectDir) {
   return { stdout: stdout.trim(), stderr: stderr.trim() };
 }
 
+function npmCommand() {
+  return process.platform === "win32" ? "npm.cmd" : "npm";
+}
+
+function yarnCommand() {
+  return process.platform === "win32" ? "yarn.cmd" : "yarn";
+}
+
+function dependencyInstallCommand(projectDir) {
+  const resolvedProjectDir = path.resolve(projectDir);
+  if (existsSync(path.join(resolvedProjectDir, "yarn.lock"))) {
+    return { command: yarnCommand(), args: ["install", "--frozen-lockfile"] };
+  }
+  if (existsSync(path.join(resolvedProjectDir, "package-lock.json"))) {
+    return { command: npmCommand(), args: ["ci"] };
+  }
+  return { command: npmCommand(), args: ["install"] };
+}
+
+function isNativeModuleMismatch(stderr = "", stdout = "") {
+  const text = `${stdout}\n${stderr}`;
+  return /NODE_MODULE_VERSION|ERR_DLOPEN_FAILED|was compiled against a different Node\.js version/i.test(text);
+}
+
+async function checkNativeDependencies(projectDir) {
+  return execFileAsync(process.execPath, ["-e", "require('better-sqlite3')"], {
+    cwd: path.resolve(projectDir),
+    maxBuffer: 1024 * 1024,
+    timeout: 60_000,
+    windowsHide: true,
+  });
+}
+
+export async function ensureNativeDependencies({
+  projectDir = process.cwd(),
+  force = false,
+  execFileImpl = execFileAsync,
+  checkNativeDependenciesImpl = checkNativeDependencies,
+} = {}) {
+  const resolvedProjectDir = path.resolve(projectDir);
+  let checkError = null;
+  if (!force) {
+    try {
+      await checkNativeDependenciesImpl(resolvedProjectDir);
+      return { rebuilt: false, reason: "native dependencies ok" };
+    } catch (err) {
+      checkError = err;
+      if (!isNativeModuleMismatch(err.stderr, err.stdout)) throw err;
+    }
+  }
+
+  const installCommand = dependencyInstallCommand(resolvedProjectDir);
+  const install = await execFileImpl(installCommand.command, installCommand.args, {
+    cwd: resolvedProjectDir,
+    maxBuffer: 1024 * 1024 * 16,
+    timeout: 300_000,
+    windowsHide: true,
+  });
+  const rebuild = await execFileImpl(npmCommand(), ["rebuild", "better-sqlite3"], {
+    cwd: resolvedProjectDir,
+    maxBuffer: 1024 * 1024 * 8,
+    timeout: 180_000,
+    windowsHide: true,
+  });
+  try {
+    await checkNativeDependenciesImpl(resolvedProjectDir);
+  } catch (err) {
+    err.message = `native dependency install/rebuild completed but verification failed: ${err.message}`;
+    throw err;
+  }
+  return {
+    rebuilt: true,
+    reason: force ? "forced rebuild" : "native module ABI mismatch",
+    installCommand: [installCommand.command, ...installCommand.args].join(" "),
+    rebuildCommand: `${npmCommand()} rebuild better-sqlite3`,
+    stdout: [install.stdout, rebuild.stdout].map((value) => value?.trim?.() || "").filter(Boolean).join("\n"),
+    stderr: [install.stderr, rebuild.stderr].map((value) => value?.trim?.() || "").filter(Boolean).join("\n"),
+    error: checkError?.message || null,
+  };
+}
+
 function resolveLocalConfigWritePath(projectDir, configPath) {
   if (!configPath || typeof configPath !== "string") throw new Error("config path is required");
   const resolvedProject = path.resolve(projectDir);
@@ -219,6 +301,7 @@ export async function runCommand(
     projectDir = process.cwd(),
     agentLogPath = path.join(".tile-state", "dashboard-agent.log"),
     requestAgentRestart = scheduleAgentRestart,
+    repairNativeDependencies = ensureNativeDependencies,
   }
 ) {
   try {
@@ -238,8 +321,10 @@ export async function runCommand(
     const commandSpec = resolveManagedCommand(command);
     if (command.commandType === "git_pull_restart") {
       let pullResult = null;
+      let dependencyResult = null;
       const restartResult = await runner.restartActiveAfter(async () => {
         pullResult = await gitPullProject(projectDir);
+        dependencyResult = await repairNativeDependencies({ projectDir });
       });
       const restartWhen = restartResult.restarted ? "idle" : "now";
       await client.postEvent({
@@ -255,6 +340,7 @@ export async function runCommand(
           restarted: restartResult.restarted,
           agentRestart: restartWhen,
           reinstallInstalledAgent: true,
+          dependencyRepair: dependencyResult,
           stdout: pullResult?.stdout || "",
           stderr: pullResult?.stderr || "",
         },
@@ -356,6 +442,20 @@ export async function runCommand(
 
     if (isBackgroundCommand(command.commandType) || command.commandType === "run_preflight") {
       await syncNow?.({ reason: command.commandType });
+      const dependencyResult = await repairNativeDependencies({ projectDir });
+      if (dependencyResult?.rebuilt) {
+        await client.postEvent({
+          machineId,
+          severity: "warn",
+          type: "agent.dependencies.rebuilt",
+          message: "Native dependencies rebuilt for the current Node.js runtime.",
+          data: {
+            commandId: command.id,
+            commandType: command.commandType,
+            reason: dependencyResult.reason,
+          },
+        });
+      }
     }
 
     if (isBackgroundCommand(command.commandType)) {

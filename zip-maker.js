@@ -726,12 +726,7 @@ async function splitTaskByArchiveSize(
 
     if (rowEntries.length === 0) continue;
 
-    const rowIsComplete =
-      rowEntries.length === task.yEnd - task.yStart + 1 &&
-      rowEntries[0].y === task.yStart &&
-      rowEntries[rowEntries.length - 1].y === task.yEnd;
-
-    if (!rowIsComplete || ZIP_ARCHIVE_FOOTER_BYTES + rowBytes > maxArchiveSizeBytes) {
+    if (ZIP_ARCHIVE_FOOTER_BYTES + rowBytes > maxArchiveSizeBytes) {
       pushCurrent();
       splitSingleRow(rowEntries);
       continue;
