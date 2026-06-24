@@ -1012,6 +1012,42 @@ test("overview model does not show stale ETA for stopped machine tasks", () => {
   assert.equal(model.pipelineEta, "대기중");
 });
 
+test("selected server pipeline resets when assigned configs are gone and old jobs are stale", () => {
+  const model = buildOverviewModel({
+    now: new Date("2026-06-24T20:01:00.000Z"),
+    machines: [{ machineId: "server-06", status: "online" }],
+    configs: [],
+    jobs: [
+      {
+        jobId: "old-deleted-config-job",
+        machineId: "server-06",
+        configId: "76ce5797-838e-4116-95de-4cd343387e9b",
+        status: "running",
+        stage: "validate",
+        updatedAt: "2026-06-24T19:40:00.000Z",
+        progress: {
+          percent: 4,
+          tilesDone: 25,
+          tilesTotal: 561,
+          tilesMissing: 10900,
+          tilesFailed: 0,
+        },
+      },
+    ],
+    machineId: "server-06",
+  });
+
+  assert.equal(model.activeJob, null);
+  assert.deepEqual(model.activeJobs, []);
+  assert.deepEqual(model.pipelineProcesses, []);
+  assert.equal(model.pipelineProgress, "0%");
+  assert.equal(model.pipelineStage, "대기중");
+  assert.equal(model.pipelineEta, "대기중");
+  assert.equal(model.pipelineSummary.processedTiles, 0);
+  assert.equal(model.pipelineSummary.totalTiles, 0);
+  assert.equal(model.pipelineSummary.missingTiles, 0);
+});
+
 test("overview model exposes completed upload share link as pipeline proof", () => {
   const model = buildOverviewModel({
     machines: [{ machineId: "server-09", status: "online" }],

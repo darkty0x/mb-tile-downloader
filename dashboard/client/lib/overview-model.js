@@ -940,21 +940,38 @@ function buildPipelineFromJobs(jobs = [], events = [], { machineId, machines = [
   const scopedConfigs = scopedMachineId
     ? configs.filter((config) => !normalizeMachineId(config.machineId) || normalizeMachineId(config.machineId) === scopedMachineId)
     : configs;
+  const machine = scopedMachineId
+    ? machines.find((item) => normalizeMachineId(item.machineId) === scopedMachineId) || null
+    : null;
   const scopedJobs = jobs
     .filter((job) => jobMachineMatches(job, machineId))
     .sort((a, b) => String(b.startedAt || "").localeCompare(String(a.startedAt || "")));
   const liveScopedJobs = latestLiveJobsByMachine(scopedJobs, { machineId, machines, statuses: RUNNING_JOB_STATUSES });
+  const freshLiveScopedJobs = liveScopedJobs.filter((job) => !jobProgressIsStale(job, machine, nowMs));
   const summary = buildPipelineSummary(scopedJobs, { machineId, machines });
   const stepJobs = liveScopedJobs.length ? liveScopedJobs : (isFleet ? [] : scopedJobs);
   const activeJob = liveScopedJobs[0] || (isFleet ? null : scopedJobs[0]) || null;
-  const machine = scopedMachineId
-    ? machines.find((item) => normalizeMachineId(item.machineId) === scopedMachineId) || null
-    : null;
   const pipelineProcesses = stepJobs
     .filter((job) => RUNNING_JOB_STATUSES.has(jobStatus(job)) || (!liveScopedJobs.length && job === activeJob))
     .map((job) => pipelineProcessFromJob(job, { configs: scopedConfigs, machine, nowMs }));
   const completedStorjLinks = buildStorjLinks(scopedJobs, scopedConfigs);
   const storjLinks = completedStorjLinks;
+  if (!isFleet && machineIsOnline(machine) && scopedConfigs.length === 0 && freshLiveScopedJobs.length === 0) {
+    const idleSummary = buildPipelineSummary([], { machineId, machines });
+    return {
+      steps: aggregatePipelineSteps([], [], { allowStaleFallback: false }),
+      activeJob: null,
+      activeJobs: [],
+      pipelineProcesses: [],
+      etaLabel: idleSummary.etaLabel,
+      stageLabel: idleSummary.stageLabel,
+      progressLabel: idleSummary.progressLabel,
+      summary: idleSummary,
+      storjLinks,
+      storjShareUrl: storjLinks[0]?.shareUrl || "",
+      storjRawLinkPrefix: storjLinks[0]?.rawLinkPrefix || "",
+    };
+  }
   if (!isFleet && scopedConfigs.length > 1) {
     const configPipeline = buildConfigPipelineModel({
       configs: scopedConfigs,
