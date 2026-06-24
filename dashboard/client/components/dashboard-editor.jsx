@@ -12,6 +12,18 @@ function EmptyLine({ children }) {
   return <p className="rounded-lg border border-dashed border-[var(--ptg-outline)] p-4 text-center text-[12px] text-[var(--ptg-on-surface-variant)]">{children}</p>;
 }
 
+function DialogNotice({ notice }) {
+  if (!notice) return null;
+  const kind = notice.kind === "error"
+    ? "border-[rgba(210,55,55,0.28)] bg-[#fff1f1] text-[#b42318]"
+    : "border-[rgba(17,124,84,0.24)] bg-[#effaf4] text-[#067647]";
+  return (
+    <div role="alert" className={`mb-3 rounded-[10px] border px-3 py-2.5 text-[12px] font-[760] ${kind}`}>
+      {notice.message}
+    </div>
+  );
+}
+
 function normalizePathKey(value) {
   return String(value || "").replace(/\\/g, "/").replace(/\/+$/, "").toLowerCase();
 }
@@ -247,6 +259,9 @@ function ServerOnboardingForm({ state, actions }) {
 
 export function EditorDrawer({ state, actions }) {
   const { editor } = state;
+  const [dialogNotice, setDialogNotice] = useState(null);
+  const activeDialogNotice = dialogNotice || (state.notice?.kind === "error" ? state.notice : null);
+  const dialogActions = useMemo(() => ({ ...actions, setNotice: setDialogNotice }), [actions]);
   const closeToCurrentContext = () => {
     if (state.selectedTab === "servers" && state.selectedMachineId) {
       actions.setEditor({ type: "server-management", machineId: state.selectedMachineId });
@@ -254,6 +269,9 @@ export function EditorDrawer({ state, actions }) {
     }
     actions.setEditor({ type: "summary" });
   };
+  useEffect(() => {
+    setDialogNotice(null);
+  }, [editor.type, editor.id, editor.path]);
   if (editor.type === "summary" || editor.type === "server-detail" || editor.type === "server-management") return null;
   if (editor.type === "connection-detail") {
     const connection = state.secretPool.find((item) => item.secretId === editor.id);
@@ -265,7 +283,8 @@ export function EditorDrawer({ state, actions }) {
         width="w-[min(680px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
-        <ConnectionDetail connection={connection} state={state} actions={actions} />
+        <DialogNotice notice={activeDialogNotice} />
+        <ConnectionDetail connection={connection} state={state} actions={dialogActions} />
       </ModalShell>
     );
   }
@@ -277,7 +296,8 @@ export function EditorDrawer({ state, actions }) {
         width="w-[min(760px,calc(100vw-32px))]"
         onClose={() => actions.setEditor({ type: "summary" })}
       >
-        <ServerOnboardingForm state={state} actions={actions} />
+        <DialogNotice notice={activeDialogNotice} />
+        <ServerOnboardingForm state={state} actions={dialogActions} />
       </ModalShell>
     );
   }
@@ -298,10 +318,11 @@ export function EditorDrawer({ state, actions }) {
       width="w-[min(620px,calc(100vw-32px))]"
       onClose={closeToCurrentContext}
     >
-      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={actions} editor={editor} /> : null}
-      {editor.type === "local-config" ? <LocalConfigForm record={localConfig} actions={actions} /> : null}
-      {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={actions} /> : null}
-      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} state={state} actions={actions} /> : null}
+      <DialogNotice notice={activeDialogNotice} />
+      {editor.type === "new-config" || editor.type === "config" ? <ConfigForm record={record} state={state} actions={dialogActions} editor={editor} /> : null}
+      {editor.type === "local-config" ? <LocalConfigForm record={localConfig} actions={dialogActions} /> : null}
+      {editor.type === "new-env" || editor.type === "env" ? <EnvForm record={record} actions={dialogActions} /> : null}
+      {editor.type === "new-secret" || editor.type === "secret" ? <SecretForm record={record} editor={editor} state={state} actions={dialogActions} /> : null}
     </ModalShell>
   );
 }
@@ -327,19 +348,33 @@ function displayLocalConfigName(value) {
   return String(value || "Config 화일").replace(/\.config\.json$/i, "").replace(/\.json$/i, "");
 }
 
+function serverConnectionTypeLabel(connection) {
+  return connection?.credential?.protocol === "agent" ? "PC" : displayProtocol(connection?.credential?.protocol);
+}
+
+function serverConnectionProtocolUrl(connection) {
+  const storedUrl = String(connection?.credential?.protocolUrl || "").trim();
+  if (storedUrl) return storedUrl;
+  if (connection?.credential?.protocol === "agent") {
+    const machineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+    return machineId ? `agent://${machineId}` : "";
+  }
+  const protocol = String(connection?.credential?.protocol || "").trim();
+  const host = String(connection?.credential?.host || "").trim();
+  const port = connection?.credential?.port;
+  return protocol && host && port ? `${protocol}://${host}:${port}` : "";
+}
+
 function ConnectionDetail({ connection, state, actions }) {
   const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
   const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   const validation = state.serverValidationResults[connection.secretId];
-  const isAgentOnly = connection.credential?.protocol === "agent";
-  const endpoint = isAgentOnly
-    ? "Agent only"
-    : `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`;
+  const endpoint = serverConnectionProtocolUrl(connection);
   const copy = (text) => navigator.clipboard?.writeText(String(text || "")).catch(() => {});
   return (
     <section className="grid gap-3">
       <div className="grid grid-cols-2 gap-2 max-sm:grid-cols-1">
-        <DetailTile label="Protocol" value={displayProtocol(connection.credential?.protocol)} />
+        <DetailTile label="Protocol" value={serverConnectionTypeLabel(connection)} />
         <DetailTile label="끝점" value={endpoint} />
         <DetailTile label="사용자이름" value={connection.credential?.username || "필요없음"} />
         <DetailTile label="Machine ID" value={displayMachineId(targetMachineId)} />

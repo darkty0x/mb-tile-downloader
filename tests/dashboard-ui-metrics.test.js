@@ -133,7 +133,7 @@ test("event display includes the event machine source", () => {
 
   assert.equal(eventDisplayTitle(event), "server-03 · 명령 실패");
   assert.equal(eventDisplayTitle(event, { machineLabel: "SERVER-03" }), "SERVER-03 · 명령 실패");
-  assert.match(formatEventConsoleLine(event), /server-03\s+오류\s+명령 실패/);
+  assert.match(formatEventConsoleLine(event), /server-03\s+오유\s+명령 실패/);
 });
 
 test("event display includes config and range context for pipeline lifecycle events", () => {

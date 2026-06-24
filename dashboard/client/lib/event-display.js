@@ -84,7 +84,7 @@ export function eventDisplayMessage(event = {}) {
 
 export function eventDisplaySeverity(event = {}) {
   const severity = String(event.severity || "info").toLowerCase();
-  if (severity === "error") return "오류";
+  if (severity === "error") return "오유";
   if (severity === "warn" || severity === "warning") return "주의";
   if (severity === "debug") return "진단";
   return "정보";

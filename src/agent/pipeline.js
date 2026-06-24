@@ -7,7 +7,7 @@ import { access } from "node:fs/promises";
 import { loadConfig } from "../config/config-loader.js";
 import { createControlClient } from "./control-client.js";
 import { createJobReporter } from "./job-reporter.js";
-import { parseDownloaderProgressLine } from "./progress-events.js";
+import { parseStageProgressLine } from "./progress-events.js";
 
 const PIPELINE_STAGES = ["download", "validate", "zip", "upload"];
 const UPLOAD_STAGE = "upload";
@@ -117,7 +117,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
       if (stream === "stderr") stderrBuffer = parts.at(-1) || "";
       else stdoutBuffer = parts.at(-1) || "";
       for (const line of completeLines) {
-        const parsed = stage === "download" ? parseDownloaderProgressLine(line) : null;
+        const parsed = parseStageProgressLine(line, stage);
         if (parsed && reporter) {
           Promise.resolve(
             (reporter.progress || reporter.stage).call(reporter, {

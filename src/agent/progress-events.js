@@ -81,6 +81,52 @@ export function parseDownloaderProgressLine(line) {
   };
 }
 
+export function parseValidateProgressLine(line) {
+  const text = String(line || "");
+  const progressMatch = /(?:range|범위)\s+(\d+)\/(\d+)\s+verify\s+rows=(\d+)\/(\d+)\s+present=(\d+)\s+missing=(\d+)\s+failed=(\d+)/i.exec(text);
+  if (progressMatch) {
+    const [, rangeIndex, rangeCount, rowsDone, rowsTotal, present, missing, failed] = progressMatch;
+    const done = Number(rowsDone);
+    const total = Number(rowsTotal);
+    return {
+      rangeIndex: Number(rangeIndex),
+      rangeCount: Number(rangeCount),
+      rowsDone: done,
+      rowsTotal: total,
+      rowsPresent: Number(present),
+      tilesDone: done,
+      tilesTotal: total,
+      tilesPresent: Number(present),
+      tilesMissing: Number(missing),
+      tilesFailed: Number(failed),
+      percent: total > 0 ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0,
+    };
+  }
+
+  const completeMatch = /(?:range|범위)\s+(\d+)\/(\d+)\s+verified\s+present=(\d+)\/(\d+)\s+missing=(\d+)\s+failed=(\d+)/i.exec(text);
+  if (!completeMatch) return null;
+  const [, rangeIndex, rangeCount, present, expected, missing, failed] = completeMatch;
+  return {
+    rangeIndex: Number(rangeIndex),
+    rangeCount: Number(rangeCount),
+    rowsDone: Number(rangeIndex),
+    rowsTotal: Number(rangeCount),
+    rowsPresent: Number(present),
+    tilesDone: Number(expected),
+    tilesTotal: Number(expected),
+    tilesPresent: Number(present),
+    tilesMissing: Number(missing),
+    tilesFailed: Number(failed),
+    percent: 100,
+  };
+}
+
+export function parseStageProgressLine(line, stage) {
+  if (stage === "download") return parseDownloaderProgressLine(line);
+  if (stage === "validate") return parseValidateProgressLine(line);
+  return null;
+}
+
 export function createProgressEventForwarder({ machineId, client, forwardRangeStageEvents = false }) {
   return {
     async handleLine(line, stream = "stdout") {

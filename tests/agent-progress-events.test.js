@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseDownloaderProgressLine, parseEventLine, createProgressEventForwarder } from "../src/agent/progress-events.js";
+import { parseDownloaderProgressLine, parseEventLine, parseStageProgressLine, parseValidateProgressLine, createProgressEventForwarder } from "../src/agent/progress-events.js";
 
 test("parses structured event lines and ignores ordinary output", () => {
   assert.deepEqual(parseEventLine("plain output"), null);
@@ -36,6 +36,36 @@ test("parses Korean downloader progress counters", () => {
   assert.equal(parsed.tilesFailed, 0);
   assert.equal(parsed.tilesPerSecond, 754.6);
   assert.equal(parsed.etaSeconds, 241);
+});
+
+test("parses validation progress lines into durable job progress", () => {
+  const parsed = parseValidateProgressLine(
+    "  🔍 range 18/19 verify rows=255/273 present=55080 missing=0 failed=0"
+  );
+
+  assert.equal(parsed.rangeIndex, 18);
+  assert.equal(parsed.rangeCount, 19);
+  assert.equal(parsed.rowsDone, 255);
+  assert.equal(parsed.rowsTotal, 273);
+  assert.equal(parsed.tilesDone, 255);
+  assert.equal(parsed.tilesTotal, 273);
+  assert.equal(parsed.tilesPresent, 55080);
+  assert.equal(parsed.tilesMissing, 0);
+  assert.equal(parsed.tilesFailed, 0);
+  assert.equal(parsed.percent, 93);
+  assert.deepEqual(parseStageProgressLine("  🔍 range 18/19 verify rows=255/273 present=55080 missing=0 failed=0", "validate"), parsed);
+});
+
+test("parses completed validation lines as full stage progress", () => {
+  const parsed = parseValidateProgressLine(
+    "  ✔ range 18/19 verified present=59000/59000 missing=0 failed=0 status=green elapsed=20.1s"
+  );
+
+  assert.equal(parsed.rangeIndex, 18);
+  assert.equal(parsed.rangeCount, 19);
+  assert.equal(parsed.tilesDone, 59000);
+  assert.equal(parsed.tilesTotal, 59000);
+  assert.equal(parsed.percent, 100);
 });
 
 test("progress forwarder posts parsed events with machine id", async () => {

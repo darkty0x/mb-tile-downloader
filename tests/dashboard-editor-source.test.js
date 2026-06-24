@@ -22,3 +22,19 @@ test("range builder treats raw zxy input as Mapbox coordinates without y-scheme 
   assert.doesNotMatch(editorSource, /TMS \/ inverted Y/);
   assert.doesNotMatch(stateSource, /inputYScheme/);
 });
+
+test("editor dialog errors render inside the active modal", () => {
+  const drawerSource = editorSource.slice(
+    editorSource.indexOf("export function EditorDrawer"),
+    editorSource.indexOf("function editorTitle", editorSource.indexOf("export function EditorDrawer")),
+  );
+
+  assert.match(editorSource, /function DialogNotice\(\{ notice \}\)/);
+  assert.match(editorSource, /role="alert"/);
+  assert.match(drawerSource, /const \[dialogNotice, setDialogNotice\] = useState\(null\)/);
+  assert.match(drawerSource, /const activeDialogNotice = dialogNotice \|\| \(state\.notice\?\.kind === "error" \? state\.notice : null\)/);
+  assert.match(drawerSource, /const dialogActions = useMemo\(\(\) => \(\{ \.\.\.actions, setNotice: setDialogNotice \}\), \[actions\]\)/);
+  assert.match(drawerSource, /<DialogNotice notice=\{activeDialogNotice\} \/>[\s\S]*<ConfigForm record=\{record\} state=\{state\} actions=\{dialogActions\} editor=\{editor\} \/>/);
+  assert.match(drawerSource, /<DialogNotice notice=\{activeDialogNotice\} \/>[\s\S]*<ServerOnboardingForm state=\{state\} actions=\{dialogActions\} \/>/);
+  assert.match(drawerSource, /<DialogNotice notice=\{activeDialogNotice\} \/>[\s\S]*<ConnectionDetail connection=\{connection\} state=\{state\} actions=\{dialogActions\} \/>/);
+});

@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
-import { ensureNativeDependencies, runCommand } from "../src/agent/agent.js";
+import { ensureNativeDependencies, preparePreferredNodeRuntime, runCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
@@ -358,6 +358,24 @@ test("native dependency repair runs yarn install before better-sqlite3 rebuild",
   }), true);
   assert.equal(result.rebuilt, true);
   assert.equal(result.installCommand, `${process.platform === "win32" ? "yarn.cmd" : "yarn"} install --frozen-lockfile`);
+});
+
+test("agent prepares requested Node major with nvm before native dependency rebuilds", async () => {
+  const calls = [];
+  const result = await preparePreferredNodeRuntime({
+    nodeMajor: "999",
+    platform: "win32",
+    execFileImpl: async (command, args) => {
+      calls.push([command, args]);
+      return { stdout: "nvm-ok", stderr: "" };
+    },
+  });
+
+  assert.deepEqual(calls, [
+    ["cmd.exe", ["/d", "/s", "/c", "nvm install 999 && nvm use 999 && (nvm alias default 999 || exit /b 0)"]],
+  ]);
+  assert.equal(result.prepared, true);
+  assert.equal(result.reason, "nvm prepared Node.js 999");
 });
 
 test("process runner uses root env over stale service env for managed child commands", async () => {

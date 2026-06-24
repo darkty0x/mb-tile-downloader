@@ -20,6 +20,7 @@ import { materializeSecrets } from "./secret-materializer.js";
 import { enableWindowsUtf8Console } from "../runtime/windows-console.js";
 
 const DEFAULT_HEARTBEAT_MS = 30_000;
+const DEFAULT_AGENT_NODE_MAJOR = "24";
 export const AGENT_PROTOCOL_VERSION = 1;
 const execFileAsync = promisify(execFile);
 enableWindowsUtf8Console();
@@ -129,6 +130,70 @@ function yarnCommand() {
   return process.platform === "win32" ? "yarn.cmd" : "yarn";
 }
 
+function preferredNodeMajor(env = process.env) {
+  return String(env.DASHBOARD_AGENT_NODE_MAJOR || DEFAULT_AGENT_NODE_MAJOR).trim();
+}
+
+function currentNodeMajor() {
+  return String(process.versions.node || "").split(".")[0] || "";
+}
+
+function buildNvmUseCommand({ env = process.env, platform = process.platform, nodeMajor = preferredNodeMajor(env) } = {}) {
+  const major = String(nodeMajor || "").trim();
+  if (!major || currentNodeMajor() === major) return null;
+  if (platform === "win32") {
+    return {
+      command: "cmd.exe",
+      args: ["/d", "/s", "/c", `nvm install ${major} && nvm use ${major} && (nvm alias default ${major} || exit /b 0)`],
+    };
+  }
+  const nvmDir = String(env.NVM_DIR || "$HOME/.nvm");
+  return {
+    command: "bash",
+    args: [
+      "-lc",
+      [
+        `export NVM_DIR=${JSON.stringify(nvmDir)}`,
+        '[ -s "$NVM_DIR/nvm.sh" ] || { echo "nvm is not installed; install nvm or run with Node 24" >&2; exit 127; }',
+        '. "$NVM_DIR/nvm.sh"',
+        `nvm install ${major}`,
+        `nvm alias default ${major}`,
+        `nvm use ${major}`,
+      ].join(" && "),
+    ],
+  };
+}
+
+export async function preparePreferredNodeRuntime({
+  env = process.env,
+  platform = process.platform,
+  nodeMajor = preferredNodeMajor(env),
+  execFileImpl = execFileAsync,
+} = {}) {
+  const commandSpec = buildNvmUseCommand({ env, platform, nodeMajor });
+  if (!commandSpec) {
+    return { prepared: false, reason: `current Node.js ${process.versions.node} already matches ${nodeMajor}` };
+  }
+  try {
+    const result = await execFileImpl(commandSpec.command, commandSpec.args, {
+      env,
+      maxBuffer: 1024 * 1024 * 4,
+      timeout: 180_000,
+      windowsHide: true,
+    });
+    return {
+      prepared: true,
+      reason: `nvm prepared Node.js ${nodeMajor}`,
+      command: [commandSpec.command, ...commandSpec.args].join(" "),
+      stdout: String(result?.stdout || "").trim(),
+      stderr: String(result?.stderr || "").trim(),
+    };
+  } catch (err) {
+    err.message = `failed to prepare Node.js ${nodeMajor} with nvm: ${err.message}`;
+    throw err;
+  }
+}
+
 function dependencyInstallCommand(projectDir) {
   const resolvedProjectDir = path.resolve(projectDir);
   if (existsSync(path.join(resolvedProjectDir, "yarn.lock"))) {
@@ -144,8 +209,9 @@ function pathEnvKey(env = process.env) {
   return Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
 }
 
-function envWithCurrentNodeFirst(env = process.env) {
+function envWithPreferredNodeFirst(env = process.env) {
   const key = pathEnvKey(env);
+  if (currentNodeMajor() !== preferredNodeMajor(env)) return { ...env };
   const nodeDir = path.dirname(process.execPath);
   const currentPath = env[key] || "";
   return {
@@ -186,8 +252,9 @@ export async function ensureNativeDependencies({
     }
   }
 
+  const nodeRuntime = await preparePreferredNodeRuntime({ execFileImpl });
   const installCommand = dependencyInstallCommand(resolvedProjectDir);
-  const packageManagerEnv = envWithCurrentNodeFirst();
+  const packageManagerEnv = envWithPreferredNodeFirst();
   const install = await execFileImpl(installCommand.command, installCommand.args, {
     cwd: resolvedProjectDir,
     env: packageManagerEnv,
@@ -211,6 +278,7 @@ export async function ensureNativeDependencies({
   return {
     rebuilt: true,
     reason: force ? "forced rebuild" : "native module ABI mismatch",
+    nodeRuntime,
     installCommand: [installCommand.command, ...installCommand.args].join(" "),
     rebuildCommand: `${npmCommand()} rebuild better-sqlite3`,
     stdout: [install.stdout, rebuild.stdout].map((value) => value?.trim?.() || "").filter(Boolean).join("\n"),

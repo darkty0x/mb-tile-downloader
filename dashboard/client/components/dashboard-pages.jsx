@@ -43,7 +43,7 @@ const HELP_GUIDES = [
     summary: "전체 봉사기, 활성 작업, 처리속도, 저장공간, 실패상태를 한 화면에서 확인합니다.",
     sections: [
       ["핵심 KPI", "온라인 봉사기, 활성 공정흐름, 처리속도, 저장공간 압력, 실패건수, 경보수를 먼저 확인합니다."],
-      ["공정흐름 카드", "현재 단계와 타일 처리량을 보고 작업이 다운로드, 검증, 압축, 올리적재 중 어느 단계인지 확인합니다."],
+      ["공정흐름 카드", "현재 단계와 타일 처리량을 보고 작업이 내리적재, 검증, 압축, 올리적재 중 어느 단계인지 확인합니다."],
       ["빠른 동작", "Config 동기화, .Env 동기화, 작업 시작/정지 같은 자주 쓰는 명령은 선택한 봉사기 기준으로 실행합니다."],
     ],
     screenshots: ["KPI 카드 위치", "실시간 공정흐름 카드", "빠른 동작 영역"],
@@ -52,7 +52,7 @@ const HELP_GUIDES = [
     id: "servers",
     title: "봉사기",
     icon: "servers",
-    summary: "Agent가 등록한 작업기대 봉사기들의 연결상태, 작업상태, 원격접속자료를 관리합니다.",
+    summary: "Agent가 등록한 작업기대 봉사기들의 련결상태, 작업상태, 원격접속자료를 관리합니다.",
     sections: [
       ["봉사기 목록", "상태, 플랫폼, 최근 heartbeat, 디스크 상태를 기준으로 작업 가능한 봉사기를 찾습니다."],
       ["봉사기관리", "봉사기를 선택하면 공정흐름, Config, .Env, API Key 및 Proxy, Console 탭으로 들어갑니다."],
@@ -76,9 +76,9 @@ const HELP_GUIDES = [
     id: "pipelines",
     title: "공정흐름",
     icon: "pipelines",
-    summary: "활성화된 다운로드 작업의 단계, 진행률, ETA, 실패/빠짐 타일 상태를 추적합니다.",
+    summary: "활성화된 내리적재 작업의 단계, 진행률, ETA, 실패/빠짐 타일 상태를 추적합니다.",
     sections: [
-      ["단계 확인", "다운로드, 검증, 압축, 올리적재의 진행률을 단계별로 확인합니다."],
+      ["단계 확인", "내리적재, 검증, 압축, 올리적재의 진행률을 단계별로 확인합니다."],
       ["범위 추적", "가장 큰 활성 범위와 처리된 타일 수를 비교해 병목 구간을 찾습니다."],
       ["완료 증명", "Storj 공유 URL이 생성되면 올리적재 결과의 최종 증명으로 사용합니다."],
     ],
@@ -90,9 +90,9 @@ const HELP_GUIDES = [
     icon: "secrets",
     summary: "Mapbox API Key, Proxy, Storj Access 같은 작업 리소스를 등록하고 상태를 관리합니다.",
     sections: [
-      ["리소스 풀", "활성, 비활성, 오류, 소진 상태를 기준으로 실제 작업에 투입 가능한 리소스를 확인합니다."],
+      ["리소스 풀", "활성, 비활성, 오유, 소진 상태를 기준으로 실제 작업에 투입 가능한 리소스를 확인합니다."],
       ["대량 등록", "Proxy 목록이나 API Key 묶음을 전역 풀에 등록한 뒤 봉사기에 배정합니다."],
-      ["상태 검증", "차단되었거나 사용할 수 없는 Proxy와 Key는 이벤트와 검증 결과를 기준으로 분리합니다."],
+      ["상태 검증", "차단되었거나 사용할수 없는 Proxy와 Key는 이벤트와 검증 결과를 기준으로 분리합니다."],
     ],
     screenshots: ["리소스 경보", "Secret 목록", "Secret 추가/편집 Drawer"],
   },
@@ -100,9 +100,9 @@ const HELP_GUIDES = [
     id: "credentials",
     title: "계정정보",
     icon: "credentials",
-    summary: "웹싸이트 및 RDP 접속자료를 안전하게 보관하고 봉사기 접속에 연결합니다.",
+    summary: "웹싸이트 및 RDP 접속자료를 안전하게 보관하고 봉사기 접속에 련결합니다.",
     sections: [
-      ["Protocol 계정", "대상 URL, 사용자명, 암호, machine id 연결 정보를 한 항목으로 보관합니다."],
+      ["Protocol 계정", "대상 URL, 사용자이름, 암호, machine id 련결정보를 한 항목으로 보관합니다."],
       ["RDP 접속자료", "봉사기 원격접속에 필요한 자료는 전용 계정정보로 관리합니다."],
       ["편집 범위", "목록에서는 민감값을 마스킹하고, 편집 화면에서 필요한 항목만 복호화해 보여줍니다."],
     ],
@@ -941,10 +941,8 @@ function ServerConnectionsSection({ state, actions }) {
         {connections.length ? connections.map((connection) => {
           const targetMachineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
           const validation = state.serverValidationResults[connection.secretId];
-          const isAgentOnly = connection.credential?.protocol === "agent";
-          const endpoint = isAgentOnly
-            ? "Agent only"
-            : `${displayProtocol(connection.credential.protocol)}://${connection.credential.host}:${connection.credential.port}`;
+          const typeLabel = serverConnectionTypeLabel(connection);
+          const protocolUrl = serverConnectionProtocolUrl(connection);
           return (
             <div
               key={connection.secretId}
@@ -957,11 +955,11 @@ function ServerConnectionsSection({ state, actions }) {
                 <div className="flex min-w-0 flex-wrap items-center gap-2">
                   <strong className="truncate text-[13px] font-[850]">{connection.label}</strong>
                   <StatusPill status={validation?.valid ? "success" : validation ? "error" : "neutral"}>
-                    {validation?.valid ? "준비됨" : validation ? "준비안됨" : displayProtocol(connection.credential.protocol)}
+                    {validation?.valid ? "준비됨" : validation ? "준비안됨" : typeLabel}
                   </StatusPill>
                 </div>
                 <p className="mt-1 truncate text-[11.5px] font-[620] text-[var(--ptg-on-surface-variant)]">
-                  {[endpoint, connection.credential.username, machineNameForId(state, targetMachineId)].filter(Boolean).join(" | ")}
+                  {[protocolUrl, connection.credential?.username, machineNameForId(state, targetMachineId)].filter(Boolean).join(" | ")}
                 </p>
                 {validation ? (
                   <p className="mt-1 truncate text-[11px] font-[620] text-[var(--ptg-on-surface-variant)]">
@@ -970,7 +968,6 @@ function ServerConnectionsSection({ state, actions }) {
                 ) : null}
               </div>
               <div className="flex items-center justify-end gap-1.5 max-lg:col-start-2 max-lg:justify-start">
-                <AppButton icon="control" onClick={() => actions.manageServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>관리</AppButton>
                 <AppButton icon="control" onClick={() => actions.validateServerConnection(connection.secretId).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>검증</AppButton>
                 <IconButton
                   icon="trash"
@@ -987,6 +984,23 @@ function ServerConnectionsSection({ state, actions }) {
       </div>
     </Surface>
   );
+}
+
+function serverConnectionTypeLabel(connection) {
+  return connection?.credential?.protocol === "agent" ? "PC" : displayProtocol(connection?.credential?.protocol);
+}
+
+function serverConnectionProtocolUrl(connection) {
+  const storedUrl = String(connection?.credential?.protocolUrl || "").trim();
+  if (storedUrl) return storedUrl;
+  if (connection?.credential?.protocol === "agent") {
+    const machineId = connection.targetMachineId || connection.credential?.machineId || connection.machineId;
+    return machineId ? `agent://${machineId}` : "";
+  }
+  const protocol = String(connection?.credential?.protocol || "").trim();
+  const host = String(connection?.credential?.host || "").trim();
+  const port = connection?.credential?.port;
+  return protocol && host && port ? `${protocol}://${host}:${port}` : "";
 }
 
 export function ServerManagementPage({ state, actions }) {
@@ -1007,11 +1021,7 @@ export function ServerManagementPage({ state, actions }) {
   }
   const snapshot = machine?.agentSnapshot || {};
   const validation = connection ? state.serverValidationResults[connection.secretId] : null;
-  const endpoint = connection
-    ? connection.credential?.protocol === "agent"
-      ? "Agent only"
-      : `${displayProtocol(connection.credential?.protocol)}://${connection.credential?.host || "N/A"}:${connection.credential?.port || "N/A"}`
-    : "Agent 련결";
+  const endpoint = connection ? serverConnectionProtocolUrl(connection) : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const serverState = {
     ...state,
@@ -1079,7 +1089,7 @@ export function ServerManagementPage({ state, actions }) {
     console: serverState.events.length || snapshot.console?.recentLines?.length || 0,
   };
   const endpointParts = connection
-    ? [endpoint, connection.credential?.username, displayMachineId(targetMachineId)]
+    ? [serverConnectionTypeLabel(connection), endpoint, connection.credential?.username, displayMachineId(targetMachineId)]
     : ["Agent 련결", displayMachineId(targetMachineId)];
   return (
     <section className="screen-enter mt-4 grid gap-4">
@@ -2045,7 +2055,7 @@ export function HelpDashboard({ actions }) {
                 {[
                   ["1", "먼저 상태를 확인합니다", "첫페지와 경보에서 실제 backend snapshot 기준의 상태를 확인합니다."],
                   ["2", "세부 페지로 들어갑니다", "봉사기, Config, Secret, Event 페지에서 문제 원천자료를 좁힙니다."],
-                  ["3", "증거 이미지를 붙입니다", "각 설명 아래 참고이미지 슬롯에 실제 화면 screenshot을 연결합니다."],
+                  ["3", "증거 이미지를 붙입니다", "각 설명 아래 참고이미지 슬롯에 실제 화면사진을 련결합니다."],
                 ].map(([step, title, text]) => (
                   <div key={step} className="rounded-[14px] border border-[var(--ptg-outline)] bg-white/78 p-3">
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--ptg-primary)] text-[12px] font-[850] text-white">{step}</span>

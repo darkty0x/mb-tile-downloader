@@ -6,6 +6,7 @@ import { promisify } from "node:util";
 const execFileAsync = promisify(execFile);
 
 export const DEFAULT_WINDOWS_AGENT_TASK_NAME = "PTG Dashboard Agent";
+export const DEFAULT_WINDOWS_AGENT_NODE_MAJOR = "24";
 
 function windowsQuote(value) {
   return `"${String(value).replaceAll('"', '\\"')}"`;
@@ -46,19 +47,36 @@ function buildBootstrapEnvText(env = process.env) {
 export function buildWindowsAgentWrapper({
   projectDir = process.cwd(),
   nodePath = process.execPath,
+  nodeMajor = DEFAULT_WINDOWS_AGENT_NODE_MAJOR,
   restartDelaySeconds = 10,
 } = {}) {
   const paths = servicePaths({ projectDir });
   const delay = Math.max(1, Number.parseInt(String(restartDelaySeconds), 10) || 10);
+  const preferredNodeMajor = String(nodeMajor || "").trim();
+  const nodeSetupLines = preferredNodeMajor
+    ? [
+        `set "DASHBOARD_AGENT_NODE_MAJOR=${preferredNodeMajor}"`,
+        `set "DASHBOARD_AGENT_NODE=${nodePath}"`,
+        "where nvm >nul 2>nul",
+        "if %ERRORLEVEL% EQU 0 (",
+        `  echo [%date% %time%] preparing Node %DASHBOARD_AGENT_NODE_MAJOR% with nvm >> ${windowsQuote(paths.logPath)}`,
+        `  nvm install %DASHBOARD_AGENT_NODE_MAJOR% >> ${windowsQuote(paths.logPath)} 2>&1`,
+        `  nvm use %DASHBOARD_AGENT_NODE_MAJOR% >> ${windowsQuote(paths.logPath)} 2>&1`,
+        `  nvm alias default %DASHBOARD_AGENT_NODE_MAJOR% >> ${windowsQuote(paths.logPath)} 2>&1`,
+        '  set "DASHBOARD_AGENT_NODE=node"',
+        ")",
+      ]
+    : [`set "DASHBOARD_AGENT_NODE=${nodePath}"`];
   return [
     "@echo off",
     "setlocal",
     "chcp 65001 >nul",
     `cd /d ${windowsQuote(paths.projectDir)}`,
     `if not exist ${windowsQuote(paths.stateDir)} mkdir ${windowsQuote(paths.stateDir)}`,
+    ...nodeSetupLines,
     ":loop",
     `echo [%date% %time%] starting dashboard agent >> ${windowsQuote(paths.logPath)}`,
-    `${windowsQuote(nodePath)} --env-file-if-exists=${windowsQuote(paths.bootstrapEnvPath)} --env-file-if-exists=.env src\\agent\\agent.js >> ${windowsQuote(paths.logPath)} 2>&1`,
+    `"%DASHBOARD_AGENT_NODE%" --env-file-if-exists=${windowsQuote(paths.bootstrapEnvPath)} --env-file-if-exists=.env src\\agent\\agent.js >> ${windowsQuote(paths.logPath)} 2>&1`,
     `echo [%date% %time%] dashboard agent exited code %ERRORLEVEL%; restarting in ${delay}s >> ${windowsQuote(paths.logPath)}`,
     `timeout /t ${delay} /nobreak >nul`,
     "goto loop",
@@ -246,6 +264,7 @@ function diagnoseWindowsAgentStatus({ serviceLogTail = "", agentLogTail = "" } =
 export async function installWindowsAgentService({
   projectDir = process.cwd(),
   nodePath = process.execPath,
+  nodeMajor = DEFAULT_WINDOWS_AGENT_NODE_MAJOR,
   taskName = DEFAULT_WINDOWS_AGENT_TASK_NAME,
   runAs = "SYSTEM",
   execFileImpl = execFileAsync,
@@ -258,7 +277,7 @@ export async function installWindowsAgentService({
   const deleteResult = await execSchtasksIgnoreFailure(execFileImpl, ["/Delete", "/TN", taskName, "/F"]);
   await mkdir(paths.stateDir, { recursive: true });
   await writeFile(paths.bootstrapEnvPath, buildBootstrapEnvText(env), "utf8");
-  await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath }), "utf8");
+  await writeFile(paths.wrapperPath, buildWindowsAgentWrapper({ projectDir, nodePath, nodeMajor }), "utf8");
   const args = buildSchtasksCreateArgs({ taskName, wrapperPath: paths.wrapperPath, runAs });
   const result = await execFileImpl("schtasks.exe", args, { windowsHide: true });
   const settingsResult = await execFileImpl("powershell.exe", buildUnlimitedExecutionTimeArgs({ taskName }), { windowsHide: true });
