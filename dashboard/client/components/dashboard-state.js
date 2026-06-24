@@ -574,6 +574,8 @@ export function useDashboardState() {
           sync_config: "Config 화일 동기화",
           sync_env: ".Env 동기화",
           write_env: ".Env 보관",
+          write_config: "Config 화일 보관",
+          delete_config: "Config 화일 삭제",
           git_pull_restart: "Git Pull 및 재시작",
         }[commandType] || commandType;
         if (["pause_after_range", "stop_pipeline", "git_pull_restart"].includes(commandType)) {
@@ -690,6 +692,37 @@ export function useDashboardState() {
           }),
         });
         setNotice({ message: "Config 화일 보관 명령이 대기에 들어갔습니다", kind: "success" });
+        setEditor({ type: "server-management", machineId: targetMachineId });
+        await refreshMachineData(targetMachineId);
+      },
+      async deleteLocalConfig(configPath) {
+        await this.deleteLocalConfigs([configPath]);
+      },
+      async deleteLocalConfigs(configPaths) {
+        const targetMachineId = normalizeMachineId(selectedMachineId);
+        if (!targetMachineId) throw new Error("먼저 봉사기관리페지를 여십시오");
+        const paths = [...new Set((configPaths || []).map((item) => String(item || "").trim()).filter(Boolean))];
+        if (!paths.length) throw new Error("Config 화일경로가 없습니다");
+        const confirmed = await confirmDanger({
+          title: paths.length > 1 ? "Local Config 화일 모두 삭제 확인" : "Local Config 화일 삭제 확인",
+          message: paths.length > 1
+            ? `Local Config 화일 ${paths.length}개를 삭제하겠습니까? 이 명령은 선택한 봉사기의 local configs 등록부에서 실행됩니다.`
+            : `${paths[0]} 화일을 삭제하겠습니까? 이 명령은 선택한 봉사기의 local configs 등록부에서 실행됩니다.`,
+          confirmLabel: "삭제",
+          storageKey: "delete-local-config",
+        });
+        if (!confirmed) return;
+        for (const configPath of paths) {
+          await api(`/api/machines/${encodeURIComponent(targetMachineId)}/commands`, {
+            method: "POST",
+            body: JSON.stringify({
+              commandType: "delete_config",
+              payload: { configPath },
+              requestedBy: "dashboard",
+            }),
+          });
+        }
+        setNotice({ message: `Config 화일 삭제 명령 ${paths.length}개가 대기에 들어갔습니다`, kind: "success" });
         setEditor({ type: "server-management", machineId: targetMachineId });
         await refreshMachineData(targetMachineId);
       },

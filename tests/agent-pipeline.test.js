@@ -811,6 +811,64 @@ test("agent write_config command updates a local config file inside configs", as
   ]);
 });
 
+test("agent delete_config command removes only a local config file inside configs", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-delete-config-"));
+  const configPath = path.join(dir, "configs", "local.config.json");
+  await mkdir(path.dirname(configPath), { recursive: true });
+  await writeFile(configPath, JSON.stringify({ provider: "mapbox", ranges: [] }), "utf8");
+  const calls = [];
+
+  await runCommand(
+    {
+      id: "cmd-delete-config",
+      commandType: "delete_config",
+      payload: { configPath: "configs/local.config.json" },
+      claimedAt: "claim-delete-config",
+    },
+    {
+      client: {
+        ackCommand: async (commandId) => calls.push(["ack", commandId]),
+        postEvent: async (event) => calls.push(["event", event.type, event.data.configPath]),
+      },
+      runner: {},
+      machineId: "worker-a",
+      projectDir: dir,
+      syncNow: async ({ reason }) => calls.push(["sync", reason]),
+    }
+  );
+
+  await assert.rejects(readFile(configPath, "utf8"), /ENOENT/);
+  assert.deepEqual(calls, [
+    ["sync", "delete_config"],
+    ["event", "command.accepted", path.join("configs", "local.config.json")],
+    ["ack", "cmd-delete-config"],
+  ]);
+
+  const escapeCalls = [];
+  await runCommand(
+    {
+      id: "cmd-delete-escape",
+      commandType: "delete_config",
+      payload: { configPath: "../escape.json" },
+      claimedAt: "claim-delete-escape",
+    },
+    {
+      client: {
+        ackCommand: async (commandId, ack = {}) => escapeCalls.push(["ack", commandId, ack.error]),
+        postEvent: async (event) => escapeCalls.push(["event", event.type, event.message]),
+      },
+      runner: {},
+      machineId: "worker-a",
+      projectDir: dir,
+    }
+  );
+
+  assert.deepEqual(escapeCalls, [
+    ["event", "command.failed", "Config writes are limited to the project configs folder"],
+    ["ack", "cmd-delete-escape", "Config writes are limited to the project configs folder"],
+  ]);
+});
+
 test("agent stop command records a stop request and signals the active runner", async () => {
   const calls = [];
   const client = {

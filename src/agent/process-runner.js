@@ -56,6 +56,7 @@ export function resolveManagedCommand({ commandType, payload = {} }) {
     case "stop_pipeline":
     case "write_env":
     case "write_config":
+    case "delete_config":
     case "clear_agent_log":
     case "git_pull_restart":
       return {

@@ -54,11 +54,29 @@ test("selected server config tab exposes bulk delete action", () => {
     pagesSource.indexOf("function envVariablesWithoutApiKeys", pagesSource.indexOf("function ServerPageConfigs")),
   );
 
-  assert.match(configTabSource, /const deleteAllConfigs = \(\) => actions\.deleteConfigs\(state\.configs\)/);
-  assert.match(configTabSource, /<AppButton variant="danger" icon="trash" disabled=\{!state\.configs\.length\} onClick=\{deleteAllConfigs\}>모두 삭제<\/AppButton>/);
+  assert.match(configTabSource, /const deleteAllConfigs = async \(\) =>/);
+  assert.match(configTabSource, /if \(state\.configs\.length\) await actions\.deleteConfigs\(state\.configs\)/);
+  assert.match(configTabSource, /if \(localConfigs\.length\) await actions\.deleteLocalConfigs\(localConfigs\.map\(\(config\) => config\.path\)\)/);
+  assert.match(configTabSource, /<AppButton variant="danger" icon="trash" disabled=\{!hasConfigs\}/);
   assert.match(stateSource, /async deleteConfigs\(configsToDelete\)/);
   assert.match(stateSource, /title: "Config 모두 삭제 확인"/);
   assert.match(stateSource, /confirmLabel: "모두 삭제"/);
+});
+
+test("selected server config tab exposes local file edit and delete actions", () => {
+  const configTabSource = pagesSource.slice(
+    pagesSource.indexOf("function ServerPageConfigs"),
+    pagesSource.indexOf("function envVariablesWithoutApiKeys", pagesSource.indexOf("function ServerPageConfigs")),
+  );
+
+  assert.match(configTabSource, /const hasConfigs = Boolean\(state\.configs\.length \|\| localConfigs\.length\)/);
+  assert.match(configTabSource, /localConfigs\.map\(\(config\) =>/);
+  assert.match(configTabSource, /actions\.setEditor\(\{ type: "local-config", path: config\.path \}\)/);
+  assert.match(configTabSource, /actions\.deleteLocalConfig\(config\.path\)/);
+  assert.match(stateSource, /async deleteLocalConfig\(configPath\)/);
+  assert.match(stateSource, /async deleteLocalConfigs\(configPaths\)/);
+  assert.match(stateSource, /commandType: "delete_config"/);
+  assert.match(editorSource, /actions\.deleteLocalConfig\(record\.path\)/);
 });
 
 test("start config order modal exposes select all controls and pointer checkbox", () => {

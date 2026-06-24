@@ -1423,7 +1423,11 @@ function ServerPageStorage({ machine }) {
 
 function ServerPageConfigs({ state, actions }) {
   const localConfigs = state.selectedMachine?.agentSnapshot?.configs || [];
-  const deleteAllConfigs = () => actions.deleteConfigs(state.configs).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+  const deleteAllConfigs = async () => {
+    if (state.configs.length) await actions.deleteConfigs(state.configs);
+    if (localConfigs.length) await actions.deleteLocalConfigs(localConfigs.map((config) => config.path));
+  };
+  const hasConfigs = Boolean(state.configs.length || localConfigs.length);
   return (
     <section className="grid gap-2">
       <SectionTitle
@@ -1431,36 +1435,40 @@ function ServerPageConfigs({ state, actions }) {
         action={(
           <div className="flex flex-wrap justify-end gap-2">
             <AppButton variant="filled" icon="plus" onClick={() => actions.setEditor({ type: "new-config" })}>추가</AppButton>
-            <AppButton variant="danger" icon="trash" disabled={!state.configs.length} onClick={deleteAllConfigs}>모두 삭제</AppButton>
+            <AppButton variant="danger" icon="trash" disabled={!hasConfigs} onClick={() => deleteAllConfigs().catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}>모두 삭제</AppButton>
           </div>
         )}
       />
-      {state.configs.length ? state.configs.map((config) => (
-        <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
-          <div className="min-w-0">
-            <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-              {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | 범위 {config.config.ranges?.length || 0}개 | v{config.version}
-            </small>
-          </div>
-          <TableActions type="config" id={config.configId} duplicate actions={actions} />
-        </div>
-      )) : localConfigs.length ? localConfigs.map((config) => (
-        <button
-          key={config.path}
-          type="button"
-          onClick={() => actions.setEditor({ type: "local-config", path: config.path })}
-          className="state-layer grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3 text-left transition hover:border-[var(--ptg-primary)]"
-        >
-          <div className="min-w-0">
-            <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
-            <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
-              {displayStatus(config.provider || config.type)} | 범위 {config.ranges}개 | {formatBytes(config.sizeBytes)}
-            </small>
-          </div>
-          <StatusPill status="neutral">Local</StatusPill>
-        </button>
-      )) : <EmptyLine>이 봉사기에 배정된 Config 화일이 없습니다</EmptyLine>}
+      {hasConfigs ? (
+        <>
+          {state.configs.map((config) => (
+            <div key={config.configId} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <div className="min-w-0">
+                <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                  {displayStatus(config.config.provider || "Unknown")} | {displayStatus(config.config.layer || "Layer")} | {displayStatus(config.config.format || config.config.tile?.extension || "Format")} | 범위 {config.config.ranges?.length || 0}개 | v{config.version}
+                </small>
+              </div>
+              <TableActions type="config" id={config.configId} duplicate actions={actions} />
+            </div>
+          ))}
+          {localConfigs.map((config) => (
+            <div key={config.path} className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2 rounded-lg border border-[var(--ptg-outline)] bg-white p-3">
+              <div className="min-w-0">
+                <strong className="block truncate text-[12.5px]">{displayConfigName(config.name)}</strong>
+                <small className="mt-0.5 block truncate text-[11px] text-[var(--ptg-on-surface-variant)]">
+                  {displayStatus(config.provider || config.type)} | 범위 {config.ranges}개 | {formatBytes(config.sizeBytes)}
+                </small>
+              </div>
+              <div className="flex items-center justify-end gap-1.5">
+                <StatusPill status="neutral">Local</StatusPill>
+                <IconButton label="편집" icon="edit" onClick={() => actions.setEditor({ type: "local-config", path: config.path })} />
+                <IconButton label="삭제" icon="trash" onClick={() => actions.deleteLocalConfig(config.path).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))} />
+              </div>
+            </div>
+          ))}
+        </>
+      ) : <EmptyLine>이 봉사기에 배정된 Config 화일이 없습니다</EmptyLine>}
     </section>
   );
 }

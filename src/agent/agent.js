@@ -352,6 +352,12 @@ async function writeLocalConfigFile({ projectDir, configPath, configText }) {
   return { configPath: path.relative(projectDir, resolvedPath), config: parsed };
 }
 
+async function deleteLocalConfigFile({ projectDir, configPath }) {
+  const resolvedPath = resolveLocalConfigWritePath(projectDir, configPath);
+  await rm(resolvedPath, { force: true });
+  return { configPath: path.relative(projectDir, resolvedPath) };
+}
+
 function createAgentControlFiles({ stateDir }) {
   const controlDir = path.join(stateDir, "dashboard", "control");
   const pauseAfterRangeFile = path.join(controlDir, "pause-after-range");
@@ -547,6 +553,23 @@ export async function runCommand(
         severity: "success",
         type: "command.accepted",
         message: `Config updated: ${result.configPath}`,
+        data: { commandId: command.id, commandType: command.commandType, configPath: result.configPath },
+      });
+      await client.ackCommand(command.id, { claimedAt: command.claimedAt });
+      return;
+    }
+
+    if (command.commandType === "delete_config") {
+      const result = await deleteLocalConfigFile({
+        projectDir,
+        configPath: command.payload?.configPath,
+      });
+      await syncNow?.({ reason: command.commandType });
+      await client.postEvent({
+        machineId,
+        severity: "success",
+        type: "command.accepted",
+        message: `Config deleted: ${result.configPath}`,
         data: { commandId: command.id, commandType: command.commandType, configPath: result.configPath },
       });
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });

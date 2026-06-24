@@ -21,6 +21,7 @@ const COMMAND_TYPES = new Set([
   "sync_env",
   "write_env",
   "write_config",
+  "delete_config",
   "clear_agent_log",
   "git_pull_restart",
   "run_preflight",

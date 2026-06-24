@@ -878,6 +878,14 @@ function LocalConfigForm({ record, actions }) {
         onChange={(event) => setConfigText(event.target.value)}
       />
       <AppButton variant="filled" icon="check" type="submit" loading={submitting}>Config 화일 보관</AppButton>
+      <AppButton
+        className="danger-button justify-self-start"
+        icon="trash"
+        type="button"
+        onClick={() => actions.deleteLocalConfig(record.path).catch((err) => actions.setNotice({ message: err.message, kind: "error" }))}
+      >
+        삭제
+      </AppButton>
     </form>
   );
 }
