@@ -35,15 +35,6 @@ const PROCESS_LABEL_ICONS = {
   "대기중": "clock",
 };
 
-const PROCESS_STATUS_ICONS = {
-  running: "running",
-  claimed: "running",
-  queued: "clock",
-  completed: "checkCircle",
-  failed: "failed",
-  stopped: "stop",
-};
-
 const HELP_GUIDES = [
   {
     id: "overview",
@@ -533,10 +524,7 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                   <Icon name={processStageIcon(process.stageLabel || process.stage)} className="h-3.5 w-3.5 shrink-0 text-[var(--ptg-primary)]" />
                   <span className="truncate">{process.stageLabel}</span>
                 </span>
-                <StatusPill status={process.tone}>
-                  <Icon name={processStatusIcon(process)} className="h-3 w-3 shrink-0" />
-                  <span className="truncate">{process.statusLabel}</span>
-                </StatusPill>
+                <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#d9e3f0]">
@@ -1222,10 +1210,6 @@ function activeJobMeta(activeJob, configs = []) {
       ? `범위 ${activeJob.rangeId}`
       : null;
   return [configName, rangeText].filter(Boolean).join(" | ");
-}
-
-function processStatusIcon(process = {}) {
-  return PROCESS_STATUS_ICONS[process.status] || (process.stale ? "failed" : "clock");
 }
 
 function pipelineMeta(overview, configs = []) {
@@ -2778,7 +2762,7 @@ function ServersTable({ state, actions }) {
                   <td className="border-b border-[var(--ptg-outline)] px-2.5 py-2.5">
                     <span
                       aria-label={`${process.processLabel} ${process.statusLabel}`}
-                      className="flex min-w-[118px] items-center gap-1.5 whitespace-nowrap"
+                      className="flex items-center gap-1.5 whitespace-nowrap"
                       title={`${process.processLabel} ${process.statusLabel}`}
                     >
                       <span className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-[var(--ptg-primary-soft)] text-[var(--ptg-primary)]">
