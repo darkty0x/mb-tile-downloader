@@ -120,7 +120,7 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
         const parsed = stage === "download" ? parseDownloaderProgressLine(line) : null;
         if (parsed && reporter) {
           Promise.resolve(
-            reporter.stage({
+            (reporter.progress || reporter.stage).call(reporter, {
               stage,
               progress: mergeProgress(baseProgress, parsed),
             })

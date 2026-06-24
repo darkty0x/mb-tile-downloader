@@ -6,6 +6,7 @@ import path from "node:path";
 
 import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { runCommand } from "../src/agent/agent.js";
+import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
 import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
 
@@ -325,6 +326,80 @@ test("process runner restarts a managed process when output goes stale", async (
   assert.equal(staleRestarts.length, 1);
   assert.equal(staleRestarts[0].timeoutMs, 50);
   assert.equal(await readFile(countPath, "utf8"), "2");
+});
+
+test("job reporter coalesces burst progress updates and flushes the latest before completion", async () => {
+  let currentTime = 0;
+  const posts = [];
+  const updates = [];
+  const reporter = createJobReporter({
+    client: {
+      postJob: async (payload) => posts.push(payload),
+      updateJob: async (jobId, payload) => updates.push({ jobId, ...payload }),
+    },
+    machineId: "server-01",
+    configId: "cfg-a",
+    jobId: "job-a",
+    progressUpdateMs: 1_000,
+    now: () => currentTime,
+  });
+
+  await reporter.start({ stage: "download", progress: { percent: 0 } });
+  await reporter.progress({ stage: "download", progress: { percent: 1 } });
+  currentTime = 100;
+  await reporter.progress({ stage: "download", progress: { percent: 2 } });
+  currentTime = 200;
+  await reporter.progress({ stage: "download", progress: { percent: 3 } });
+  await reporter.complete({ stage: "upload", progress: { percent: 100 } });
+
+  assert.equal(posts.length, 1);
+  assert.deepEqual(
+    updates.map((update) => [update.status, update.stage, update.progress.percent]),
+    [
+      ["running", "download", 1],
+      ["running", "download", 3],
+      ["completed", "upload", 100],
+    ]
+  );
+});
+
+test("job reporter retries failed coalesced progress with the newest snapshot", async () => {
+  let currentTime = 0;
+  let failNext = true;
+  const updates = [];
+  const reporter = createJobReporter({
+    client: {
+      postJob: async () => {},
+      updateJob: async (jobId, payload) => {
+        if (failNext) {
+          failNext = false;
+          throw new Error("dashboard unavailable");
+        }
+        updates.push({ jobId, ...payload });
+      },
+    },
+    machineId: "server-01",
+    configId: "cfg-a",
+    jobId: "job-a",
+    progressUpdateMs: 1_000,
+    now: () => currentTime,
+  });
+
+  await assert.rejects(
+    () => reporter.progress({ stage: "download", progress: { percent: 1 } }),
+    /dashboard unavailable/
+  );
+  currentTime = 100;
+  await reporter.progress({ stage: "download", progress: { percent: 2 } });
+  assert.equal(updates.length, 0);
+
+  currentTime = 1_100;
+  await reporter.progress({ stage: "download", progress: { percent: 3 } });
+
+  assert.deepEqual(
+    updates.map((update) => [update.status, update.stage, update.progress.percent]),
+    [["running", "download", 3]]
+  );
 });
 
 test("agent clear_agent_log command truncates the local downloader console log", async () => {

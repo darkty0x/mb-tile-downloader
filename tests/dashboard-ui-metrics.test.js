@@ -499,6 +499,7 @@ test("selected server pipeline stats include pending assigned configs when only 
 
 test("selected server pipeline step progress follows the active config job", () => {
   const model = buildOverviewModel({
+    now: new Date("2026-06-23T14:04:00.000Z"),
     machines: [{ machineId: "server-02", status: "online", currentJobId: "job-satellite-active" }],
     configs: [
       { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
@@ -591,6 +592,7 @@ test("selected server pipeline step progress follows the active config job", () 
 
 test("selected server pipeline upload phase is not marked complete until active upload completes", () => {
   const model = buildOverviewModel({
+    now: new Date("2026-06-23T14:11:00.000Z"),
     machines: [{ machineId: "server-02", status: "online", currentJobId: "job-satellite-upload" }],
     configs: [
       { configId: "cfg-esri", machineId: "server-02", name: "1-pyongyang-esri-satellite" },
