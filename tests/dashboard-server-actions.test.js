@@ -42,3 +42,16 @@ test("selected server config tab exposes bulk delete action", () => {
   assert.match(stateSource, /title: "Config 모두 삭제 확인"/);
   assert.match(stateSource, /confirmLabel: "모두 삭제"/);
 });
+
+test("start config order modal exposes select all controls and pointer checkbox", () => {
+  const modalSource = pagesSource.slice(
+    pagesSource.indexOf("function StartConfigOrderModal"),
+    pagesSource.indexOf("function activeJobMeta", pagesSource.indexOf("function StartConfigOrderModal")),
+  );
+
+  assert.match(modalSource, /const selectAllItems = \(\) => onChange\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: true \}\)\)\);/);
+  assert.match(modalSource, /const deselectAllItems = \(\) => onChange\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: false \}\)\)\);/);
+  assert.match(modalSource, />모두 선택<\/AppButton>/);
+  assert.match(modalSource, />모두 해제<\/AppButton>/);
+  assert.match(modalSource, /className="h-5 w-5 shrink-0 cursor-pointer accent-\[var\(--ptg-primary\)\]"/);
+});

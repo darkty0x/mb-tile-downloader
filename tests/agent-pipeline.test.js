@@ -8,7 +8,7 @@ import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { ensureNativeDependencies, runCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
-import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs } from "../src/agent/pipeline.js";
+import { createCliJobReporterFactory, parseStorjProofFromLine, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -333,7 +333,7 @@ test("native dependency repair runs yarn install before better-sqlite3 rebuild",
   const result = await ensureNativeDependencies({
     projectDir,
     execFileImpl: async (command, args, options) => {
-      calls.push([command, args, options.cwd]);
+      calls.push([command, args, options.cwd, options.env]);
       return { stdout: `${command} ${args.join(" ")}`, stderr: "" };
     },
     checkNativeDependenciesImpl: async () => {
@@ -351,6 +351,11 @@ test("native dependency repair runs yarn install before better-sqlite3 rebuild",
     [process.platform === "win32" ? "npm.cmd" : "npm", ["rebuild", "better-sqlite3"]],
   ]);
   assert.equal(calls.every((call) => call[2] === projectDir), true);
+  assert.equal(calls.every((call) => {
+    const env = call[3];
+    const key = Object.keys(env).find((name) => name.toLowerCase() === "path") || "PATH";
+    return String(env[key] || "").split(path.delimiter)[0] === path.dirname(process.execPath);
+  }), true);
   assert.equal(result.rebuilt, true);
   assert.equal(result.installCommand, `${process.platform === "win32" ? "yarn.cmd" : "yarn"} install --frozen-lockfile`);
 });
@@ -1016,6 +1021,10 @@ test("pipeline CLI stages run against the full config without range scoping", ()
     "storj-uploader.js",
     "configs/a.json",
   ]);
+  assert.deepEqual(stagePreparationArgs("download"), []);
+  assert.deepEqual(stagePreparationArgs("validate"), []);
+  assert.deepEqual(stagePreparationArgs("zip"), []);
+  assert.deepEqual(stagePreparationArgs("upload"), [["scripts/install-storj-uplink.js", "--if-missing"]]);
 });
 
 test("range pipeline stops before zip and upload when download fails", async () => {

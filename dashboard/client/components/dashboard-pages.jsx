@@ -5,7 +5,7 @@ import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-mod
 import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../lib/event-display";
 import { eventNotificationId } from "../lib/event-identity";
 import { buildConfigGroups, configGroupName, inferConfigTemplateId } from "../lib/config-groups";
-import { moveConfigChoice, reorderConfigChoice } from "../lib/config-order";
+import { groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice } from "../lib/config-order";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, ModalShell, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
@@ -214,17 +214,67 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
   const selectedCount = request.items.filter((item) => item.selected).length;
   const [dragState, setDragState] = useState(null);
   const updateItem = (index, patch) => onChange(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  const selectAllItems = () => onChange(request.items.map((item) => ({ ...item, selected: true })));
+  const deselectAllItems = () => onChange(request.items.map((item) => ({ ...item, selected: false })));
   const moveItem = (index, direction, event = {}) => {
     onChange(moveConfigChoice(request.items, index, direction, { grouped: Boolean(event.ctrlKey || event.metaKey) }));
+  };
+  const dragOverItem = (index, event) => {
+    event.preventDefault();
+    event.dataTransfer.dropEffect = "move";
+    if (!dragState) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+    const grouped = Boolean(dragState.grouped || event.ctrlKey || event.metaKey);
+    const draggedIds = grouped
+      ? request.items
+        .filter((candidate) => groupKeyForConfigChoice(candidate) === dragState.sourceGroupKey)
+        .map((candidate) => candidate.id)
+      : [dragState.sourceId];
+    setDragState((current) => current ? {
+      ...current,
+      groupedPreview: grouped,
+      overIndex: draggedIds.includes(request.items[index]?.id) ? null : index,
+      position,
+    } : current);
   };
   const dropItem = (index, event) => {
     event.preventDefault();
     if (!dragState) return;
-    onChange(reorderConfigChoice(request.items, dragState.index, index, {
-      grouped: Boolean(dragState.grouped || event.ctrlKey || event.metaKey),
+    onChange(reorderConfigChoice(request.items, dragState.index, dragState.overIndex ?? index, {
+      grouped: Boolean(dragState.groupedPreview || dragState.grouped || event.ctrlKey || event.metaKey),
+      position: dragState.position,
     }));
     setDragState(null);
   };
+  const dropPreview = (() => {
+    if (!dragState || dragState.overIndex === null || dragState.overIndex === undefined) return null;
+    const target = request.items[dragState.overIndex];
+    if (!target) return null;
+    const grouped = Boolean(dragState.groupedPreview);
+    const position = dragState.position === "after" ? "after" : "before";
+    const targetIndexes = request.items
+      .map((item, index) => (
+        grouped && groupKeyForConfigChoice(item) === groupKeyForConfigChoice(target)
+          ? index
+          : item.id === target.id
+            ? index
+            : -1
+      ))
+      .filter((index) => index >= 0);
+    if (!targetIndexes.length) return null;
+    return {
+      index: position === "after" ? Math.max(...targetIndexes) : Math.min(...targetIndexes),
+      position,
+    };
+  })();
+  const previewLine = (
+    <div className="flex items-center gap-2 py-1" aria-hidden="true">
+      <span className="h-0.5 flex-1 rounded-full bg-[var(--ptg-primary)] shadow-[0_0_0_3px_rgba(103,80,164,0.14)]" />
+      <span className="rounded-full bg-[var(--ptg-primary)] px-2 py-0.5 text-[10px] font-[850] text-white">삽입</span>
+      <span className="h-0.5 flex-1 rounded-full bg-[var(--ptg-primary)] shadow-[0_0_0_3px_rgba(103,80,164,0.14)]" />
+    </div>
+  );
 
   return (
     <ModalShell title="실행할 Config 순서 선택" subtitle={`${selectedCount}/${request.items.length}개 선택됨`} onClose={onClose}>
@@ -232,48 +282,64 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
         <p className="rounded-[12px] border border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] p-3 text-[12px] font-[650] leading-snug text-[var(--ptg-on-surface-variant)]">
           선택한 순서대로 Config 화일을 차례로 실행합니다. 필요없는 항목은 끄고 화살표로 순서를 바꾸십시오.
         </p>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[11px] font-[720] text-[var(--ptg-on-surface-variant)]">{selectedCount}/{request.items.length}개 선택</span>
+          <div className="flex flex-wrap justify-end gap-2">
+            <AppButton icon="check" disabled={selectedCount === request.items.length} onClick={selectAllItems}>모두 선택</AppButton>
+            <AppButton icon="close" disabled={selectedCount === 0} onClick={deselectAllItems}>모두 해제</AppButton>
+          </div>
+        </div>
         <div className="ptg-scrollbar max-h-[52vh] space-y-2 overflow-y-auto pr-1">
           {request.items.map((item, index) => (
-            <div
-              key={item.id}
-              draggable
-              onDragStart={(event) => {
-                event.dataTransfer.effectAllowed = "move";
-                event.dataTransfer.setData("text/plain", item.id);
-                setDragState({ index, grouped: Boolean(event.ctrlKey || event.metaKey) });
-              }}
-              onDragEnd={() => setDragState(null)}
-              onDragOver={(event) => {
-                event.preventDefault();
-                event.dataTransfer.dropEffect = "move";
-              }}
-              onDrop={(event) => dropItem(index, event)}
-              className={`flex cursor-grab items-center gap-3 rounded-[14px] border p-3 transition active:cursor-grabbing ${
-                item.selected ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary-container)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-surface)]"
-              }`}
-            >
-              <input
-                type="checkbox"
-                className="h-5 w-5 shrink-0 accent-[var(--ptg-primary)]"
-                checked={item.selected}
-                onChange={(event) => updateItem(index, { selected: event.target.checked })}
-                aria-label={`${item.label} 선택`}
-              />
-              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[var(--ptg-surface-container-high)] text-[var(--ptg-primary)]">
-                <Icon name={item.source === "dashboard" ? "config" : "folder"} className="h-5 w-5" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <div className="truncate text-[13px] font-[800] text-[var(--ptg-on-surface)]">
-                  {index + 1}. {item.label}
+            <div key={item.id}>
+              {dropPreview?.index === index && dropPreview.position === "before" ? previewLine : null}
+              <div
+                draggable
+                onDragStart={(event) => {
+                  const grouped = Boolean(event.ctrlKey || event.metaKey);
+                  event.dataTransfer.effectAllowed = "move";
+                  event.dataTransfer.setData("text/plain", item.id);
+                  setDragState({
+                    index,
+                    sourceId: item.id,
+                    sourceGroupKey: groupKeyForConfigChoice(item),
+                    grouped,
+                    groupedPreview: grouped,
+                    overIndex: null,
+                    position: "before",
+                  });
+                }}
+                onDragEnd={() => setDragState(null)}
+                onDragOver={(event) => dragOverItem(index, event)}
+                onDrop={(event) => dropItem(index, event)}
+                className={`flex cursor-grab items-center gap-3 rounded-[14px] border p-3 transition active:cursor-grabbing ${
+                  item.selected ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary-container)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-surface)]"
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--ptg-primary)]"
+                  checked={item.selected}
+                  onChange={(event) => updateItem(index, { selected: event.target.checked })}
+                  aria-label={`${item.label} 선택`}
+                />
+                <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[12px] bg-[var(--ptg-surface-container-high)] text-[var(--ptg-primary)]">
+                  <Icon name={item.source === "dashboard" ? "config" : "folder"} className="h-5 w-5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <div className="truncate text-[13px] font-[800] text-[var(--ptg-on-surface)]">
+                    {index + 1}. {item.label}
+                  </div>
+                  <div className="truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
+                    {item.meta} | {item.path}
+                  </div>
                 </div>
-                <div className="truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                  {item.meta} | {item.path}
+                <div className="flex shrink-0 gap-1">
+                  <IconButton label="위로" icon="arrowUp" disabled={index === 0} onClick={(event) => moveItem(index, -1, event)} />
+                  <IconButton label="아래로" icon="arrowDown" disabled={index === request.items.length - 1} onClick={(event) => moveItem(index, 1, event)} />
                 </div>
               </div>
-              <div className="flex shrink-0 gap-1">
-                <IconButton label="위로" icon="arrowUp" disabled={index === 0} onClick={(event) => moveItem(index, -1, event)} />
-                <IconButton label="아래로" icon="arrowDown" disabled={index === request.items.length - 1} onClick={(event) => moveItem(index, 1, event)} />
-              </div>
+              {dropPreview?.index === index && dropPreview.position === "after" ? previewLine : null}
             </div>
           ))}
         </div>

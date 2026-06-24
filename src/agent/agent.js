@@ -140,6 +140,20 @@ function dependencyInstallCommand(projectDir) {
   return { command: npmCommand(), args: ["install"] };
 }
 
+function pathEnvKey(env = process.env) {
+  return Object.keys(env).find((key) => key.toLowerCase() === "path") || "PATH";
+}
+
+function envWithCurrentNodeFirst(env = process.env) {
+  const key = pathEnvKey(env);
+  const nodeDir = path.dirname(process.execPath);
+  const currentPath = env[key] || "";
+  return {
+    ...env,
+    [key]: currentPath ? `${nodeDir}${path.delimiter}${currentPath}` : nodeDir,
+  };
+}
+
 function isNativeModuleMismatch(stderr = "", stdout = "") {
   const text = `${stdout}\n${stderr}`;
   return /NODE_MODULE_VERSION|ERR_DLOPEN_FAILED|was compiled against a different Node\.js version/i.test(text);
@@ -173,14 +187,17 @@ export async function ensureNativeDependencies({
   }
 
   const installCommand = dependencyInstallCommand(resolvedProjectDir);
+  const packageManagerEnv = envWithCurrentNodeFirst();
   const install = await execFileImpl(installCommand.command, installCommand.args, {
     cwd: resolvedProjectDir,
+    env: packageManagerEnv,
     maxBuffer: 1024 * 1024 * 16,
     timeout: 300_000,
     windowsHide: true,
   });
   const rebuild = await execFileImpl(npmCommand(), ["rebuild", "better-sqlite3"], {
     cwd: resolvedProjectDir,
+    env: packageManagerEnv,
     maxBuffer: 1024 * 1024 * 8,
     timeout: 180_000,
     windowsHide: true,

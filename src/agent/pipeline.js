@@ -217,6 +217,13 @@ export function stageArgs(stage, { configPath }) {
   }
 }
 
+export function stagePreparationArgs(stage) {
+  if (stage === "upload") {
+    return [["scripts/install-storj-uplink.js", "--if-missing"]];
+  }
+  return [];
+}
+
 export async function runRangePipeline({
   config,
   configPath,
@@ -351,11 +358,17 @@ if (process.argv[1] === fileURLToPath(import.meta.url)) {
         config,
         configPath,
         createJobReporter: createCliJobReporterFactory({ env: process.env, configPath }),
-        runStage: (stage, context) => runNode(stageArgs(stage, context), {
-          reporter: context.reporter,
-          stage,
-          baseProgress: context.progress,
-        }),
+        runStage: async (stage, context) => {
+          for (const args of stagePreparationArgs(stage)) {
+            const prepared = await runNode(args);
+            if (!prepared.ok) return prepared;
+          }
+          return runNode(stageArgs(stage, context), {
+            reporter: context.reporter,
+            stage,
+            baseProgress: context.progress,
+          });
+        },
         shouldPauseAfterRange: () => pauseFileExists(process.env.DASHBOARD_AGENT_PAUSE_AFTER_RANGE_FILE),
         shouldStop: () => pauseFileExists(process.env.DASHBOARD_AGENT_STOP_FILE),
       });

@@ -23,5 +23,7 @@ test("config order drag reorders one item or same-group block", () => {
   const items = [item("a", "g1"), item("b", "g1"), item("c", "g2"), item("d", "g3")];
 
   assert.deepEqual(ids(reorderConfigChoice(items, 1, 3)), ["a", "c", "b", "d"]);
+  assert.deepEqual(ids(reorderConfigChoice(items, 1, 3, { position: "after" })), ["a", "c", "d", "b"]);
   assert.deepEqual(ids(reorderConfigChoice(items, 0, 3, { grouped: true })), ["c", "a", "b", "d"]);
+  assert.deepEqual(ids(reorderConfigChoice(items, 0, 3, { grouped: true, position: "after" })), ["c", "d", "a", "b"]);
 });
