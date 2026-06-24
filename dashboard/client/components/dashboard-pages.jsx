@@ -4,7 +4,8 @@ import { useEffect, useMemo, useState } from "react";
 import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-model";
 import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../lib/event-display";
 import { eventNotificationId } from "../lib/event-identity";
-import { buildConfigGroups } from "../lib/config-groups";
+import { buildConfigGroups, configGroupName, inferConfigTemplateId } from "../lib/config-groups";
+import { moveConfigChoice, reorderConfigChoice } from "../lib/config-order";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
 import { AppButton, IconButton, MetricCard, ModalShell, SectionTitle, SelectInput, StatusPill, Surface, SwitchField, TextInput, UsageBar } from "./ui";
@@ -186,17 +187,19 @@ function configChoiceLabel(config) {
   return displayConfigName(config?.name || config?.jobName || config?.path || config?.configId);
 }
 
-function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [] } = {}) {
+function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [], templates = [] } = {}) {
   const choices = [];
   const seen = new Set();
   const add = (config, source) => {
     const path = source === "dashboard" ? dashboardConfigPath(config) : config?.path;
     if (!path || seen.has(path)) return;
     seen.add(path);
+    const templateId = inferConfigTemplateId(config, templates);
     choices.push({
       id: path,
       path,
       label: configChoiceLabel(config),
+      groupKey: configGroupName(config, templateId),
       source,
       selected: true,
       meta: source === "dashboard" ? "관리체계 Config" : "Local Config",
@@ -207,17 +210,21 @@ function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [] } = 
   return choices;
 }
 
-function moveConfigChoice(items, index, direction) {
-  const next = [...items];
-  const target = index + direction;
-  if (target < 0 || target >= next.length) return next;
-  [next[index], next[target]] = [next[target], next[index]];
-  return next;
-}
-
 function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
   const selectedCount = request.items.filter((item) => item.selected).length;
+  const [dragState, setDragState] = useState(null);
   const updateItem = (index, patch) => onChange(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  const moveItem = (index, direction, event = {}) => {
+    onChange(moveConfigChoice(request.items, index, direction, { grouped: Boolean(event.ctrlKey || event.metaKey) }));
+  };
+  const dropItem = (index, event) => {
+    event.preventDefault();
+    if (!dragState) return;
+    onChange(reorderConfigChoice(request.items, dragState.index, index, {
+      grouped: Boolean(dragState.grouped || event.ctrlKey || event.metaKey),
+    }));
+    setDragState(null);
+  };
 
   return (
     <ModalShell title="실행할 Config 순서 선택" subtitle={`${selectedCount}/${request.items.length}개 선택됨`} onClose={onClose}>
@@ -229,7 +236,19 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
           {request.items.map((item, index) => (
             <div
               key={item.id}
-              className={`flex items-center gap-3 rounded-[14px] border p-3 transition ${
+              draggable
+              onDragStart={(event) => {
+                event.dataTransfer.effectAllowed = "move";
+                event.dataTransfer.setData("text/plain", item.id);
+                setDragState({ index, grouped: Boolean(event.ctrlKey || event.metaKey) });
+              }}
+              onDragEnd={() => setDragState(null)}
+              onDragOver={(event) => {
+                event.preventDefault();
+                event.dataTransfer.dropEffect = "move";
+              }}
+              onDrop={(event) => dropItem(index, event)}
+              className={`flex cursor-grab items-center gap-3 rounded-[14px] border p-3 transition active:cursor-grabbing ${
                 item.selected ? "border-[var(--ptg-primary)] bg-[var(--ptg-primary-container)]" : "border-[var(--ptg-outline)] bg-[var(--ptg-surface)]"
               }`}
             >
@@ -252,8 +271,8 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
                 </div>
               </div>
               <div className="flex shrink-0 gap-1">
-                <IconButton label="위로" icon="arrowUp" disabled={index === 0} onClick={() => onChange(moveConfigChoice(request.items, index, -1))} />
-                <IconButton label="아래로" icon="arrowDown" disabled={index === request.items.length - 1} onClick={() => onChange(moveConfigChoice(request.items, index, 1))} />
+                <IconButton label="위로" icon="arrowUp" disabled={index === 0} onClick={(event) => moveItem(index, -1, event)} />
+                <IconButton label="아래로" icon="arrowDown" disabled={index === request.items.length - 1} onClick={(event) => moveItem(index, 1, event)} />
               </div>
             </div>
           ))}
@@ -958,6 +977,7 @@ export function ServerManagementPage({ state, actions }) {
   const startConfigChoices = buildStartConfigChoices({
     dashboardConfigs: serverState.configs || [],
     localConfigs: snapshot.configs || [],
+    templates: state.configTemplates || [],
   });
   const handleCommand = (type) => {
     if (type === "start_pipeline" || type === "resume_pipeline") {

@@ -458,6 +458,19 @@ function filterArchivesByPlan(archives, plan) {
   return { archives: filtered, missing };
 }
 
+async function classifyMissingArchives({ missing = [], bucket, prefix, configDir }) {
+  const missingRemote = [];
+  const remoteComplete = [];
+  for (const name of missing) {
+    if (await remoteExists(remoteUrl(bucket, prefix, name), name, configDir)) {
+      remoteComplete.push(name);
+    } else {
+      missingRemote.push(name);
+    }
+  }
+  return { missingRemote, remoteComplete };
+}
+
 async function uploadArchive({ archive, bucket, prefix, dryRun, keepLocal }, configDir) {
   const url = remoteUrl(bucket, prefix, archive.name);
   const cleanPrefix = normalizePrefix(prefix);
@@ -564,6 +577,8 @@ async function main() {
     for (const name of missing) console.log(`MISSING local archive: ${name}`);
   }
 
+  let missingRemote = missing;
+  let remoteComplete = [];
   if (!opts.dryRun && (archives.length > 0 || opts.configPath)) {
     const credentials = parseStorjCredentials({
       access: opts.access,
@@ -575,6 +590,17 @@ async function main() {
       { bucket: opts.bucket, prefix: opts.prefix, dryRun: opts.dryRun },
       opts.uplinkConfigDir
     );
+    if (missing.length > 0) {
+      const classified = await classifyMissingArchives({
+        missing,
+        bucket: opts.bucket,
+        prefix: opts.prefix,
+        configDir: opts.uplinkConfigDir,
+      });
+      missingRemote = classified.missingRemote;
+      remoteComplete = classified.remoteComplete;
+      for (const name of remoteComplete) console.log(`REMOTE complete archive: ${name}`);
+    }
   }
 
   let uploaded = 0;
@@ -588,7 +614,8 @@ async function main() {
 
   const remainingLocal = opts.keepLocal ? archives.length : skipped;
   console.log(`Done. uploaded=${uploaded} skipped=${skipped} remainingLocal=${remainingLocal}`);
-  if (missing.length > 0) {
+  if (missingRemote.length > 0) {
+    for (const name of missingRemote) console.log(`MISSING remote archive: ${name}`);
     console.log("Share link: skipped because config upload is incomplete");
     process.exitCode = 1;
   } else {

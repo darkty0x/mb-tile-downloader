@@ -651,6 +651,92 @@ test("storj uploader prints share link after upload", async () => {
   }
 });
 
+test("storj uploader shares config when a planned archive is already remote but missing locally", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-remote-missing-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-mapbox-pbf.config.json");
+  const toolsDir = path.join(path.resolve("."), "tools", "uplink");
+  const callsPath = path.join(dir, "uplink-calls.txt");
+  const localArchive = "tiles_vector_1_000000-000000_y000000-000000.zip";
+  const remoteOnlyArchive = "tiles_vector_1_000001-000001_y000000-000000.zip";
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(path.join(archivesDir, localArchive), "zip");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-mapbox-pbf",
+      provider: "mapbox",
+      layer: "vector",
+      format: "pbf",
+      ranges: [
+        { zoom: 1, xStart: 0, xEnd: 0, yStart: 0, yEnd: 0 },
+        { zoom: 1, xStart: 1, xEnd: 1, yStart: 0, yEnd: 0 },
+      ],
+    })
+  );
+
+  const fakeUplink = path.join(toolsDir, process.platform === "win32" ? "uplink.exe" : "uplink");
+  const original = path.join(
+    toolsDir,
+    process.platform === "win32" ? "uplink.exe.real-test" : "uplink.real-test"
+  );
+  let renamed = false;
+  try {
+    await mkdir(toolsDir, { recursive: true });
+    try {
+      await stat(fakeUplink);
+      await import("node:fs/promises").then(({ rename }) => rename(fakeUplink, original));
+      renamed = true;
+    } catch {}
+
+    await writeFile(
+      fakeUplink,
+      [
+        "#!/usr/bin/env node",
+        "import fs from 'node:fs';",
+        "const args = process.argv.slice(2);",
+        "fs.appendFileSync(process.env.UPLINK_CALLS_PATH, args.join(' ') + '\\n');",
+        "if (args.includes('import')) process.exit(0);",
+        "if (args.includes('ls')) {",
+        `  if (args.some((arg) => arg.endsWith('/${localArchive}'))) { console.log('${localArchive}'); process.exit(0); }`,
+        `  if (args.some((arg) => arg.endsWith('/${remoteOnlyArchive}'))) { console.log('${remoteOnlyArchive}'); process.exit(0); }`,
+        "  if (args.some((arg) => arg === 'sj://mapbox')) process.exit(0);",
+        "  process.exit(0);",
+        "}",
+        "if (args.includes('cp')) process.exit(0);",
+        "if (args.includes('share')) { console.log('URL       : https://link.storjshare.io/s/testshare/mapbox/13-mapbox-pbf/'); process.exit(0); }",
+        "process.exit(0);",
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    const { stdout } = await execFileAsync(
+      process.execPath,
+      [
+        "storj-uploader.js",
+        configPath,
+        `--archive-dir=${archivesDir}`,
+        "--bucket=mapbox",
+        "--access=1FakeSerializedAccessGrant",
+      ],
+      {
+        cwd: path.resolve("."),
+        env: { ...process.env, UPLINK_CALLS_PATH: callsPath },
+      }
+    );
+
+    assert.match(stdout, new RegExp(`MISSING local archive: ${remoteOnlyArchive}`));
+    assert.match(stdout, new RegExp(`REMOTE complete archive: ${remoteOnlyArchive}`));
+    assert.doesNotMatch(stdout, /Share link: skipped because config upload is incomplete/);
+    assert.match(stdout, /Share link: https:\/\/link\.storjshare\.io\/s\/testshare\/mapbox\/13-mapbox-pbf\//);
+  } finally {
+    await import("node:fs/promises").then(({ rm }) => rm(fakeUplink, { force: true }));
+    if (renamed) {
+      await import("node:fs/promises").then(({ rename }) => rename(original, fakeUplink));
+    }
+  }
+});
+
 test("storj uploader fails when upload succeeds but share link creation fails", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-share-fail-"));
   const archivesDir = path.join(dir, "archives");
