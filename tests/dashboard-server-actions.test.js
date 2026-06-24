@@ -35,7 +35,7 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(proofSource, /actions\.deleteMachineTask\(link\.machineId,\s*link\.jobId\)/);
 });
 
-test("pipeline process table keeps stage and status text-only", () => {
+test("pipeline process table shows stage icons and text-only status", () => {
   const processTableSource = pagesSource.slice(
     pagesSource.indexOf("{pipelineProcesses.length > 1 ? ("),
     pagesSource.indexOf("{storjLinks.length ? (", pagesSource.indexOf("{pipelineProcesses.length > 1 ? (")),
@@ -43,8 +43,11 @@ test("pipeline process table keeps stage and status text-only", () => {
 
   assert.doesNotMatch(pagesSource, /const PROCESS_STATUS_ICONS = \{/);
   assert.doesNotMatch(pagesSource, /function processStatusIcon\(process = \{\}\)/);
-  assert.doesNotMatch(processTableSource, /<Icon name=\{processStageIcon\(process\.stageLabel \|\| process\.stage\)\}/);
   assert.doesNotMatch(processTableSource, /<Icon name=\{processStatusIcon\(process\)\}/);
+  assert.match(processTableSource, /<span>봉사기<\/span>\s*<span>Config<\/span>/);
+  assert.match(processTableSource, /displayMachineId\(process\.machineId\)/);
+  assert.match(processTableSource, /<Icon name=\{processStageIcon\(process\.stageLabel \|\| process\.stage\)\}/);
+  assert.match(processTableSource, /<span className="justify-self-start">\s*<StatusPill status=\{process\.tone\}>\{process\.statusLabel\}<\/StatusPill>\s*<\/span>/);
   assert.match(processTableSource, /<StatusPill status=\{process\.tone\}>\{process\.statusLabel\}<\/StatusPill>/);
 });
 

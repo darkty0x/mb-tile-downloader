@@ -506,7 +506,8 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
       </div>
       {pipelineProcesses.length > 1 ? (
         <div className="mt-4 overflow-hidden rounded-[14px] border border-[var(--ptg-outline)] bg-white/76">
-          <div className="grid grid-cols-[minmax(0,1.35fr)_110px_110px_minmax(120px,0.8fr)_90px] gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2 text-[10.5px] font-[800] text-[var(--ptg-on-surface-variant)] max-lg:hidden">
+          <div className="grid grid-cols-[90px_minmax(0,1.35fr)_56px_110px_minmax(120px,0.8fr)_90px] gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container)] px-3 py-2 text-[10.5px] font-[800] text-[var(--ptg-on-surface-variant)] max-lg:hidden">
+            <span>봉사기</span>
             <span>Config</span>
             <span>단계</span>
             <span>상태</span>
@@ -515,15 +516,22 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
           </div>
           <div className="divide-y divide-[var(--ptg-outline)]">
             {pipelineProcesses.map((process) => (
-              <div key={process.jobId || `${process.configId}-${process.stage}`} className="grid grid-cols-[minmax(0,1.35fr)_110px_110px_minmax(120px,0.8fr)_90px] items-center gap-3 px-3 py-2.5 max-lg:grid-cols-1 max-lg:gap-1.5">
+              <div key={process.jobId || `${process.configId}-${process.stage}`} className="grid grid-cols-[90px_minmax(0,1.35fr)_56px_110px_minmax(120px,0.8fr)_90px] items-center gap-3 px-3 py-2.5 max-lg:grid-cols-1 max-lg:gap-1.5">
+                <span className="truncate text-[12px] font-[850] text-[var(--ptg-on-surface)]">{displayMachineId(process.machineId)}</span>
                 <div className="min-w-0">
                   <strong className="block truncate text-[12.5px] font-[850] text-[var(--ptg-on-surface)]">{process.configName}</strong>
                   <span className="mt-0.5 block truncate text-[10.5px] font-[650] text-[var(--ptg-on-surface-variant)]">{process.rangeId ? `범위 ${process.rangeId}` : process.configId || "Config 공정"}</span>
                 </div>
-                <span className="inline-flex min-w-0 items-center text-[12px] font-[800] text-[var(--ptg-on-surface)]">
-                  <span className="truncate">{process.stageLabel}</span>
+                <span
+                  aria-label={process.stageLabel}
+                  title={process.stageLabel}
+                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg bg-[var(--ptg-primary-container)] text-[var(--ptg-primary)]"
+                >
+                  <Icon name={processStageIcon(process.stageLabel || process.stage)} className="h-4 w-4" />
                 </span>
-                <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
+                <span className="justify-self-start">
+                  <StatusPill status={process.tone}>{process.statusLabel}</StatusPill>
+                </span>
                 <div className="min-w-0">
                   <div className="flex items-center gap-2">
                     <span className="h-2 flex-1 overflow-hidden rounded-full bg-[#d9e3f0]">

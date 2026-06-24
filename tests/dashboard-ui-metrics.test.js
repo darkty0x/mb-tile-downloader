@@ -434,10 +434,10 @@ test("overview model preserves multiple active config processes for one server",
   );
   assert.equal(model.pipelineProcesses.length, 2);
   assert.deepEqual(
-    model.pipelineProcesses.map((process) => [process.configName, process.stageLabel, process.progressLabel]),
+    model.pipelineProcesses.map((process) => [process.machineId, process.configName, process.stageLabel, process.progressLabel]),
     [
-      ["1-pyongyang-esri-satellite", "올리적재", "94%"],
-      ["2-chiba-mapbox-pbf", "내리적재", "13%"],
+      ["server-02", "1-pyongyang-esri-satellite", "올리적재", "94%"],
+      ["server-02", "2-chiba-mapbox-pbf", "내리적재", "13%"],
     ]
   );
   assert.equal(model.machineProcesses["server-02"].processLabel, "2개 공정");
