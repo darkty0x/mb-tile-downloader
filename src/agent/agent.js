@@ -14,7 +14,7 @@ import { loadAgentIdentity } from "./identity.js";
 import { collectLocalSnapshot } from "./local-snapshot.js";
 import { DASHBOARD_MANAGED_RUN_ENV } from "./managed-run-guard.js";
 import { createProcessRunner, resolveManagedCommand } from "./process-runner.js";
-import { createProgressEventForwarder } from "./progress-events.js";
+import { createProgressEventForwarder, parseEventLine } from "./progress-events.js";
 import { writeRootEnvFile } from "./root-env.js";
 import { materializeSecrets } from "./secret-materializer.js";
 import { enableWindowsUtf8Console } from "../runtime/windows-console.js";
@@ -381,12 +381,18 @@ function createAgentControlFiles({ stateDir }) {
 
 function activeCommandMatchesConfig(runner, configId) {
   if (!configId) return true;
+  if (runner?.activeConfigId) return String(runner.activeConfigId) === String(configId);
   const spec = runner?.activeCommandSpec;
   if (!spec) return false;
   const needle = `${String(configId)}.json`;
   return [spec.command, ...(spec.args || [])].some((part) =>
     String(part || "").replace(/\\/g, "/").endsWith(`/dashboard/configs/${needle}`)
   );
+}
+
+function configIdFromDashboardConfigPath(configPath) {
+  const normalized = String(configPath || "").replace(/\\/g, "/");
+  return /(?:^|\/)\.tile-state\/dashboard\/configs\/([^/]+)\.json$/i.exec(normalized)?.[1] || null;
 }
 
 function scheduleAgentRestart({ delayMs = 250, exitCode = 0 } = {}) {
@@ -583,6 +589,7 @@ export async function runCommand(
     if (isBackgroundCommand(command.commandType)) {
       await control?.clearPauseAfterRange?.();
       await control?.clearStopPipeline?.();
+      runner.activeConfigId = null;
       const runPromise = runner.run(commandSpec);
       await client.ackCommand(command.id, { claimedAt: command.claimedAt });
       runPromise
@@ -691,6 +698,9 @@ export async function runAgent({
     onLine: async (line, stream) => {
       await mkdir(path.dirname(agentLogPath), { recursive: true });
       await appendFile(agentLogPath, `${new Date().toISOString()} ${stream.toUpperCase()} ${line}\n`, "utf8");
+      const event = parseEventLine(line);
+      const eventConfigId = configIdFromDashboardConfigPath(event?.data?.configPath);
+      if (eventConfigId) runner.activeConfigId = eventConfigId;
       if (await forwarder.handleLine(line, stream)) return;
     },
     onStaleRestart: async ({ command, args, quietMs, timeoutMs }) => {

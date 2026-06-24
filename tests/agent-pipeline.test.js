@@ -934,6 +934,52 @@ test("agent scoped stop does not kill an unrelated active config", async () => {
   ]);
 });
 
+test("agent scoped stop uses current pipeline config instead of any batch argument", async () => {
+  const calls = [];
+  const client = {
+    ackCommand: async (commandId) => calls.push(["ack", commandId]),
+    postEvent: async (event) => calls.push(["event", event.type, event.message, event.data.configId]),
+    stopRunningJobs: async (machineId, payload) => {
+      calls.push(["stop-jobs", machineId, payload.configId]);
+      return { jobs: [] };
+    },
+  };
+  const control = {
+    requestStopPipeline: async () => calls.push(["stop-file"]),
+  };
+  const runner = {
+    activeConfigId: "cfg-b",
+    activeCommandSpec: {
+      command: "node",
+      args: [
+        "src/agent/pipeline.js",
+        ".tile-state/dashboard/configs/cfg-a.json",
+        ".tile-state/dashboard/configs/cfg-b.json",
+      ],
+    },
+    stop() {
+      calls.push(["runner-stop"]);
+      return true;
+    },
+  };
+
+  await runCommand(
+    {
+      id: "cmd-stop-completed-batch-config",
+      commandType: "stop_pipeline",
+      payload: { configId: "cfg-a" },
+      claimedAt: "claim-stop",
+    },
+    { client, runner, machineId: "worker-a", control }
+  );
+
+  assert.deepEqual(calls, [
+    ["stop-jobs", "worker-a", "cfg-a"],
+    ["event", "command.accepted", "No active managed process matched the deleted config.", "cfg-a"],
+    ["ack", "cmd-stop-completed-batch-config"],
+  ]);
+});
+
 test("range pipeline stops before the next stage when stop is requested", async () => {
   const calls = [];
   const events = [];
