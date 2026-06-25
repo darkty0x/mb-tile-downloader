@@ -967,6 +967,60 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
       ].join("\n"),
     },
   });
+  const pastedTileRanges = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: [
+        "1/1/0/ - 1/1/0/",
+        "2/3/1/ - 2/3/1/",
+        "3/6/3/ - 3/6/3/",
+        "4/13/6/ - 4/13/6/",
+        "5/27/12/ - 5/27/12/",
+        "6/54/24/ - 6/54/24/",
+        "7/108/49/ - 7/108/49/",
+        "8/216/98/ - 8/216/98/",
+        "9/433/197/ - 9/433/197/",
+        "10/866/395/ - 10/866/395/",
+        "11/1732/790/ - 11/1733/791/",
+        "12/3465/1580/ - 12/3467/1583/",
+        "13/6931/3160/ - 13/6935/3166/",
+        "14/13863/6320/ - 14/13870/6333/",
+        "15/27726/12641/ - 15/27741/12667/",
+        "16/55452/25282/ - 16/55482/25334/",
+        "17/110905/50565/ - 17/110964/50669/",
+        "18/221810/101130/ - 18/221928/101339/",
+      ].join("\n"),
+    },
+  });
+  const fourCornerBounds = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: [
+        "LB: 124.609680, 37.758230",
+        "RB: 124.773102, 37.758230",
+        "TR: 124.773102, 37.985340",
+        "TL: 124.609680, 37.985340",
+      ].join("\n"),
+      zoomStart: 1,
+      zoomEnd: 18,
+    },
+  });
+  const inconsistentFourCornerBounds = await request(server, {
+    method: "POST",
+    path: "/api/ranges/parse",
+    body: {
+      input: [
+        "LB: 124.609680, 37.758230",
+        "RB: 124.773102, 37.700000",
+        "TR: 124.773102, 37.985340",
+        "TL: 124.609680, 37.985340",
+      ].join("\n"),
+      zoomStart: 1,
+      zoomEnd: 18,
+    },
+  });
   const latLonPoint = await request(server, {
     method: "POST",
     path: "/api/ranges/parse",
@@ -1032,6 +1086,30 @@ test("dashboard parses config ranges from bounds tile strings and JSON", async (
   assert.equal(pyongyangTileRanges.status, 200);
   assert.equal(pyongyangTileRanges.body.rangeCount, 10);
   assert.equal(pyongyangTileRanges.body.area, null);
+  assert.equal(pastedTileRanges.status, 200);
+  assert.equal(pastedTileRanges.body.rangeCount, 18);
+  assert.deepEqual(pastedTileRanges.body.ranges[17], {
+    zoomStart: 18,
+    zoomEnd: 18,
+    xStart: 221810,
+    xEnd: 221928,
+    yStart: 101130,
+    yEnd: 101339,
+    label: "range#18: z=18 x=221810-221928 y=101130-101339",
+  });
+  assert.equal(fourCornerBounds.status, 200);
+  assert.equal(fourCornerBounds.body.rangeCount, 18);
+  assert.deepEqual(fourCornerBounds.body.ranges[17], {
+    zoomStart: 18,
+    zoomEnd: 18,
+    xStart: 221809,
+    xEnd: 221929,
+    yStart: 101129,
+    yEnd: 101339,
+    label: "bounds z=18 lon=124.60968-124.773102 lat=37.75823-37.98534",
+  });
+  assert.equal(inconsistentFourCornerBounds.status, 400);
+  assert.match(inconsistentFourCornerBounds.body.error, /RB latitude must match LB latitude/);
   assert.equal(latLonPoint.status, 200);
   assert.equal(latLonPoint.body.rangeCount, 19);
   assert.deepEqual(latLonPoint.body.ranges.map((range) => range.zoomStart), Array.from({ length: 19 }, (_, index) => index + 1));

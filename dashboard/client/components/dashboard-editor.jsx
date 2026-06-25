@@ -544,7 +544,7 @@ function ConfigRangeBuilder({ actions, onDirty, initialRanges = [] }) {
             setError("");
             onDirty?.();
           }}
-          placeholder={'lat: 37.5665, lon: 126.9780\\n\\n또는 LB: 34.799, 46.82\\nTR: 40.739, 52.272\\n\\n또는 19/312824/339498 - 19/321475/351754\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
+          placeholder={'lat: 37.5665, lon: 126.9780\\n\\n또는 LB: 124.609680, 37.758230\\nRB: 124.773102, 37.758230\\nTR: 124.773102, 37.985340\\nTL: 124.609680, 37.985340\\n\\n또는 19/312824/339498/ - 19/321475/351754/\\n\\n또는 [{"zoom":19,"xStart":312824,"xEnd":321475,"yStart":339498,"yEnd":351754}]'}
           spellCheck="false"
           value={rangeInput}
         />

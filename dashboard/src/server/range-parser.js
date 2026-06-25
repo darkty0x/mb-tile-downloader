@@ -218,16 +218,46 @@ function parseTileRangeInput(input) {
   return null;
 }
 
+function nearlyEqual(left, right) {
+  return Math.abs(left - right) <= 1e-9;
+}
+
+function assertCornerCoordinate(left, right, message) {
+  if (!nearlyEqual(left, right)) throw new Error(message);
+}
+
 function parseBoundsInput(input, zoomOptions) {
-  const lbTrMatch = input.match(/LB\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)[\s\S]*?TR\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/i);
-  if (!lbTrMatch) return null;
+  const cornerMatches = [...input.matchAll(/\b(LB|RB|TR|TL)\s*:?\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)/gi)];
+  if (!cornerMatches.length) return null;
+  const corners = new Map();
+  for (const match of cornerMatches) {
+    const key = match[1].toUpperCase();
+    if (corners.has(key)) throw new Error(`${key} corner is duplicated`);
+    corners.set(key, {
+      longitude: parseLongitude(match[2], `${key} longitude`),
+      latitude: parseLatitude(match[3], `${key} latitude`),
+    });
+  }
+  const lb = corners.get("LB");
+  const tr = corners.get("TR");
+  if (!lb || !tr) return null;
   const { zoomStart, zoomEnd } = normalizeZooms(zoomOptions);
-  const west = parseLongitude(lbTrMatch[1], "LB longitude");
-  const south = parseLatitude(lbTrMatch[2], "LB latitude");
-  const east = parseLongitude(lbTrMatch[3], "TR longitude");
-  const north = parseLatitude(lbTrMatch[4], "TR latitude");
+  const west = lb.longitude;
+  const south = lb.latitude;
+  const east = tr.longitude;
+  const north = tr.latitude;
   if (east < west) throw new Error("TR longitude must be greater than or equal to LB longitude");
   if (north < south) throw new Error("TR latitude must be greater than or equal to LB latitude");
+  const rb = corners.get("RB");
+  const tl = corners.get("TL");
+  if (rb) {
+    assertCornerCoordinate(rb.longitude, east, "RB longitude must match TR longitude");
+    assertCornerCoordinate(rb.latitude, south, "RB latitude must match LB latitude");
+  }
+  if (tl) {
+    assertCornerCoordinate(tl.longitude, west, "TL longitude must match LB longitude");
+    assertCornerCoordinate(tl.latitude, north, "TL latitude must match TR latitude");
+  }
   return parsedRanges(rangesFromBounds({ west, south, east, north, zoomStart, zoomEnd }), {
     source: "bounds",
     canInferArea: true,
