@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const DEFAULT_ROOT =
-  "/Volumes/Share/2.본사자료조사/MB/Ranges/3)";
+  "/Volumes/Share/2.본사자료조사/MB/Ranges/SK-MIL-30";
 
 function printUsage(exitCode = 0) {
   const cmd = path.basename(process.argv[1] || "unzip-ranges.js");
@@ -48,7 +48,7 @@ function parsePositiveInteger(value, name) {
 function parseArgs(argv) {
   const opts = {
     rootDir: DEFAULT_ROOT,
-    concurrency: 1,
+    concurrency: 5,
     dryRun: false,
     force: false,
   };

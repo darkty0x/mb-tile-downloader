@@ -434,6 +434,7 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
   const pipelineProcesses = overview.pipelineProcesses || [];
   const storjLinks = overview.storjLinks || (overview.storjShareUrl ? [{ shareUrl: overview.storjShareUrl, configName: "올리적재 완료증명" }] : []);
   const storjJobRefs = storjLinks.flatMap(storjLinkJobRefs);
+  const [copiedStorjLink, setCopiedStorjLink] = useState("");
   const activeProcessCount = Number(pipelineSummary.activeProcesses) || pipelineProcesses.length || 0;
   const summary = [
     ["진행", overview.pipelineProgress || "0%"],
@@ -458,6 +459,18 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
     ["빠짐", formatInteger(pipelineSummary.missingTiles)],
     ["실패", formatInteger(pipelineSummary.failedTiles)],
   ];
+  const copyStorjLink = async (event, shareUrl) => {
+    event.stopPropagation();
+    try {
+      await navigator.clipboard?.writeText(String(shareUrl || ""));
+      setCopiedStorjLink(String(shareUrl || ""));
+      window.setTimeout(() => {
+        setCopiedStorjLink((current) => (current === String(shareUrl || "") ? "" : current));
+      }, 1400);
+    } catch (err) {
+      actions.setNotice({ message: "련결주소를 복사할수 없습니다", kind: "error" });
+    }
+  };
   return (
     <Surface className={`p-4 ${onClick ? "state-layer cursor-pointer transition hover:border-[var(--ptg-primary)]" : ""}`}>
       <div
@@ -565,18 +578,17 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
           <div className="min-w-0">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <span className="block text-[12px] font-[850] text-[var(--ptg-success)]">올리적재 완료증명 {storjLinks.length > 1 ? `${storjLinks.length}개` : ""}</span>
-              <div className="flex shrink-0 items-center gap-3">
-                <AppButton
-                  variant="danger"
+              <div className="flex shrink-0 items-center gap-2">
+                <IconButton
+                  label="완료증명 모두 삭제"
                   icon="trash"
+                  className="border-[rgba(210,55,55,0.32)] bg-[#ffd6cf] text-[#d23737] hover:border-[#d23737] hover:bg-[#ffc9c0] hover:text-[#b42318]"
                   disabled={!storjJobRefs.length}
                   onClick={(event) => {
                     event.stopPropagation();
                     return actions.deleteMachineTasks(storjJobRefs).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
                   }}
-                >
-                  모두 삭제
-                </AppButton>
+                />
                 <Icon name="upload" className="h-6 w-6 shrink-0 text-[var(--ptg-success)]" />
               </div>
             </div>
@@ -594,16 +606,24 @@ function PipelineOverview({ overview, actions, title = "실시간 공정흐름 �
                       {link.shareUrl}
                     </a>
                   </div>
-                  {storjLinkJobRefs(link).length ? (
+                  <div className="flex shrink-0 items-center gap-1.5">
                     <IconButton
-                      label="완료증명 삭제"
-                      icon="trash"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        return actions.deleteMachineTasks(storjLinkJobRefs(link)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
-                      }}
+                      label={copiedStorjLink === link.shareUrl ? "복사됨" : "련결주소 복사"}
+                      icon={copiedStorjLink === link.shareUrl ? "check" : "copy"}
+                      className={copiedStorjLink === link.shareUrl ? "border-[rgba(0,166,118,0.34)] bg-[rgba(0,166,118,0.14)] text-[var(--ptg-success)]" : ""}
+                      onClick={(event) => copyStorjLink(event, link.shareUrl)}
                     />
-                  ) : null}
+                    {storjLinkJobRefs(link).length ? (
+                      <IconButton
+                        label="완료증명 삭제"
+                        icon="trash"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          return actions.deleteMachineTasks(storjLinkJobRefs(link)).catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
+                        }}
+                      />
+                    ) : null}
+                  </div>
                 </div>
               ))}
             </div>

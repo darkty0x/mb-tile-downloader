@@ -21,7 +21,11 @@ test("server table action controls stay vertically centered", () => {
   assert.match(serversTableSource, /className="state-layer inline-flex h-10 w-10 items-center justify-center gap-1\.5[^"]*leading-none[^"]*"/);
 });
 
-test("storj completion proof rows expose a delete action", () => {
+test("storj completion proof rows expose icon-only copy and delete actions", () => {
+  const pipelineOverviewSource = pagesSource.slice(
+    pagesSource.indexOf("function PipelineOverview"),
+    pagesSource.indexOf("function FleetHealthCard", pagesSource.indexOf("function PipelineOverview")),
+  );
   const proofSource = pagesSource.slice(
     pagesSource.indexOf("{storjLinks.length ? ("),
     pagesSource.indexOf("function FleetHealthCard", pagesSource.indexOf("{storjLinks.length ? (")),
@@ -35,7 +39,14 @@ test("storj completion proof rows expose a delete action", () => {
   assert.match(proofSource, /actions\.deleteMachineTasks\(storjJobRefs\)/);
   assert.match(proofSource, /actions\.deleteMachineTasks\(storjLinkJobRefs\(link\)\)/);
   assert.match(proofSource, /disabled=\{!storjJobRefs\.length\}/);
-  assert.match(proofSource, /className="flex shrink-0 items-center gap-3"[\s\S]*<Icon name="upload"/);
+  assert.match(pipelineOverviewSource, /const \[copiedStorjLink, setCopiedStorjLink\] = useState\(""\)/);
+  assert.match(pipelineOverviewSource, /const copyStorjLink = async \(event, shareUrl\) =>/);
+  assert.match(pipelineOverviewSource, /navigator\.clipboard\?\.writeText\(String\(shareUrl \|\| ""\)\)/);
+  assert.match(pipelineOverviewSource, /setCopiedStorjLink\(String\(shareUrl \|\| ""\)\)/);
+  assert.match(proofSource, /label="완료증명 모두 삭제"/);
+  assert.match(proofSource, /className="flex shrink-0 items-center gap-2"[\s\S]*<Icon name="upload"/);
+  assert.match(proofSource, /label=\{copiedStorjLink === link\.shareUrl \? "복사됨" : "련결주소 복사"\}/);
+  assert.match(proofSource, /icon=\{copiedStorjLink === link\.shareUrl \? "check" : "copy"\}/);
   assert.match(proofSource, /onClick=\{\(event\) => \{\s*event\.stopPropagation\(\);\s*return actions\.deleteMachineTasks\(storjJobRefs\)/);
   assert.match(stateSource, /async deleteMachineTasks\(jobRefs = \[\]\)/);
   assert.match(stateSource, /title: "완료증명 모두 삭제 확인"/);
