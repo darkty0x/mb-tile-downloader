@@ -185,8 +185,51 @@ test("config group assignment update plan renames and moves selected existing ty
   );
 });
 
+test("config group assignment update plan writes edited ranges to selected existing types", () => {
+  const editedRanges = [{ zoomStart: 3, zoomEnd: 3, xStart: 4, xEnd: 5, yStart: 6, yEnd: 7 }];
+  const [group] = buildConfigGroups([
+    {
+      configId: "cfg-1",
+      machineId: "server-01",
+      name: "1-pyongyang-esri-satellite",
+      config: {
+        provider: "esri",
+        layer: "esri-satellite",
+        format: "jpg",
+        jobName: "1-pyongyang-esri-satellite",
+        ranges: [{ zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1 }],
+      },
+    },
+    {
+      configId: "cfg-2",
+      machineId: "server-01",
+      name: "1-pyongyang-mapbox-pbf",
+      config: {
+        provider: "mapbox",
+        layer: "vector",
+        format: "pbf",
+        jobName: "1-pyongyang-mapbox-pbf",
+        ranges: [{ zoomStart: 1, zoomEnd: 1, xStart: 1, xEnd: 1, yStart: 1, yEnd: 1 }],
+      },
+    },
+  ], templates);
+
+  assert.deepEqual(
+    planConfigGroupAssignmentUpdate(group, ["esri-satellite", "mapbox-pbf"], {
+      name: "1-pyongyang",
+      machineIds: ["server-01"],
+      ranges: editedRanges,
+    }).map((update) => [update.configId, update.config.ranges]),
+    [
+      ["cfg-1", editedRanges],
+      ["cfg-2", editedRanges],
+    ]
+  );
+});
+
 test("config group cards expose icon actions without the old type-edit label", () => {
   const pageSource = readFileSync(new URL("../dashboard/client/components/dashboard-pages.jsx", import.meta.url), "utf8");
+  const editorSource = readFileSync(new URL("../dashboard/client/components/dashboard-editor.jsx", import.meta.url), "utf8");
   const stateSource = readFileSync(new URL("../dashboard/client/components/dashboard-state.js", import.meta.url), "utf8");
 
   assert.doesNotMatch(pageSource, />류형 편집<\/AppButton>/);
@@ -195,6 +238,10 @@ test("config group cards expose icon actions without the old type-edit label", (
   assert.match(pageSource, /<IconButton label="삭제" icon="trash" onClick=\{deleteGroup\} \/>/);
   assert.match(pageSource, /actions\.deleteConfigGroup\(group\)/);
   assert.match(stateSource, /async deleteConfigGroup\(configGroup\)/);
+  assert.match(editorSource, /initialRanges=\{groupEditing \? groupRanges : \[\]\}/);
+  assert.doesNotMatch(editorSource, /groupEditing \? null : <ConfigRangeBuilder/);
+  assert.match(stateSource, /\/api\/ranges\/parse/);
+  assert.match(stateSource, /planConfigGroupAssignmentUpdate\(configGroup, templateIds, \{ name, machineIds, ranges \}\)/);
 });
 
 test("enabled config type tiles show a prominent server assignment label", () => {

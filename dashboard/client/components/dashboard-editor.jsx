@@ -488,12 +488,19 @@ function ConfigTemplatePicker({ templates, selectedTemplateIds, onChange }) {
   );
 }
 
-function ConfigRangeBuilder({ actions, onDirty }) {
-  const [rangeInput, setRangeInput] = useState("");
+function ConfigRangeBuilder({ actions, onDirty, initialRanges = [] }) {
+  const initialRangeInput = Array.isArray(initialRanges) && initialRanges.length ? JSON.stringify(initialRanges, null, 2) : "";
+  const [rangeInput, setRangeInput] = useState(initialRangeInput);
   const [zoomStart, setZoomStart] = useState("1");
   const [zoomEnd, setZoomEnd] = useState("19");
   const [preview, setPreview] = useState(null);
   const [error, setError] = useState("");
+
+  useEffect(() => {
+    setRangeInput(initialRangeInput);
+    setPreview(null);
+    setError("");
+  }, [initialRangeInput]);
 
   const validate = async () => {
     setError("");
@@ -680,6 +687,10 @@ function ConfigForm({ record, state, actions, editor }) {
   const [batchPreview, setBatchPreview] = useState(null);
   const [draftTexts, setDraftTexts] = useState([]);
   const [nameValue, setNameValue] = useState(record?.name || editor?.name || "");
+  const groupRanges = useMemo(
+    () => (editor?.configGroup?.configs || []).find((item) => Array.isArray(item.config?.ranges) && item.config.ranges.length)?.config?.ranges || [],
+    [editor?.configGroup]
+  );
   const templates = state.configTemplates || [];
   const templateMode = canUseTemplates && (selectedTemplateIds.length > 0 || groupEditing);
   const effectiveMachineIds = id ? [record?.machineId || state.selectedMachineId].filter(Boolean) : selectedMachineIds;
@@ -799,10 +810,10 @@ function ConfigForm({ record, state, actions, editor }) {
       ) : null}
       {templateMode ? (
         <>
-          {groupEditing ? null : <ConfigRangeBuilder actions={actions} onDirty={clearBatchPreview} />}
+          <ConfigRangeBuilder actions={actions} initialRanges={groupEditing ? groupRanges : []} onDirty={clearBatchPreview} />
           <div className="rounded-lg border border-[rgba(96,64,239,0.18)] bg-[var(--ptg-primary-soft)] p-3 text-[12px] font-[650] text-[var(--ptg-primary-dark)]">
             {groupEditing
-              ? `선택된 류형 ${selectedTemplateIds.length}개가 이 Config 그룹의 실제 배정상태로 보관됩니다.`
+              ? `선택된 류형 ${selectedTemplateIds.length}개와 범위가 이 Config 그룹의 실제 배정상태로 보관됩니다.`
               : `선택된 Template ${selectedTemplateIds.length}개가 우의 범위을 리용하여 각각 실행가능한 Config 화일로 작성됩니다.`}
           </div>
           {batchPreview ? (

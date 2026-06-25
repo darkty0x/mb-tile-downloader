@@ -868,8 +868,24 @@ export function useDashboardState() {
         const machineIds = formData.getAll("machineIds").map((item) => String(item || "").trim()).filter(Boolean);
         if (machineIds.length !== 1) throw new Error("Config 그룹 편집은 봉사기 하나만 선택할수 있습니다");
         const name = String(formData.get("name") || configGroup.name || "").trim();
+        const rangeInput = String(formData.get("rangeInput") || "").trim();
+        let parsedRanges = null;
+        if (rangeInput) {
+          const parsed = await api("/api/ranges/parse", {
+            method: "POST",
+            body: JSON.stringify({
+              input: rangeInput,
+              zoomStart: formData.get("zoomStart"),
+              zoomEnd: formData.get("zoomEnd"),
+            }),
+          });
+          parsedRanges = parsed.ranges || [];
+          if (!parsedRanges.length) throw new Error("Config 그룹 범위를 해석할수 없습니다");
+        }
+        const sourceConfig = (configGroup.configs || [])[0]?.config || {};
+        const ranges = parsedRanges || sourceConfig.ranges || [];
         const plan = planConfigGroupUpdate(configGroup, templateIds);
-        const assignmentUpdates = planConfigGroupAssignmentUpdate(configGroup, templateIds, { name, machineIds });
+        const assignmentUpdates = planConfigGroupAssignmentUpdate(configGroup, templateIds, { name, machineIds, ranges });
         if (plan.removeConfigIds.length) {
           const confirmed = await confirmDanger({
             title: "Config 류형 삭제 확인",
@@ -880,8 +896,6 @@ export function useDashboardState() {
           if (!confirmed) return;
         }
         if (plan.addTemplateIds.length) {
-          const sourceConfig = (configGroup.configs || [])[0]?.config || {};
-          const ranges = sourceConfig.ranges || [];
           if (!ranges.length) throw new Error("새 류형을 만들 기존 Config 범위가 없습니다");
           await api("/api/configs/batch", {
             method: "POST",

@@ -147,11 +147,16 @@ export function planConfigGroupUpdate(group = {}, selectedTemplateIds = []) {
   };
 }
 
-export function planConfigGroupAssignmentUpdate(group = {}, selectedTemplateIds = [], { name, machineIds = [] } = {}) {
+function rangesEqual(left = [], right = []) {
+  return JSON.stringify(left || []) === JSON.stringify(right || []);
+}
+
+export function planConfigGroupAssignmentUpdate(group = {}, selectedTemplateIds = [], { name, machineIds = [], ranges = null } = {}) {
   const selected = new Set(selectedTemplateIds.map((id) => String(id || "").trim()).filter(Boolean));
   const targetName = cleanName(name || group.name || "");
   const targetMachineIds = machineIds.map((id) => String(id || "").trim()).filter(Boolean);
   const targetMachineId = targetMachineIds.length === 1 ? targetMachineIds[0] : String(group.machineId || "").trim();
+  const nextRanges = Array.isArray(ranges) ? ranges : null;
   return (group.templates || [])
     .filter((template) => selected.has(template.id) && template.enabled && template.config?.configId)
     .map((template) => {
@@ -160,11 +165,13 @@ export function planConfigGroupAssignmentUpdate(group = {}, selectedTemplateIds 
       const nextConfig = {
         ...(current.config || {}),
         jobName: nextName,
+        ...(nextRanges ? { ranges: nextRanges } : {}),
       };
       const machineChanged = String(current.machineId || "").trim() !== targetMachineId;
       const nameChanged = String(current.name || "").trim() !== nextName;
       const jobNameChanged = String(current.config?.jobName || "").trim() !== nextName;
-      if (!machineChanged && !nameChanged && !jobNameChanged) return null;
+      const rangesChanged = nextRanges ? !rangesEqual(current.config?.ranges || [], nextRanges) : false;
+      if (!machineChanged && !nameChanged && !jobNameChanged && !rangesChanged) return null;
       return {
         configId: current.configId,
         machineId: targetMachineId || null,
