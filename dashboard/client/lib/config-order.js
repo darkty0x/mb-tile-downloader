@@ -2,11 +2,15 @@ export function groupKeyForConfigChoice(item = {}) {
   return String(item.groupKey || item.label || item.id || item.path || "").trim();
 }
 
+export function configChoiceIsSelectable(item = {}) {
+  return item?.completed !== true && item?.disabled !== true;
+}
+
 export function selectedFirstConfigChoices(items = []) {
   const selected = [];
   const unselected = [];
   for (const item of items) {
-    (item?.selected === false ? unselected : selected).push(item);
+    (item?.selected === false || !configChoiceIsSelectable(item) ? unselected : selected).push(item);
   }
   return [...selected, ...unselected];
 }

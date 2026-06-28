@@ -5,7 +5,7 @@ import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-mod
 import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../lib/event-display";
 import { eventNotificationId } from "../lib/event-identity";
 import { buildConfigGroups, configGroupName, inferConfigTemplateId } from "../lib/config-groups";
-import { groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice, selectedFirstConfigChoices } from "../lib/config-order";
+import { configChoiceIsSelectable, groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice, selectedFirstConfigChoices } from "../lib/config-order";
 import { compareMachineIds } from "../lib/machine-sort";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
@@ -41,13 +41,13 @@ const HELP_GUIDES = [
     id: "overview",
     title: "첫페지",
     icon: "overview",
-    summary: "전체 봉사기, 활성 작업, 처리속도, 저장공간, 실패상태를 한 화면에서 확인합니다.",
+    summary: "전체 봉사기, 활성 작업, 처리속도, 저장공간, 실패상태를 한 화면에서 봅니다.",
     sections: [
-      ["핵심 KPI", "온라인 봉사기, 활성 공정흐름, 처리속도, 저장공간 압력, 실패건수, 경보수를 먼저 확인합니다."],
-      ["공정흐름 카드", "현재 단계와 타일 처리량을 보고 작업이 내리적재, 검증, 압축, 올리적재 중 어느 단계인지 확인합니다."],
+      ["핵심 KPI", "온라인 봉사기, 활성 공정흐름, 처리속도, 저장공간 압력, 실패건수, 경보수를 먼저 봅니다."],
+      ["공정흐름 카드", "현재 단계와 타일 처리량을 보고 작업이 내리적재, 검증, 압축, 올리적재 중 어느 단계인지 살핍니다."],
       ["빠른 동작", "Config 동기화, .Env 동기화, 작업 시작/정지 같은 자주 쓰는 명령은 선택한 봉사기 기준으로 실행합니다."],
     ],
-    screenshots: ["KPI 카드 위치", "실시간 공정흐름 카드", "빠른 동작 영역"],
+    screenshots: [{ label: "첫페지 전체 화면", src: "/help/overview.png" }],
   },
   {
     id: "servers",
@@ -56,10 +56,10 @@ const HELP_GUIDES = [
     summary: "Agent가 등록한 작업기대 봉사기들의 련결상태, 작업상태, 원격접속자료를 관리합니다.",
     sections: [
       ["봉사기 목록", "상태, 플랫폼, 최근 heartbeat, 디스크 상태를 기준으로 작업 가능한 봉사기를 찾습니다."],
-      ["봉사기관리", "봉사기를 선택하면 공정흐름, Config, .Env, API Key 및 Proxy, Console 탭으로 들어갑니다."],
+      ["봉사기관리", "봉사기를 선택하면 공정흐름, Config, .Env, API Key 및 Proxy, Console 탭을 엽니다."],
       ["Agent 등록", "새 봉사기는 대시보드에서 수동으로 행을 만들지 않고 Agent 설치 명령으로 등록합니다."],
     ],
-    screenshots: ["봉사기 목록", "봉사기관리 세부 탭", "Agent 등록 안내"],
+    screenshots: [{ label: "봉사기 목록 화면", src: "/help/servers.png" }],
   },
   {
     id: "configs",
@@ -68,10 +68,10 @@ const HELP_GUIDES = [
     summary: "Mapbox, Esri, 래스터, 벡터 작업 범위와 레이어 설정을 만들고 봉사기에 배정합니다.",
     sections: [
       ["Config 생성", "Provider, layer, zoom, x/y 범위를 입력해 작업 단위를 만듭니다."],
-      ["배정 확인", "각 Config가 어느 봉사기에 배정되었는지 보고 중복 또는 미배정 상태를 확인합니다."],
+      ["배정 상태", "각 Config가 어느 봉사기에 배정되었는지 보고 중복 또는 미배정 상태를 살핍니다."],
       ["작업 전 점검", "범위와 Provider 설정을 저장한 뒤 봉사기관리에서 Config 동기화를 실행합니다."],
     ],
-    screenshots: ["Config 목록", "Config 편집 Drawer", "배정 상태"],
+    screenshots: [{ label: "Config 화일 목록 화면", src: "/help/configs.png" }],
   },
   {
     id: "pipelines",
@@ -79,11 +79,11 @@ const HELP_GUIDES = [
     icon: "pipelines",
     summary: "활성화된 내리적재 작업의 단계, 진행률, ETA, 실패/빠짐 타일 상태를 추적합니다.",
     sections: [
-      ["단계 확인", "내리적재, 검증, 압축, 올리적재의 진행률을 단계별로 확인합니다."],
+      ["단계 상태", "내리적재, 검증, 압축, 올리적재의 진행률을 단계별로 봅니다."],
       ["범위 추적", "가장 큰 활성 범위와 처리된 타일 수를 비교해 병목 구간을 찾습니다."],
       ["완료 증명", "Storj 공유 URL이 생성되면 올리적재 결과의 최종 증명으로 사용합니다."],
     ],
-    screenshots: ["공정흐름 단계 막대", "타일 처리 상세", "Storj 완료증명"],
+    screenshots: [{ label: "공정흐름 화면", src: "/help/pipelines.png" }],
   },
   {
     id: "secrets",
@@ -91,11 +91,11 @@ const HELP_GUIDES = [
     icon: "secrets",
     summary: "Mapbox API Key, Proxy, Storj Access 같은 작업 리소스를 등록하고 상태를 관리합니다.",
     sections: [
-      ["리소스 풀", "활성, 비활성, 오유, 소진 상태를 기준으로 실제 작업에 투입 가능한 리소스를 확인합니다."],
+      ["리소스 풀", "활성, 비활성, 오유, 소진 상태를 기준으로 실제 작업에 투입 가능한 리소스를 봅니다."],
       ["대량 등록", "Proxy 목록이나 API Key 묶음을 전역 풀에 등록한 뒤 봉사기에 배정합니다."],
       ["상태 검증", "차단되었거나 사용할수 없는 Proxy와 Key는 이벤트와 검증 결과를 기준으로 분리합니다."],
     ],
-    screenshots: ["리소스 경보", "Secret 목록", "Secret 추가/편집 Drawer"],
+    screenshots: [{ label: "API Key 및 Proxy 화면", src: "/help/secrets.png" }],
   },
   {
     id: "credentials",
@@ -107,7 +107,7 @@ const HELP_GUIDES = [
       ["RDP 접속자료", "봉사기 원격접속에 필요한 자료는 전용 계정정보로 관리합니다."],
       ["편집 범위", "목록에서는 민감값을 마스킹하고, 편집 화면에서 필요한 항목만 복호화해 보여줍니다."],
     ],
-    screenshots: ["계정정보 목록", "Protocol 계정 상세", "RDP 접속자료"],
+    screenshots: [{ label: "계정정보 화면", src: "/help/credentials.png" }],
   },
   {
     id: "events",
@@ -117,9 +117,9 @@ const HELP_GUIDES = [
     sections: [
       ["Event 필터", "심각도, 봉사기, 메시지로 이벤트를 좁혀 원인 구간을 찾습니다."],
       ["알림 확인", "최근 실패와 경고는 상단 알림 메뉴와 Event 기록에서 같은 원천자료를 봅니다."],
-      ["운영 판단", "Toast나 화면 상태가 아니라 Event와 backend snapshot을 기준으로 실제 결과를 확인합니다."],
+      ["운영 판단", "Toast나 화면 표시가 아니라 Event와 관리체계 상태자료를 기준으로 실제 결과를 봅니다."],
     ],
-    screenshots: ["Event 기록 테이블", "Event 필터", "상단 알림 메뉴"],
+    screenshots: [{ label: "Event 기록 화면", src: "/help/events.png" }],
   },
   {
     id: "alerts",
@@ -127,11 +127,11 @@ const HELP_GUIDES = [
     icon: "alerts",
     summary: "저장공간, 실패 Event, API Key 및 Proxy 부족 상태를 운영 기준으로 검토합니다.",
     sections: [
-      ["실패 경보", "최근 실패 Event를 확인하고 영향을 받은 봉사기와 작업 단계를 찾습니다."],
-      ["용량 경보", "디스크 사용률과 전체 용량 기준으로 작업 중단 위험을 확인합니다."],
+      ["실패 경보", "최근 실패 Event를 보고 영향을 받은 봉사기와 작업 단계를 찾습니다."],
+      ["용량 경보", "디스크 사용률과 전체 용량 기준으로 작업 중단 위험을 봅니다."],
       ["리소스 경보", "설정의 봉사기당 Key/Proxy 기준과 현재 풀 수량을 비교합니다."],
     ],
-    screenshots: ["실패 경보", "용량 경보", "리소스 Threshold"],
+    screenshots: [{ label: "경보 화면", src: "/help/alerts.png" }],
   },
   {
     id: "settings",
@@ -143,7 +143,7 @@ const HELP_GUIDES = [
       ["Poll 및 작업흐름", "대시보드 갱신 간격, 다음 범위 자동시작, 사전검사 요구, 정지 timeout을 설정합니다."],
       ["알림/재시도", "Telegram, Web Console, 중복제거, 심각도, 명령 재시도 정책을 조정합니다."],
     ],
-    screenshots: ["관리체계설정 머리부", "작업흐름/알림 카드", "Threshold 미리보기"],
+    screenshots: [{ label: "설정 화면", src: "/help/settings.png" }],
   },
 ];
 
@@ -188,27 +188,78 @@ function configChoiceLabel(config) {
   return displayConfigName(config?.name || config?.jobName || config?.path || config?.configId);
 }
 
-function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [], templates = [] } = {}) {
+function configChoiceStem(value) {
+  const name = String(value || "").replace(/\\/g, "/").split("/").filter(Boolean).pop() || "";
+  return name.replace(/\.[^.]+$/, "");
+}
+
+function completedConfigIdsFromJobs(jobs = []) {
+  const latestByConfigId = new Map();
+  for (const job of jobs || []) {
+    const configId = String(job?.configId || "").trim();
+    if (!configId) continue;
+    const updatedAt = Date.parse(job.updatedAt || job.completedAt || job.createdAt || "");
+    const existing = latestByConfigId.get(configId);
+    const existingUpdatedAt = Date.parse(existing?.updatedAt || existing?.completedAt || existing?.createdAt || "");
+    if (!existing || (Number.isFinite(updatedAt) && (!Number.isFinite(existingUpdatedAt) || updatedAt >= existingUpdatedAt))) {
+      latestByConfigId.set(configId, job);
+    }
+  }
+  return new Set(
+    [...latestByConfigId.entries()]
+      .filter(([, job]) => String(job?.status || "").toLowerCase() === "completed")
+      .map(([configId]) => configId)
+  );
+}
+
+function configChoiceCompleted(config, path, completedConfigIds) {
+  const candidates = [
+    config?.configId,
+    config?.id,
+    path,
+    configChoiceStem(path),
+  ].map((value) => String(value || "").trim()).filter(Boolean);
+  return candidates.some((value) => completedConfigIds.has(value));
+}
+
+function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [], templates = [], jobs = [] } = {}) {
   const choices = [];
   const seen = new Set();
+  const completedConfigIds = completedConfigIdsFromJobs(jobs);
   const add = (config, source) => {
     const path = source === "dashboard" ? dashboardConfigPath(config) : config?.path;
     if (!path || seen.has(path)) return;
     seen.add(path);
     const templateId = inferConfigTemplateId(config, templates);
+    const completed = configChoiceCompleted(config, path, completedConfigIds);
     choices.push({
       id: path,
       path,
       label: configChoiceLabel(config),
       groupKey: configGroupName(config, templateId),
       source,
-      selected: true,
+      selected: !completed,
+      completed,
       meta: source === "dashboard" ? "관리체계 Config" : "Local Config",
     });
   };
   dashboardConfigs.forEach((config) => add(config, "dashboard"));
   localConfigs.forEach((config) => add(config, "local"));
-  return choices;
+  return selectedFirstConfigChoices(choices);
+}
+
+function mergeStoredStartConfigChoices(choices = [], storedChoices = []) {
+  const storedById = new Map((storedChoices || []).map((item, index) => [item?.id, { item, index }]).filter(([id]) => id));
+  const merged = choices.map((choice, index) => {
+    const stored = storedById.get(choice.id);
+    return {
+      ...choice,
+      selected: configChoiceIsSelectable(choice) && stored ? stored.item?.selected !== false : choice.selected,
+      storedIndex: stored ? stored.index : storedChoices.length + index,
+    };
+  });
+  return selectedFirstConfigChoices(merged.sort((a, b) => a.storedIndex - b.storedIndex))
+    .map(({ storedIndex, ...choice }) => choice);
 }
 
 const START_ORDER_STORAGE_KEY = "ptg.startConfigOrder";
@@ -250,10 +301,15 @@ function orderConfigsByStartChoices(configs = [], choices = []) {
 }
 
 function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
-  const selectedCount = request.items.filter((item) => item.selected).length;
+  const selectedCount = request.items.filter((item) => item.selected && configChoiceIsSelectable(item)).length;
+  const selectableCount = request.items.filter(configChoiceIsSelectable).length;
   const [dragState, setDragState] = useState(null);
-  const updateItem = (index, patch) => onChange(selectedFirstConfigChoices(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))));
-  const selectAllItems = () => onChange(request.items.map((item) => ({ ...item, selected: true })));
+  const updateItem = (index, patch) => onChange(selectedFirstConfigChoices(request.items.map((item, itemIndex) => {
+    if (itemIndex !== index) return item;
+    const next = { ...item, ...patch };
+    return configChoiceIsSelectable(next) ? next : { ...next, selected: false };
+  })));
+  const selectAllItems = () => onChange(selectedFirstConfigChoices(request.items.map((item) => ({ ...item, selected: configChoiceIsSelectable(item) }))));
   const deselectAllItems = () => onChange(selectedFirstConfigChoices(request.items.map((item) => ({ ...item, selected: false }))));
   const moveItem = (index, direction, event = {}) => {
     onChange(selectedFirstConfigChoices(moveConfigChoice(request.items, index, direction, { grouped: Boolean(event.ctrlKey || event.metaKey) })));
@@ -280,9 +336,12 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
   const dropItem = (index, event) => {
     event.preventDefault();
     if (!dragState) return;
-    onChange(selectedFirstConfigChoices(reorderConfigChoice(request.items, dragState.index, dragState.overIndex ?? index, {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const position = event.clientY > rect.top + rect.height / 2 ? "after" : "before";
+    const fromIndex = request.items.findIndex((item) => item.id === dragState.sourceId);
+    onChange(selectedFirstConfigChoices(reorderConfigChoice(request.items, fromIndex, index, {
       grouped: Boolean(dragState.groupedPreview || dragState.grouped || event.ctrlKey || event.metaKey),
-      position: dragState.position,
+      position,
     })));
     setDragState(null);
   };
@@ -324,7 +383,7 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
         <div className="flex flex-wrap items-center justify-between gap-2">
           <span className="text-[11px] font-[720] text-[var(--ptg-on-surface-variant)]">{selectedCount}/{request.items.length}개 선택</span>
           <div className="flex flex-wrap justify-end gap-2">
-            <AppButton icon="check" disabled={selectedCount === request.items.length} onClick={selectAllItems}>모두 선택</AppButton>
+            <AppButton icon="check" disabled={selectedCount === selectableCount} onClick={selectAllItems}>모두 선택</AppButton>
             <AppButton icon="close" disabled={selectedCount === 0} onClick={deselectAllItems}>모두 해제</AppButton>
           </div>
         </div>
@@ -358,7 +417,8 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
                 <input
                   type="checkbox"
                   className="h-5 w-5 shrink-0 cursor-pointer accent-[var(--ptg-primary)]"
-                  checked={item.selected}
+                  checked={item.selected && configChoiceIsSelectable(item)}
+                  disabled={!configChoiceIsSelectable(item)}
                   onChange={(event) => updateItem(index, { selected: event.target.checked })}
                   aria-label={`${item.label} 선택`}
                 />
@@ -370,7 +430,7 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
                     {index + 1}. {item.label}
                   </div>
                   <div className="truncate text-[11px] font-[650] text-[var(--ptg-on-surface-variant)]">
-                    {item.meta} | {item.path}
+                    {item.meta}{item.completed ? " | 완료" : ""} | {item.path}
                   </div>
                 </div>
                 <div className="flex shrink-0 gap-1">
@@ -1130,7 +1190,15 @@ export function ServerManagementPage({ state, actions }) {
   const endpoint = connection ? serverConnectionEndpointLabel(connection) : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
   const startOrderChoices = normalizedTargetMachineId ? storedStartOrders[normalizedTargetMachineId] || [] : [];
-  const orderedServerConfigs = orderConfigsByStartChoices(selectedMatchesTarget ? state.configs : [], startOrderChoices);
+  const baseServerConfigs = selectedMatchesTarget ? state.configs : [];
+  const baseServerJobs = selectedMatchesTarget ? state.jobs : [];
+  const startConfigChoices = mergeStoredStartConfigChoices(buildStartConfigChoices({
+    dashboardConfigs: baseServerConfigs,
+    localConfigs: snapshot.configs || [],
+    templates: state.configTemplates || [],
+    jobs: baseServerJobs,
+  }), startOrderChoices);
+  const orderedServerConfigs = orderConfigsByStartChoices(baseServerConfigs, startConfigChoices);
   const serverState = {
     ...state,
     selectedMachine: machine,
@@ -1161,11 +1229,6 @@ export function ServerManagementPage({ state, actions }) {
   const selectedProcessStatus = String(selectedProcess?.status || "").toLowerCase();
   const selectedProcessIsActive = ["running", "claimed", "queued"].includes(selectedProcessStatus) && !selectedProcess?.stale;
   const canDeleteTask = Boolean(selectedProcess?.jobId);
-  const startConfigChoices = buildStartConfigChoices({
-    dashboardConfigs: serverState.configs || [],
-    localConfigs: snapshot.configs || [],
-    templates: state.configTemplates || [],
-  });
   const handleCommand = (type) => {
     if (type === "start_pipeline" || type === "resume_pipeline") {
       if (!targetMachineId) return;
@@ -2144,7 +2207,7 @@ export function HelpDashboard({ actions }) {
             </span>
             <div className="min-w-0">
               <h3 className="text-[17px] font-[850] leading-tight">도움말</h3>
-              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">페지별 사용안내, 세부 절차, 참고이미지 위치를 GitBook 형식으로 정리합니다</p>
+              <p className="mt-1 text-[12px] font-[500] text-[var(--ptg-on-surface-variant)]">페지별 사용법, 보는 순서, 화면그림을 한곳에 정리합니다</p>
             </div>
           </div>
           <StatusPill status="neutral">{HELP_GUIDES.length}개 페지</StatusPill>
@@ -2176,15 +2239,15 @@ export function HelpDashboard({ actions }) {
           <div className="grid gap-4 p-4">
             <Surface className="border-[rgba(96,64,239,0.20)] bg-[linear-gradient(135deg,#ffffff_0%,#f8f5ff_58%,#eefaf5_100%)]">
               <SectionTitle
-                title={`${activeGuide?.title || "도움말"} 가이드`}
-                meta="왼쪽 탭에서 페지를 선택하면 해당 화면의 목적, 확인 순서, 첨부할 참고이미지 슬롯만 표시됩니다."
+                title={`${activeGuide?.title || "도움말"} 사용법`}
+                meta="왼쪽 목차에서 페지를 고르면 그 화면의 목적, 보는 순서, 실제 화면그림이 나옵니다."
                 action={<AppButton icon={activeGuide?.icon || "help"} onClick={() => actions?.setSelectedTab(activeGuide?.id || "overview")}>페지 열기</AppButton>}
               />
               <div className="grid grid-cols-3 gap-3 max-md:grid-cols-1">
                 {[
-                  ["1", "먼저 상태를 확인합니다", "첫페지와 경보에서 실제 backend snapshot 기준의 상태를 확인합니다."],
-                  ["2", "세부 페지로 들어갑니다", "봉사기, Config, Secret, Event 페지에서 문제 원천자료를 좁힙니다."],
-                  ["3", "증거 이미지를 붙입니다", "각 설명 아래 참고이미지 슬롯에 실제 화면사진을 련결합니다."],
+                  ["1", "먼저 상태를 봅니다", "첫페지와 경보에서 관리체계 상태자료 기준의 상태를 봅니다."],
+                  ["2", "세부 페지를 엽니다", "봉사기, Config, API Key 및 Proxy, Event 기록에서 문제 원천자료를 좁힙니다."],
+                  ["3", "화면그림을 대조합니다", "설명 오른쪽의 실제 화면그림으로 위치와 흐름을 맞춰봅니다."],
                 ].map(([step, title, text]) => (
                   <div key={step} className="rounded-[14px] border border-[var(--ptg-outline)] bg-white/78 p-3">
                     <span className="grid h-7 w-7 place-items-center rounded-full bg-[var(--ptg-primary)] text-[12px] font-[850] text-white">{step}</span>
@@ -2225,22 +2288,24 @@ export function HelpDashboard({ actions }) {
                     ))}
                   </div>
 
-                  <section className="rounded-[14px] border border-dashed border-[rgba(96,64,239,0.36)] bg-[#fbf9ff] p-3">
+                  <section className="rounded-[14px] border border-[rgba(96,64,239,0.24)] bg-[#fbf9ff] p-3">
                     <div className="mb-3 flex items-center gap-2">
                       <Icon name="image" className="h-5 w-5 text-[var(--ptg-primary)]" />
-                      <strong className="text-[13px] font-[850] text-[var(--ptg-on-surface)]">참고이미지 / Screenshot</strong>
+                      <strong className="text-[13px] font-[850] text-[var(--ptg-on-surface)]">화면그림</strong>
                     </div>
                     <div className="grid gap-2">
-                      {activeGuide.screenshots.map((label) => (
-                        <div key={label} className="grid min-h-[74px] grid-cols-[44px_minmax(0,1fr)] items-center gap-3 rounded-[12px] border border-[var(--ptg-outline)] bg-white px-3 py-2">
-                          <span className="grid h-11 w-11 place-items-center rounded-[10px] bg-[var(--ptg-surface-container)] text-[var(--ptg-primary)]">
-                            <Icon name="image" className="h-5 w-5" />
-                          </span>
-                          <span className="min-w-0">
-                            <strong className="block text-[12px] font-[800] leading-tight text-[var(--ptg-on-surface)]">{label}</strong>
-                            <span className="mt-1 block text-[11px] font-[560] leading-snug text-[var(--ptg-on-surface-variant)]">이 설명과 대응되는 실제 화면 이미지를 여기에 추가합니다.</span>
-                          </span>
-                        </div>
+                      {activeGuide.screenshots.map((shot) => (
+                        <figure key={shot.src} className="overflow-hidden rounded-[12px] border border-[var(--ptg-outline)] bg-white">
+                          <img
+                            alt={shot.label}
+                            className="block aspect-[16/9] w-full bg-[var(--ptg-surface-container)] object-cover object-top"
+                            loading="lazy"
+                            src={shot.src}
+                          />
+                          <figcaption className="border-t border-[var(--ptg-outline)] px-3 py-2 text-[11.5px] font-[720] leading-snug text-[var(--ptg-on-surface)]">
+                            {shot.label}
+                          </figcaption>
+                        </figure>
                       ))}
                     </div>
                   </section>

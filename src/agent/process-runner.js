@@ -81,6 +81,7 @@ export function createProcessRunner({
   let active = null;
   let activeSpec = null;
   let activePromise = null;
+  let activeStartedAt = 0;
   let lastOutputAt = 0;
   let staleTimer = null;
   let restartingStaleProcess = false;
@@ -138,6 +139,7 @@ export function createProcessRunner({
     });
     active = child;
     activeSpec = { command, args: [...args] };
+    activeStartedAt = now();
     lastOutputAt = 0;
     const emitLine = (line, stream) => {
       lastOutputAt = now();
@@ -158,6 +160,7 @@ export function createProcessRunner({
       clearStaleTimer();
       active = null;
       activeSpec = null;
+      activeStartedAt = 0;
       if (restartingStaleProcess) {
         restartingStaleProcess = false;
         launchProcess({ command, args }, resolve, reject);
@@ -170,6 +173,7 @@ export function createProcessRunner({
       clearStaleTimer();
       active = null;
       activeSpec = null;
+      activeStartedAt = 0;
       if (restartingStaleProcess) {
         restartingStaleProcess = false;
         launchProcess({ command, args }, resolve, reject);
@@ -187,8 +191,15 @@ export function createProcessRunner({
     get activeCommandSpec() {
       return activeSpec;
     },
+    get activeStartedAt() {
+      return activeStartedAt;
+    },
     get lastOutputAt() {
       return lastOutputAt;
+    },
+    hasActiveStartedWithin(windowMs = staleOutputRestartMs()) {
+      if (!active || !activeStartedAt || windowMs <= 0) return false;
+      return now() - activeStartedAt < windowMs;
     },
     hasRecentOutput(windowMs = staleOutputRestartMs()) {
       if (!active || !lastOutputAt || windowMs <= 0) return false;

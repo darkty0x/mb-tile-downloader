@@ -561,6 +561,27 @@ test("process runner reports recent active output", async () => {
   await promise;
 });
 
+test("process runner reports a newly started active process before first output", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-recent-start-"));
+  const scriptPath = path.join(dir, "child.mjs");
+  await writeFile(scriptPath, "setTimeout(() => process.exit(0), 30);\n", "utf8");
+  let currentTime = 2_000;
+  const runner = createProcessRunner({
+    cwd: dir,
+    env: { DASHBOARD_AGENT_STALE_OUTPUT_RESTART_MS: "0" },
+    now: () => currentTime,
+  });
+
+  const promise = runner.run({ command: process.execPath, args: [scriptPath] });
+
+  assert.equal(runner.activeStartedAt, 2_000);
+  assert.equal(runner.hasActiveStartedWithin(5_000), true);
+  currentTime = 8_000;
+  assert.equal(runner.hasActiveStartedWithin(5_000), false);
+
+  await promise;
+});
+
 test("agent dashboard stale watchdog skips restart when local output is fresh", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-dashboard-stale-fresh-output-"));
   const calls = [];
@@ -619,6 +640,71 @@ test("agent dashboard stale watchdog skips restart when local output is fresh", 
   assert.deepEqual(calls, [
     ["register"],
     ["recent-output", 300000],
+  ]);
+});
+
+test("agent dashboard stale watchdog skips restart for a just-started managed command", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-dashboard-stale-new-command-"));
+  const calls = [];
+  const runner = {
+    activeCommandSpec: {
+      command: process.execPath,
+      args: ["src/agent/pipeline.js", ".tile-state/dashboard/configs/cfg-active.json"],
+    },
+    hasActiveStartedWithin(windowMs) {
+      calls.push(["recent-start", windowMs]);
+      return true;
+    },
+    hasRecentOutput(windowMs) {
+      calls.push(["recent-output", windowMs]);
+      return false;
+    },
+    restartStaleActive() {
+      calls.push(["restart"]);
+      return { restarted: true };
+    },
+  };
+  const client = {
+    register: async () => calls.push(["register"]),
+    pollCommands: async () => ({ commands: [] }),
+    listJobs: async () => {
+      calls.push(["list-jobs"]);
+      return {
+        jobs: [{
+          jobId: "old-stale-active",
+          configId: "cfg-active",
+          status: "running",
+          stage: "download",
+          updatedAt: "2026-06-24T06:30:00.000Z",
+        }],
+      };
+    },
+    postEvent: async (event) => calls.push(["event", event.type]),
+    heartbeat: async () => ({}),
+    listConfigs: async () => ({ configs: [] }),
+    listEnvProfiles: async () => ({ envProfiles: [] }),
+    listSecrets: async () => ({ secrets: [] }),
+  };
+
+  await runAgent({
+    env: {
+      DASHBOARD_URL: "https://dashboard.example",
+      AGENT_TOKEN: "agent-token",
+      MACHINE_ID: "server-01",
+      DASHBOARD_AGENT_STALE_JOB_RESTART_MS: "300000",
+    },
+    argv: ["--once"],
+    stateDir: dir,
+    projectDir: dir,
+    createClient: () => client,
+    createRunner: () => runner,
+    collectDiskInfoImpl: async () => [],
+    collectLocalSnapshotImpl: async () => ({}),
+  });
+
+  assert.deepEqual(calls, [
+    ["register"],
+    ["recent-start", 300000],
   ]);
 });
 

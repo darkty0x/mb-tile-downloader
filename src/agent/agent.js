@@ -773,6 +773,7 @@ export async function runAgent({
     if (!runner.activeCommandSpec || !client.listJobs) return false;
     const staleMs = resolveStaleDashboardJobRestartMs(env);
     if (staleMs <= 0) return false;
+    if (runner.hasActiveStartedWithin?.(staleMs)) return false;
     if (runner.hasRecentOutput?.(staleMs)) return false;
     const { jobs = [] } = await client.listJobs(identity.machineId);
     const staleJobs = staleActiveDashboardJobsForCommand({

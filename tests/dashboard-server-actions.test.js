@@ -107,11 +107,24 @@ test("start config order modal exposes select all controls and pointer checkbox"
     pagesSource.indexOf("function activeJobMeta", pagesSource.indexOf("function StartConfigOrderModal")),
   );
 
-  assert.match(modalSource, /const selectAllItems = \(\) => onChange\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: true \}\)\)\);/);
-  assert.match(modalSource, /const deselectAllItems = \(\) => onChange\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: false \}\)\)\);/);
+  assert.match(modalSource, /const selectAllItems = \(\) => onChange\(selectedFirstConfigChoices\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: configChoiceIsSelectable\(item\) \}\)\)\)\);/);
+  assert.match(modalSource, /const deselectAllItems = \(\) => onChange\(selectedFirstConfigChoices\(request\.items\.map\(\(item\) => \(\{ \.\.\.item, selected: false \}\)\)\)\);/);
+  assert.match(modalSource, /disabled=\{!configChoiceIsSelectable\(item\)\}/);
+  assert.match(modalSource, /const position = event\.clientY > rect\.top \+ rect\.height \/ 2 \? "after" : "before";/);
   assert.match(modalSource, />모두 선택<\/AppButton>/);
   assert.match(modalSource, />모두 해제<\/AppButton>/);
   assert.match(modalSource, /className="h-5 w-5 shrink-0 cursor-pointer accent-\[var\(--ptg-primary\)\]"/);
+});
+
+test("selected server process list uses the same order choices as the start dialog", () => {
+  const managementSource = pagesSource.slice(
+    pagesSource.indexOf("export function ServerManagementPage"),
+    pagesSource.indexOf("function activeJobMeta", pagesSource.indexOf("export function ServerManagementPage")),
+  );
+
+  assert.match(managementSource, /const startConfigChoices = mergeStoredStartConfigChoices\(buildStartConfigChoices\(\{/);
+  assert.match(managementSource, /const orderedServerConfigs = orderConfigsByStartChoices\(baseServerConfigs, startConfigChoices\)/);
+  assert.match(managementSource, /setStartOrderRequest\(\{ commandType: type, items: startConfigChoices \}\)/);
 });
 
 test("server connection rows show exact stored endpoint and only verify action", () => {

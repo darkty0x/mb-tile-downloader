@@ -38,3 +38,14 @@ test("config order keeps unchecked items after selected items", () => {
 
   assert.deepEqual(ids(selectedFirstConfigChoices(items)), ["a", "c", "b", "d"]);
 });
+
+test("config order treats completed items as unselectable and keeps them last", () => {
+  const items = [
+    { ...item("a"), selected: true },
+    { ...item("b"), selected: true, completed: true },
+    { ...item("c"), selected: false },
+    { ...item("d"), selected: true },
+  ];
+
+  assert.deepEqual(ids(selectedFirstConfigChoices(items)), ["a", "d", "b", "c"]);
+});

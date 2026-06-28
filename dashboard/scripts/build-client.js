@@ -29,6 +29,7 @@ function run(command, args, options = {}) {
 
 await rm(distDir, { recursive: true, force: true });
 await mkdir(distDir, { recursive: true });
+await rm(path.join(nextClientDir, ".next"), { recursive: true, force: true });
 await rm(path.join(nextClientDir, "out"), { recursive: true, force: true });
 await run(process.execPath, [nextBin, "build", nextClientDir], { cwd: root });
 await cp(path.join(nextClientDir, "out"), distDir, { recursive: true });
