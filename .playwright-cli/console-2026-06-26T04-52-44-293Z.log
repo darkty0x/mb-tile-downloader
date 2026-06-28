@@ -1,0 +1,2 @@
+[     841ms] [ERROR] Failed to find a valid digest in the 'integrity' attribute for resource 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css' with computed SHA-256 integrity 'p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY='. The resource has been blocked. @ http://127.0.0.1:8787/daegu-airbase-range-preview.html:0
+[    4039ms] [ERROR] Failed to load resource: the server responded with a status of 404 (File not found) @ http://127.0.0.1:8787/favicon.ico:0

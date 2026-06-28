@@ -8,7 +8,7 @@ import { createDashboardStore } from "../dashboard/src/server/store.js";
 import { configIdsFromCommandSpec, ensureNativeDependencies, preparePreferredNodeRuntime, resolveStaleDashboardJobRestartMs, runAgent, runCommand, staleActiveDashboardJobsForCommand } from "../src/agent/agent.js";
 import { createJobReporter } from "../src/agent/job-reporter.js";
 import { createProcessRunner, resolveManagedCommand } from "../src/agent/process-runner.js";
-import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runPipelineBatch, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
+import { createCliJobReporterFactory, createStageOutputProgressHandler, parseStorjProofFromLine, runNode, runPipelineBatch, runRangePipeline, stageArgs, stagePreparationArgs } from "../src/agent/pipeline.js";
 
 function flushMicrotasks() {
   return new Promise((resolve) => setImmediate(resolve));
@@ -817,6 +817,30 @@ test("stage output heartbeat keeps running jobs fresh between parseable progress
   assert.equal(updates[1].progress.tilesDone, 1);
   assert.equal(updates[1].progress.tilesTotal, 324641);
   assert.equal(updates[1].progress.heartbeatAt, "2026-06-24T06:40:00.000Z");
+});
+
+test("pipeline stage runner emits heartbeat output while child stage is silent", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "agent-stage-heartbeat-"));
+  const scriptPath = path.join(dir, "silent-child.mjs");
+  await writeFile(scriptPath, "setTimeout(() => process.exit(0), 80);\n", "utf8");
+  const heartbeats = [];
+  const updates = [];
+  const reporter = {
+    progress: async (payload) => updates.push(payload),
+  };
+
+  const result = await runNode([scriptPath], {
+    cwd: dir,
+    stage: "upload",
+    reporter,
+    baseProgress: { percent: 0, stageIndex: 3, stageCount: 4 },
+    heartbeatMs: 10,
+    writeHeartbeatLine: (line) => heartbeats.push(line),
+  });
+
+  assert.deepEqual(result, { ok: true, storjProof: {} });
+  assert.ok(heartbeats.includes("[pipeline-heartbeat] stage=upload"));
+  assert.ok(updates.some((update) => update.stage === "upload" && update.progress.heartbeatAt));
 });
 
 test("agent clear_agent_log command truncates the local downloader console log", async () => {

@@ -1,0 +1,8 @@
+- generic [ref=e2]:
+  - generic [ref=e3]:
+    - generic [ref=e7]:
+      - img
+    - 'button "Center: 128.646204, 35.894824" [ref=e9]'
+  - generic [ref=e12]:
+    - button "Zoom in" [ref=e13] [cursor=pointer]: +
+    - button "Zoom out" [ref=e14] [cursor=pointer]: −

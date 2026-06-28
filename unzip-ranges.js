@@ -143,9 +143,20 @@ function runUnzip(zipPath, outputDir) {
     });
     child.on("close", (code) => {
       if (code === 0) resolve({ stdout, stderr });
-      else reject(new Error(`unzip failed code=${code} zip=${zipPath}\n${stderr || stdout}`));
+      else {
+        const err = new Error(`unzip failed code=${code} zip=${zipPath}\n${stderr || stdout}`);
+        err.code = code;
+        err.stdout = stdout;
+        err.stderr = stderr;
+        reject(err);
+      }
     });
   });
+}
+
+function isEmptyZipFailure(err, fingerprint) {
+  if (fingerprint.size === 0) return true;
+  return /zipfile is empty/i.test(`${err?.stderr || ""}\n${err?.stdout || ""}\n${err?.message || ""}`);
 }
 
 async function writeMarker(markerPath, payload) {
@@ -156,14 +167,22 @@ async function writeMarker(markerPath, payload) {
 }
 
 async function unzipOne({ rootDir, zipPath, force, dryRun }) {
-  const fingerprint = await zipFingerprint(zipPath);
+  const rel = path.relative(rootDir, zipPath);
+  let fingerprint;
+  try {
+    fingerprint = await zipFingerprint(zipPath);
+  } catch (err) {
+    if (err?.code === "ENOENT") {
+      return { status: "missing", rel };
+    }
+    throw err;
+  }
   const markerPath = statePathFor(rootDir, zipPath);
   const marker = await readMarker(markerPath);
-  const rel = path.relative(rootDir, zipPath);
 
   if (
     !force &&
-    marker?.status === "complete" &&
+    (marker?.status === "complete" || marker?.status === "ignored-empty") &&
     marker?.size === fingerprint.size &&
     marker?.mtimeMs === fingerprint.mtimeMs
   ) {
@@ -173,7 +192,21 @@ async function unzipOne({ rootDir, zipPath, force, dryRun }) {
   if (dryRun) return { status: "planned", rel };
 
   const outputDir = path.dirname(zipPath);
-  await runUnzip(zipPath, outputDir);
+  try {
+    await runUnzip(zipPath, outputDir);
+  } catch (err) {
+    if (!isEmptyZipFailure(err, fingerprint)) throw err;
+    await writeMarker(markerPath, {
+      status: "ignored-empty",
+      zip: rel.replace(/\\/g, "/"),
+      outputDir: path.relative(rootDir, outputDir).replace(/\\/g, "/") || ".",
+      size: fingerprint.size,
+      mtimeMs: fingerprint.mtimeMs,
+      ignoredAt: new Date().toISOString(),
+      reason: "empty zip archive",
+    });
+    return { status: "ignored-empty", rel };
+  }
   await writeMarker(markerPath, {
     status: "complete",
     zip: rel.replace(/\\/g, "/"),
@@ -212,7 +245,7 @@ async function main() {
   if (opts.force) console.log("Mode: force");
 
   let done = 0;
-  const counts = { planned: 0, skipped: 0, unzipped: 0 };
+  const counts = { planned: 0, skipped: 0, unzipped: 0, "ignored-empty": 0, missing: 0 };
   const startedAt = Date.now();
 
   const results = await runPool(zipFiles, opts.concurrency, async (zipPath) => {
@@ -233,10 +266,16 @@ async function main() {
   console.log(`  Planned: ${counts.planned}`);
   console.log(`  Skipped: ${counts.skipped}`);
   console.log(`  Unzipped: ${counts.unzipped}`);
+  console.log(`  Ignored empty: ${counts["ignored-empty"]}`);
+  console.log(`  Missing: ${counts.missing}`);
   console.log(`  Total: ${results.length}`);
 }
 
-main().catch((err) => {
-  console.error(`Fatal: ${err.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((err) => {
+    console.error(`Fatal: ${err.message}`);
+    process.exit(1);
+  });
+}
+
+export { unzipOne };

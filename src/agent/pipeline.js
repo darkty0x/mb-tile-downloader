@@ -11,6 +11,7 @@ import { parseStageProgressLine } from "./progress-events.js";
 
 const PIPELINE_STAGES = ["download", "validate", "zip", "upload"];
 const UPLOAD_STAGE = "upload";
+const DEFAULT_STAGE_HEARTBEAT_MS = 30_000;
 let activeStageChild = null;
 let processStopRequested = false;
 
@@ -34,6 +35,10 @@ function parseNonNegativeInt(value, fallback = 0) {
   if (value === null || value === undefined || value === "") return fallback;
   const parsed = Number.parseInt(String(value), 10);
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+}
+
+export function resolveStageHeartbeatMs({ env = process.env } = {}) {
+  return parseNonNegativeInt(env.TILE_DOWNLOADER_PIPELINE_STAGE_HEARTBEAT_MS, DEFAULT_STAGE_HEARTBEAT_MS);
 }
 
 export function resolveStageRetryLimit(stage, { env = process.env } = {}) {
@@ -142,7 +147,21 @@ export function createStageOutputProgressHandler({
   };
 }
 
-function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null, stage = null, baseProgress = {} } = {}) {
+export function runNode(
+  args,
+  {
+    env = process.env,
+    cwd = process.cwd(),
+    reporter = null,
+    stage = null,
+    baseProgress = {},
+    heartbeatMs = resolveStageHeartbeatMs({ env }),
+    nowMs = () => Date.now(),
+    setIntervalImpl = setInterval,
+    clearIntervalImpl = clearInterval,
+    writeHeartbeatLine = (line) => process.stdout.write(`${line}\n`),
+  } = {}
+) {
   return new Promise((resolve) => {
     const child = spawn(process.execPath, args, {
       cwd,
@@ -154,8 +173,24 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
     let stderrBuffer = "";
     let storjProof = {};
     const handleStageOutputProgress = createStageOutputProgressHandler({ reporter, stage, baseProgress });
+    let lastStageOutputAt = nowMs();
+    const normalizedHeartbeatMs = Math.max(0, Number(heartbeatMs) || 0);
+    const heartbeatTimer = stage && normalizedHeartbeatMs > 0
+      ? setIntervalImpl(() => {
+        if (nowMs() - lastStageOutputAt < normalizedHeartbeatMs) return;
+        const line = `[pipeline-heartbeat] stage=${stage}`;
+        lastStageOutputAt = nowMs();
+        writeHeartbeatLine(line);
+        Promise.resolve(handleStageOutputProgress(line)).catch(() => {});
+      }, normalizedHeartbeatMs)
+      : null;
+
+    const clearHeartbeatTimer = () => {
+      if (heartbeatTimer) clearIntervalImpl(heartbeatTimer);
+    };
 
     const handleOutput = (chunk, stream) => {
+      lastStageOutputAt = nowMs();
       const target = stream === "stderr" ? process.stderr : process.stdout;
       target.write(chunk);
       const text = String(chunk);
@@ -175,10 +210,12 @@ function runNode(args, { env = process.env, cwd = process.cwd(), reporter = null
     child.stdout.on("data", (chunk) => handleOutput(chunk, "stdout"));
     child.stderr.on("data", (chunk) => handleOutput(chunk, "stderr"));
     child.on("error", (err) => {
+      clearHeartbeatTimer();
       if (activeStageChild === child) activeStageChild = null;
       resolve({ ok: false, error: err.message });
     });
     child.on("close", (code) => {
+      clearHeartbeatTimer();
       if (activeStageChild === child) activeStageChild = null;
       if (processStopRequested) {
         resolve({ ok: false, error: "pipeline stopped" });

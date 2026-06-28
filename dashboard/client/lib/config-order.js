@@ -2,6 +2,15 @@ export function groupKeyForConfigChoice(item = {}) {
   return String(item.groupKey || item.label || item.id || item.path || "").trim();
 }
 
+export function selectedFirstConfigChoices(items = []) {
+  const selected = [];
+  const unselected = [];
+  for (const item of items) {
+    (item?.selected === false ? unselected : selected).push(item);
+  }
+  return [...selected, ...unselected];
+}
+
 function blockIdsForItem(items = [], index, grouped = false) {
   const item = items[index];
   if (!item) return new Set();

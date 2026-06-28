@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { moveConfigChoice, reorderConfigChoice } from "../dashboard/client/lib/config-order.js";
+import { moveConfigChoice, reorderConfigChoice, selectedFirstConfigChoices } from "../dashboard/client/lib/config-order.js";
 
 const item = (id, groupKey = id) => ({ id, label: id, path: id, groupKey });
 const ids = (items) => items.map((entry) => entry.id);
@@ -26,4 +26,15 @@ test("config order drag reorders one item or same-group block", () => {
   assert.deepEqual(ids(reorderConfigChoice(items, 1, 3, { position: "after" })), ["a", "c", "d", "b"]);
   assert.deepEqual(ids(reorderConfigChoice(items, 0, 3, { grouped: true })), ["c", "a", "b", "d"]);
   assert.deepEqual(ids(reorderConfigChoice(items, 0, 3, { grouped: true, position: "after" })), ["c", "d", "a", "b"]);
+});
+
+test("config order keeps unchecked items after selected items", () => {
+  const items = [
+    { ...item("a"), selected: true },
+    { ...item("b"), selected: false },
+    { ...item("c"), selected: true },
+    { ...item("d"), selected: false },
+  ];
+
+  assert.deepEqual(ids(selectedFirstConfigChoices(items)), ["a", "c", "b", "d"]);
 });

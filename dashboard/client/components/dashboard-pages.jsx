@@ -5,7 +5,7 @@ import { buildMachineCommandRows, buildOverviewModel } from "../lib/overview-mod
 import { eventDisplayMessage, eventDisplayTitle, formatEventConsoleLine } from "../lib/event-display";
 import { eventNotificationId } from "../lib/event-identity";
 import { buildConfigGroups, configGroupName, inferConfigTemplateId } from "../lib/config-groups";
-import { groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice } from "../lib/config-order";
+import { groupKeyForConfigChoice, moveConfigChoice, reorderConfigChoice, selectedFirstConfigChoices } from "../lib/config-order";
 import { compareMachineIds } from "../lib/machine-sort";
 import { configPresetVisual } from "./config-preset-visuals";
 import { Icon } from "./icons";
@@ -211,14 +211,52 @@ function buildStartConfigChoices({ dashboardConfigs = [], localConfigs = [], tem
   return choices;
 }
 
+const START_ORDER_STORAGE_KEY = "ptg.startConfigOrder";
+
+function readStoredStartOrders() {
+  if (typeof window === "undefined") return {};
+  try {
+    const value = JSON.parse(window.localStorage?.getItem(START_ORDER_STORAGE_KEY) || "{}");
+    return value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredStartOrders(orders) {
+  if (typeof window === "undefined") return;
+  window.localStorage?.setItem(START_ORDER_STORAGE_KEY, JSON.stringify(orders));
+}
+
+function configChoiceIdForConfig(config) {
+  return dashboardConfigPath(config);
+}
+
+function orderConfigsByStartChoices(configs = [], choices = []) {
+  if (!choices.length) return configs;
+  const rank = new Map();
+  selectedFirstConfigChoices(choices).forEach((item, index) => {
+    if (item?.id && !rank.has(item.id)) rank.set(item.id, index);
+  });
+  if (!rank.size) return configs;
+  return configs
+    .map((config, index) => ({ config, index, rank: rank.get(configChoiceIdForConfig(config)) }))
+    .sort((a, b) => {
+      const aRank = Number.isFinite(a.rank) ? a.rank : Number.MAX_SAFE_INTEGER;
+      const bRank = Number.isFinite(b.rank) ? b.rank : Number.MAX_SAFE_INTEGER;
+      return aRank - bRank || a.index - b.index;
+    })
+    .map((entry) => entry.config);
+}
+
 function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
   const selectedCount = request.items.filter((item) => item.selected).length;
   const [dragState, setDragState] = useState(null);
-  const updateItem = (index, patch) => onChange(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item)));
+  const updateItem = (index, patch) => onChange(selectedFirstConfigChoices(request.items.map((item, itemIndex) => (itemIndex === index ? { ...item, ...patch } : item))));
   const selectAllItems = () => onChange(request.items.map((item) => ({ ...item, selected: true })));
-  const deselectAllItems = () => onChange(request.items.map((item) => ({ ...item, selected: false })));
+  const deselectAllItems = () => onChange(selectedFirstConfigChoices(request.items.map((item) => ({ ...item, selected: false }))));
   const moveItem = (index, direction, event = {}) => {
-    onChange(moveConfigChoice(request.items, index, direction, { grouped: Boolean(event.ctrlKey || event.metaKey) }));
+    onChange(selectedFirstConfigChoices(moveConfigChoice(request.items, index, direction, { grouped: Boolean(event.ctrlKey || event.metaKey) })));
   };
   const dragOverItem = (index, event) => {
     event.preventDefault();
@@ -242,10 +280,10 @@ function StartConfigOrderModal({ request, onChange, onClose, onSubmit }) {
   const dropItem = (index, event) => {
     event.preventDefault();
     if (!dragState) return;
-    onChange(reorderConfigChoice(request.items, dragState.index, dragState.overIndex ?? index, {
+    onChange(selectedFirstConfigChoices(reorderConfigChoice(request.items, dragState.index, dragState.overIndex ?? index, {
       grouped: Boolean(dragState.groupedPreview || dragState.grouped || event.ctrlKey || event.metaKey),
       position: dragState.position,
-    }));
+    })));
     setDragState(null);
   };
   const dropPreview = (() => {
@@ -1071,9 +1109,11 @@ function serverConnectionEndpointLabel(connection) {
 
 export function ServerManagementPage({ state, actions }) {
   const [startOrderRequest, setStartOrderRequest] = useState(null);
+  const [storedStartOrders, setStoredStartOrders] = useState(() => readStoredStartOrders());
   const connection = state.secretPool.find((item) => item.secretId === state.editor.id);
   const requestedMachineId = state.editor.machineId || state.selectedMachineId;
   const targetMachineId = connection?.targetMachineId || connection?.credential?.machineId || connection?.machineId || requestedMachineId;
+  const normalizedTargetMachineId = normalizeMachineId(targetMachineId);
   const machine = targetMachineId ? findMachineById(state.machines, targetMachineId) : null;
   if (!connection && !machine) {
     return (
@@ -1089,10 +1129,12 @@ export function ServerManagementPage({ state, actions }) {
   const validation = connection ? state.serverValidationResults[connection.secretId] : null;
   const endpoint = connection ? serverConnectionEndpointLabel(connection) : "Agent 련결";
   const selectedMatchesTarget = sameMachineId(state.selectedMachineId, targetMachineId);
+  const startOrderChoices = normalizedTargetMachineId ? storedStartOrders[normalizedTargetMachineId] || [] : [];
+  const orderedServerConfigs = orderConfigsByStartChoices(selectedMatchesTarget ? state.configs : [], startOrderChoices);
   const serverState = {
     ...state,
     selectedMachine: machine,
-    configs: selectedMatchesTarget ? state.configs : [],
+    configs: orderedServerConfigs,
     envProfiles: selectedMatchesTarget ? state.envProfiles : [],
     secrets: selectedMatchesTarget ? state.secrets : [],
     jobs: selectedMatchesTarget ? state.jobs : [],
@@ -1138,14 +1180,24 @@ export function ServerManagementPage({ state, actions }) {
   };
   const submitOrderedStart = () => {
     if (!startOrderRequest) return;
-    const configPaths = startOrderRequest.items.filter((item) => item.selected).map((item) => item.path);
+    const orderedItems = selectedFirstConfigChoices(startOrderRequest.items);
+    const configPaths = orderedItems.filter((item) => item.selected).map((item) => item.path);
     if (!configPaths.length) {
       actions.setNotice({ message: "실행할 Config 화일을 선택하십시오", kind: "error" });
       return;
     }
     actions
       .sendCommand(startOrderRequest.commandType, { configPaths })
-      .then(() => setStartOrderRequest(null))
+      .then(() => {
+        if (normalizedTargetMachineId) {
+          setStoredStartOrders((current) => {
+            const next = { ...current, [normalizedTargetMachineId]: orderedItems };
+            writeStoredStartOrders(next);
+            return next;
+          });
+        }
+        setStartOrderRequest(null);
+      })
       .catch((err) => actions.setNotice({ message: err.message, kind: "error" }));
   };
   const envVariableCount = snapshot.envFiles?.reduce((sum, file) => sum + (Number(file.variableCount) || 0), 0) || 0;
