@@ -2259,7 +2259,7 @@ export function HelpDashboard({ actions }) {
             </Surface>
 
             {activeGuide ? (
-              <article id="help-guide-panel" className="rounded-[18px] border border-[var(--ptg-outline)] bg-white" role="tabpanel">
+              <article id="help-guide-panel" className="overflow-hidden rounded-[18px] border border-[var(--ptg-outline)] bg-white" role="tabpanel">
                 <header className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-[var(--ptg-outline)] bg-[var(--ptg-surface-container-low)] px-4 py-4 max-sm:grid-cols-1">
                   <div className="flex min-w-0 gap-3">
                     <span className="ptg-icon-well inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px]">

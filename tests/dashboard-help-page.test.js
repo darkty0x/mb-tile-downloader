@@ -29,3 +29,10 @@ test("help page renders captured page images instead of placeholder screenshot s
     assert.equal(existsSync(assetUrl), true, `missing help screenshot asset: ${screenshotPath}`);
   }
 });
+
+test("help guide panel clips its header background to rounded card corners", () => {
+  assert.match(
+    pagesSource,
+    /<article id="help-guide-panel" className="[^"]*overflow-hidden[^"]*rounded-\[18px\][^"]*"/
+  );
+});
