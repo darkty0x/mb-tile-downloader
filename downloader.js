@@ -11,6 +11,7 @@ import { runDownloadJob } from "./src/engine/downloader-engine.js";
 import { createProvider } from "./src/providers/index.js";
 import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { configureNetworking } from "./src/runtime/platform-profile.js";
+import { stateDbPathForConfig } from "./src/runtime/state-db-path.js";
 import { enableWindowsUtf8Console } from "./src/runtime/windows-console.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -378,18 +379,6 @@ function resolveMachineConfigPaths(opts, env = process.env) {
   return opts.configPaths;
 }
 
-function stateDbPathFor(config, opts) {
-  if (!opts.stateDbPath) {
-    return path.resolve(
-      path.join(config.configDir, "..", ".tile-state", `${config.jobName}.sqlite`)
-    );
-  }
-
-  const explicit = path.resolve(opts.stateDbPath);
-  if (opts.resolvedConfigPaths.length === 1 && explicit.endsWith(".sqlite")) return explicit;
-  return path.join(explicit, `${config.jobName}.sqlite`);
-}
-
 function outputRootsFor(config) {
   return Array.isArray(config.output?.dirs) && config.output.dirs.length
     ? config.output.dirs
@@ -433,7 +422,7 @@ async function runOneConfig(configPath, opts) {
     config.rangeCount = config.ranges.length;
     config.ranges = [{ ...config.ranges[opts.rangeIndex], sourceRangeIndex }];
   }
-  const stateDbPath = stateDbPathFor(config, opts);
+  const stateDbPath = stateDbPathForConfig(config, opts, { projectDir: __dirname });
   const stateDb = new TileStateDb(stateDbPath);
 
   try {
@@ -447,6 +436,9 @@ async function runOneConfig(configPath, opts) {
     console.log(`Config 화일: ${config.configPath}`);
     console.log(`작업: ${config.jobName}`);
     console.log(`제공자: ${config.provider}`);
+    for (const warning of config.operationalWarnings || []) {
+      console.log(`주의: ${warning.message}`);
+    }
     console.log(`체계: ${config.platformProfile.os}`);
     console.log(`출력등록부: ${config.output.dir}`);
     if (outputRootsFor(config).length > 1) {

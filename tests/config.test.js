@@ -4,7 +4,7 @@ import { mkdtemp, readFile, writeFile } from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 
-import { loadConfig, normalizeRanges } from "../src/config/config-loader.js";
+import { loadConfig, normalizeRanges, summarizeOperationalRangeWarnings } from "../src/config/config-loader.js";
 
 test("normalizes compact ranges and produces a stable config hash", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-config-"));
@@ -159,6 +159,33 @@ test("rejects coordinates outside the slippy-map bounds for a zoom", () => {
       }),
     /outside valid tile bounds/
   );
+});
+
+test("flags full-height high-volume ranges before download", async () => {
+  const ranges = normalizeRanges({
+    ranges: [{ zoom: 16, xStart: 55000, xEnd: 56000, yStart: 0, yEnd: 65535 }],
+  });
+
+  const warnings = summarizeOperationalRangeWarnings(ranges);
+
+  assert.equal(warnings.length, 1);
+  assert.equal(warnings[0].type, "full-y-span");
+  assert.equal(warnings[0].tileCount, 65_601_536);
+  assert.match(warnings[0].message, /full y span 0-65535/);
+
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-config-"));
+  const configPath = path.join(dir, "full-height.config.json");
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "full-height",
+      provider: "esri",
+      output: { dir: "./tiles" },
+      ranges,
+    })
+  );
+  const loaded = await loadConfig(configPath, { env: {}, platform: "linux" });
+  assert.deepEqual(loaded.operationalWarnings, warnings);
 });
 
 test("Esri World Imagery configs use separate layer folder and xyz rows", async () => {

@@ -176,6 +176,7 @@ function createProgressReporter(enabled) {
   if (!enabled) {
     return {
       rangeStart() {},
+      rowProgress() {},
       rowDone() {},
       rowRetry() {},
       mapboxTokenUnusable() {},
@@ -193,6 +194,7 @@ function createProgressReporter(enabled) {
   let lastTilesDone = 0;
   let lastCostlyTilesDone = 0;
   let lastRateAt = startedAt;
+  let lastRowProgressAt = 0;
   let sustainedTileRates = [];
   let proxyBlockLogCount = 0;
   let directBlockLogCount = 0;
@@ -230,9 +232,34 @@ function createProgressReporter(enabled) {
       lastTilesDone = tilesDone;
       lastCostlyTilesDone = costlyTilesDone;
       lastRateAt = currentRangeStartedAt;
+      lastRowProgressAt = 0;
       sustainedTileRates = [];
       line(
         `▶ 범위 ${rangeIndex}/${rangeCount}: ${range.label || "이름없음"} 행=${rows} 타일=${tiles}`,
+        true
+      );
+    },
+    rowProgress({
+      rangeIndex,
+      rangeCount,
+      z,
+      x,
+      rowTilesDone,
+      rowTilesTotal,
+      downloaded,
+      created,
+      skippedFiles,
+      missing,
+      failed,
+    }) {
+      if (rowTilesDone >= rowTilesTotal) return;
+      const now = Date.now();
+      if (now - lastRowProgressAt < 30_000) return;
+      lastRowProgressAt = now;
+      line(
+        `  ... 범위 ${rangeIndex}/${rangeCount} 행내 z=${z} x=${x} ` +
+          `타일 ${rowTilesDone}/${rowTilesTotal} 내리적재=${downloaded} 생성=${created} ` +
+          `보관됨=${skippedFiles} 빠짐=${missing} 실패대기=${failed}`,
         true
       );
     },
@@ -834,6 +861,19 @@ async function processRow({
         else if (result === "skipped") skippedFiles++;
         else if (result === "missing") missing++;
         else pending.add(y);
+        progress.rowProgress({
+          rangeIndex,
+          rangeCount,
+          z,
+          x,
+          rowTilesDone: downloaded + created + skippedFiles + missing,
+          rowTilesTotal: expected,
+          downloaded,
+          created,
+          skippedFiles,
+          missing,
+          failed: pending.size,
+        });
       }
     });
 

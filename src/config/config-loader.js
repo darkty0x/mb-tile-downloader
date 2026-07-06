@@ -56,6 +56,33 @@ function validateRange(range) {
   }
 }
 
+export function summarizeOperationalRangeWarnings(ranges = []) {
+  const warnings = [];
+  for (const range of ranges) {
+    for (let z = range.zoomStart; z <= range.zoomEnd; z++) {
+      const max = 2 ** z - 1;
+      const xCount = range.xEnd - range.xStart + 1;
+      const yCount = range.yEnd - range.yStart + 1;
+      const tileCount = xCount * yCount;
+      if (range.yStart === 0 && range.yEnd === max && tileCount >= 1_000_000) {
+        warnings.push({
+          type: "full-y-span",
+          message:
+            `range ${range.label || `z=${z} x=${range.xStart}-${range.xEnd}`} covers the full y span ` +
+            `0-${max} at z=${z}; ${tileCount.toLocaleString("en-US")} tiles will run row-by-row`,
+          z,
+          xStart: range.xStart,
+          xEnd: range.xEnd,
+          yStart: range.yStart,
+          yEnd: range.yEnd,
+          tileCount,
+        });
+      }
+    }
+  }
+  return warnings;
+}
+
 function tileYToLatitude(y, z) {
   const n = Math.PI - (2 * Math.PI * y) / 2 ** z;
   return (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
@@ -195,6 +222,7 @@ export async function loadConfig(configPath, options = {}) {
   const tile = { ...defaults.tile, ...(raw.tile || {}) };
   const url = { ...defaults.url, ...(raw.url || {}) };
   const ranges = normalizeRanges(raw);
+  const operationalWarnings = summarizeOperationalRangeWarnings(ranges);
   const output = await resolveOutputStorage({
     dir: resolvePlatformPath(
       {
@@ -254,6 +282,7 @@ export async function loadConfig(configPath, options = {}) {
     url,
     tile,
     ranges,
+    operationalWarnings,
     output,
     performance,
     platformProfile,
