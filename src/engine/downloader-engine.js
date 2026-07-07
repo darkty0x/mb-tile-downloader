@@ -580,6 +580,82 @@ async function findExistingTilePath(config, provider, z, x, y) {
   return null;
 }
 
+function rowInventoryLayout(config, provider, z, x, yStart, yEnd) {
+  if (provider?.isUnavailable) return null;
+  const firstRel = tileRelativePath(config, provider, z, x, yStart);
+  const firstDir = path.dirname(firstRel);
+  if (path.basename(firstRel) !== `${yStart}.${provider.extension}`) return null;
+
+  if (yEnd > yStart) {
+    const secondRel = tileRelativePath(config, provider, z, x, yStart + 1);
+    if (path.dirname(secondRel) !== firstDir) return null;
+    if (path.basename(secondRel) !== `${yStart + 1}.${provider.extension}`) return null;
+  }
+
+  return {
+    rowDir: firstDir,
+    suffix: `.${provider.extension}`,
+  };
+}
+
+async function filterNonZeroFiles(filePaths, concurrency = 256) {
+  const existing = [];
+  let nextIndex = 0;
+  const workers = Array.from({ length: Math.min(concurrency, filePaths.length) }, async () => {
+    while (true) {
+      const idx = nextIndex;
+      nextIndex++;
+      if (idx >= filePaths.length) break;
+      const filePath = filePaths[idx];
+      try {
+        const st = await fsp.stat(filePath);
+        if (st.isFile() && st.size > 0) existing.push(filePath);
+      } catch (err) {
+        if (err?.code !== "ENOENT") throw err;
+      }
+    }
+  });
+  await Promise.all(workers);
+  return existing;
+}
+
+async function findExistingTileYsInRow(config, provider, z, x, yStart, yEnd) {
+  const layout = rowInventoryLayout(config, provider, z, x, yStart, yEnd);
+  if (!layout) return null;
+
+  const roots = outputCandidateRoots(config.output, { z, x, y: yStart });
+  const candidates = [];
+  const seenFiles = new Set();
+  for (const root of roots) {
+    const rowDir = path.join(root, layout.rowDir);
+    let entries;
+    try {
+      entries = await fsp.readdir(rowDir, { withFileTypes: true });
+    } catch (err) {
+      if (err?.code === "ENOENT") continue;
+      throw err;
+    }
+    for (const entry of entries) {
+      if (!entry.isFile() || !entry.name.endsWith(layout.suffix)) continue;
+      const rawY = entry.name.slice(0, -layout.suffix.length);
+      if (!/^\d+$/.test(rawY)) continue;
+      const y = Number(rawY);
+      if (!Number.isInteger(y) || y < yStart || y > yEnd) continue;
+      const filePath = path.join(rowDir, entry.name);
+      if (seenFiles.has(filePath)) continue;
+      seenFiles.add(filePath);
+      candidates.push({ y, filePath });
+    }
+  }
+
+  const nonZero = new Set(await filterNonZeroFiles(candidates.map((candidate) => candidate.filePath)));
+  return new Set(
+    candidates
+      .filter((candidate) => nonZero.has(candidate.filePath))
+      .map((candidate) => candidate.y)
+  );
+}
+
 async function removeStaleTempFiles(finalPath) {
   const dir = path.dirname(finalPath);
   const base = path.basename(finalPath);
@@ -951,17 +1027,25 @@ async function verifyRange({
     for (let x = range.xStart; x <= range.xEnd; x++) {
       let rowPresent = 0;
       let rowMissing = 0;
-      for (let y = range.yStart; y <= range.yEnd; y++) {
-        expected++;
-        if (await findExistingTilePath(config, provider, z, x, y)) {
-          present++;
-          rowPresent++;
-        } else {
-          rowMissing++;
+      const rowExpected = range.yEnd - range.yStart + 1;
+      const presentYs = await findExistingTileYsInRow(config, provider, z, x, range.yStart, range.yEnd);
+      if (presentYs) {
+        rowPresent = presentYs.size;
+        rowMissing = rowExpected - rowPresent;
+        expected += rowExpected;
+        present += rowPresent;
+      } else {
+        for (let y = range.yStart; y <= range.yEnd; y++) {
+          expected++;
+          if (await findExistingTilePath(config, provider, z, x, y)) {
+            present++;
+            rowPresent++;
+          } else {
+            rowMissing++;
+          }
         }
       }
 
-      const rowExpected = range.yEnd - range.yStart + 1;
       const key = {
         jobName: config.jobName,
         configHash: config.configHash,

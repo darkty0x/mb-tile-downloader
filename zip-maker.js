@@ -10,6 +10,7 @@ import { crc32 } from "node:zlib";
 import { loadConfig } from "./src/config/config-loader.js";
 import { assertDashboardManagedRun } from "./src/agent/managed-run-guard.js";
 import { resolveOutputStorage, selectOutputRoot } from "./src/runtime/output-storage.js";
+import { stateDbPathForConfig } from "./src/runtime/state-db-path.js";
 import { enableWindowsUtf8Console } from "./src/runtime/windows-console.js";
 import { TileStateDb } from "./src/state/state-db.js";
 
@@ -1120,9 +1121,7 @@ async function cleanupArchiveRuntimeFiles({ tmpPath, progressPath }) {
 }
 
 function downloaderStateDbPath(config) {
-  return path.resolve(
-    path.join(config.configDir, "..", ".tile-state", `${config.jobName}.sqlite`)
-  );
+  return stateDbPathForConfig(config, {}, { projectDir: __dirname });
 }
 
 async function openDownloaderState(sourceConfigPath, dotEnvKeys = new Set(), { requireExisting = false } = {}) {
