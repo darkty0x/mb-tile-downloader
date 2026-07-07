@@ -905,6 +905,28 @@ test("stage output heartbeat keeps running jobs fresh between parseable progress
   assert.equal(updates[1].progress.heartbeatAt, "2026-06-24T06:40:00.000Z");
 });
 
+test("stage output row progress preserves whole-job tile totals", async () => {
+  const updates = [];
+  const reporter = {
+    progress: async (payload) => updates.push(payload),
+  };
+  const handleOutput = createStageOutputProgressHandler({
+    reporter,
+    stage: "download",
+    baseProgress: { percent: 0, stageIndex: 0, stageCount: 4 },
+  });
+
+  await handleOutput("  ↳ 범위 1/1 행 30/1001 z=16 x=55029 타일 1966080/65601536 내리적재=0 보관됨=1966080 빠짐=0 실패=0 건너뛴행=30 속도=1.8 행/초 116405.0 타일/초 완료예상=unknown");
+  await handleOutput("  ... 범위 1/1 행내 z=16 x=55030 타일 16185/65536 내리적재=16185 생성=0 보관됨=0 빠짐=0 실패대기=0");
+
+  assert.equal(updates.length, 2);
+  assert.equal(updates[1].progress.rowTilesDone, 16185);
+  assert.equal(updates[1].progress.rowTilesTotal, 65536);
+  assert.equal(updates[1].progress.tilesDone, 1982265);
+  assert.equal(updates[1].progress.tilesTotal, 65601536);
+  assert.equal(updates[1].progress.percent, 3);
+});
+
 test("pipeline stage runner emits heartbeat output while child stage is silent", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "agent-stage-heartbeat-"));
   const scriptPath = path.join(dir, "silent-child.mjs");

@@ -127,6 +127,16 @@ test("selected server process list uses the same order choices as the start dial
   assert.match(managementSource, /setStartOrderRequest\(\{ commandType: type, items: startConfigChoices \}\)/);
 });
 
+test("active job metadata displays one-based downloader range progress directly", () => {
+  const activeJobMetaSource = pagesSource.slice(
+    pagesSource.indexOf("function activeJobMeta"),
+    pagesSource.indexOf("function pipelineMeta", pagesSource.indexOf("function activeJobMeta")),
+  );
+
+  assert.match(activeJobMetaSource, /Math\.max\(1, Number\(activeJob\.progress\.rangeIndex\)\)/);
+  assert.doesNotMatch(activeJobMetaSource, /rangeIndex\) \+ 1/);
+});
+
 test("server connection rows show exact stored endpoint and only verify action", () => {
   const sectionSource = pagesSource.slice(
     pagesSource.indexOf("function ServerConnectionsSection"),

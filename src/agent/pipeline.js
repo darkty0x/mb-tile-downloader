@@ -65,11 +65,34 @@ async function pauseFileExists(filePath) {
 }
 
 function mergeProgress(baseProgress = {}, parsedProgress = {}) {
-  return {
+  const next = {
     ...baseProgress,
     ...parsedProgress,
     percent: Number.isFinite(parsedProgress.percent) ? parsedProgress.percent : baseProgress.percent,
   };
+  const rowDone = Number(parsedProgress.rowTilesDone);
+  const rowTotal = Number(parsedProgress.rowTilesTotal);
+  const globalTotal = Number(baseProgress.tilesTotal ?? baseProgress.total ?? baseProgress.totalTiles);
+  if (Number.isFinite(rowDone) && Number.isFinite(rowTotal) && rowTotal > 0 && Number.isFinite(globalTotal) && globalTotal > rowTotal) {
+    const rowKey = [
+      parsedProgress.rangeIndex ?? "",
+      parsedProgress.z ?? "",
+      parsedProgress.x ?? "",
+    ].join(":");
+    const baseRowKey = String(baseProgress.rowProgressKey || "");
+    const previousBaseDone = Number(baseProgress.rowBaseTilesDone);
+    const currentBaseDone = Number(baseProgress.tilesDone ?? baseProgress.done ?? baseProgress.processedTiles);
+    const rowBaseTilesDone = baseRowKey === rowKey && Number.isFinite(previousBaseDone)
+      ? previousBaseDone
+      : (Number.isFinite(currentBaseDone) ? currentBaseDone : 0);
+    const globalDone = Math.max(0, Math.min(globalTotal, rowBaseTilesDone + rowDone));
+    next.rowProgressKey = rowKey;
+    next.rowBaseTilesDone = rowBaseTilesDone;
+    next.tilesDone = globalDone;
+    next.tilesTotal = globalTotal;
+    next.percent = Math.max(0, Math.min(100, Math.round((globalDone / globalTotal) * 100)));
+  }
+  return next;
 }
 
 function parseStorjResultLine(line) {

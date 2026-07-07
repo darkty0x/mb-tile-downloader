@@ -1377,7 +1377,7 @@ function activeJobMeta(activeJob, configs = []) {
   const config = configs.find((item) => item.configId === activeJob.configId);
   const configName = config?.name || activeJob.configId || "Config 화일";
   const rangeText = activeJob.progress?.rangeIndex !== undefined && activeJob.progress?.rangeCount
-    ? `범위 ${Number(activeJob.progress.rangeIndex) + 1}/${activeJob.progress.rangeCount}`
+    ? `범위 ${Math.max(1, Number(activeJob.progress.rangeIndex))}/${activeJob.progress.rangeCount}`
     : activeJob.rangeId
       ? `범위 ${activeJob.rangeId}`
       : null;
