@@ -1,7 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 
-import { parseDownloaderProgressLine, parseEventLine, parseStageProgressLine, parseValidateProgressLine, createProgressEventForwarder } from "../src/agent/progress-events.js";
+import { parseDownloaderProgressLine, parseEventLine, parseStageProgressLine, parseTileRowProgressLine, parseValidateProgressLine, createProgressEventForwarder } from "../src/agent/progress-events.js";
 
 test("parses structured event lines and ignores ordinary output", () => {
   assert.deepEqual(parseEventLine("plain output"), null);
@@ -36,6 +36,24 @@ test("parses Korean downloader progress counters", () => {
   assert.equal(parsed.tilesFailed, 0);
   assert.equal(parsed.tilesPerSecond, 754.6);
   assert.equal(parsed.etaSeconds, 241);
+});
+
+test("parses row-level tile progress during validate repair downloads", () => {
+  const line = "  ... 범위 1/1 행내 z=16 x=55018 타일 56876/65536 내리적재=56876 생성=0 보관됨=0 빠짐=0 실패대기=0";
+  const parsed = parseTileRowProgressLine(line);
+
+  assert.equal(parsed.rangeIndex, 1);
+  assert.equal(parsed.rangeCount, 1);
+  assert.equal(parsed.z, 16);
+  assert.equal(parsed.x, 55018);
+  assert.equal(parsed.rowTilesDone, 56876);
+  assert.equal(parsed.rowTilesTotal, 65536);
+  assert.equal(parsed.tilesDone, 56876);
+  assert.equal(parsed.tilesTotal, 65536);
+  assert.equal(parsed.tilesDownloaded, 56876);
+  assert.equal(parsed.percent, 87);
+  assert.deepEqual(parseStageProgressLine(line, "validate"), parsed);
+  assert.deepEqual(parseStageProgressLine(line, "download"), parsed);
 });
 
 test("parses validation progress lines into durable job progress", () => {

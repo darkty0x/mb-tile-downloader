@@ -590,6 +590,54 @@ test("selected server pipeline step progress follows the active config job", () 
   );
 });
 
+test("selected server pipeline does not mark download complete during validate repair downloads", () => {
+  const model = buildOverviewModel({
+    now: new Date("2026-07-07T02:10:00.000Z"),
+    machines: [{ machineId: "server-02", status: "online", currentJobId: "job-pbf-validate-repair" }],
+    configs: [
+      { configId: "cfg-pbf", machineId: "server-02", name: "16_55000-55999" },
+    ],
+    jobs: [
+      {
+        jobId: "job-pbf-validate-repair",
+        machineId: "server-02",
+        configId: "cfg-pbf",
+        status: "running",
+        stage: "validate",
+        startedAt: "2026-07-07T01:16:31.000Z",
+        updatedAt: "2026-07-07T02:09:51.000Z",
+        progress: {
+          percent: 87,
+          rowTilesDone: 56876,
+          rowTilesTotal: 65536,
+          tilesDone: 56876,
+          tilesTotal: 65536,
+          tilesDownloaded: 56876,
+          tilesCreated: 0,
+          tileFilesSkipped: 0,
+          tilesMissing: 0,
+          tilesFailed: 0,
+        },
+      },
+    ],
+    machineId: "server-02",
+  });
+
+  assert.equal(model.pipelineProgress, "47%");
+  assert.equal(model.pipelineStage, "검증");
+  assert.equal(model.pipelineSummary.processedTiles, 56876);
+  assert.equal(model.pipelineSummary.totalTiles, 65536);
+  assert.deepEqual(
+    model.pipeline.map((step) => [step.key, step.progress, step.status]),
+    [
+      ["download", 87, "running"],
+      ["validate", 87, "running"],
+      ["zip", 0, "pending"],
+      ["upload", 0, "pending"],
+    ]
+  );
+});
+
 test("selected server pipeline upload phase is not marked complete until active upload completes", () => {
   const model = buildOverviewModel({
     now: new Date("2026-06-23T14:11:00.000Z"),

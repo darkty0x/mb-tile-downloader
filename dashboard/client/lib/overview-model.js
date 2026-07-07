@@ -389,6 +389,17 @@ function jobStageProgress(job) {
   return numericProgress(job?.progress) ?? 0;
 }
 
+function jobIsValidateRepairDownload(job) {
+  if (String(job?.stage || "").toLowerCase() !== "validate") return false;
+  if (!RUNNING_JOB_STATUSES.has(jobStatus(job))) return false;
+  const progress = job?.progress || {};
+  const rowTotal = Number(progress.rowTilesTotal);
+  const rowDone = Number(progress.rowTilesDone);
+  if (!Number.isFinite(rowTotal) || rowTotal <= 0 || !Number.isFinite(rowDone)) return false;
+  return ["tilesDownloaded", "tilesCreated", "tileFilesSkipped", "tilesMissing", "tilesFailed"]
+    .some((name) => Number(progress[name]) > 0);
+}
+
 function jobPipelineProgress(job) {
   const index = stageIndex(String(job?.stage || "").toLowerCase());
   return Math.max(0, Math.min(100, ((index * 100) + jobStageProgress(job)) / PIPELINE_STEPS.length));
@@ -484,7 +495,27 @@ function aggregatePipelineSteps(scopedJobs = [], events = [], { allowStaleFallba
   if (!sourceJobs.length) return fallbackPipelineSteps(events);
 
   const totalWeight = sourceJobs.reduce((sum, job) => sum + jobTotalWeight(job), 0) || sourceJobs.length || 1;
+  const validateRepairJobs = sourceJobs.filter(jobIsValidateRepairDownload);
+  const validateRepairWeight = validateRepairJobs.reduce((sum, job) => sum + jobTotalWeight(job), 0) || validateRepairJobs.length || 1;
+  const validateRepairProgress = validateRepairJobs.length
+    ? Math.max(0, Math.min(99, Math.round(validateRepairJobs.reduce((sum, job) => {
+      return sum + (jobStageProgress(job) * jobTotalWeight(job));
+    }, 0) / validateRepairWeight)))
+    : null;
   return PIPELINE_STEPS.map(([key, label], index) => {
+    if (key === "download" && validateRepairProgress !== null) {
+      const sameStageJobs = sourceJobs.filter((job) => stageIndex(job.stage) === index);
+      const activeRepairJobs = new Set(validateRepairJobs);
+      const repairActiveWeight = validateRepairJobs.reduce((sum, job) => sum + (jobStageProgress(job) * jobTotalWeight(job)), 0);
+      const sameStageActiveWeight = sameStageJobs.reduce((sum, job) => sum + (jobStageProgress(job) * jobTotalWeight(job)), 0);
+      const completedWeight = sourceJobs.reduce((sum, job) => {
+        if (activeRepairJobs.has(job)) return sum;
+        if (job.status === "completed" || stageIndex(job.stage) > index) return sum + jobTotalWeight(job);
+        return sum;
+      }, 0);
+      const progress = Math.max(0, Math.min(99, Math.round((completedWeight * 100 + sameStageActiveWeight + repairActiveWeight) / totalWeight)));
+      return { key, label, status: "running", progress };
+    }
     const sameStageJobs = sourceJobs.filter((job) => stageIndex(job.stage) === index);
     const completedWeight = sourceJobs.reduce((sum, job) => {
       if (job.status === "completed" || stageIndex(job.stage) > index) return sum + jobTotalWeight(job);

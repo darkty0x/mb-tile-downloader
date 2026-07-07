@@ -317,6 +317,57 @@ test("engine skips rows marked complete for the same config hash", async () => {
   db.close();
 });
 
+test("engine redownloads stale complete rows whose tile files are missing", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
+  const db = new TileStateDb(path.join(dir, "state.sqlite"));
+  const config = {
+    jobName: "stale-complete",
+    provider: "mapbox",
+    layer: "vector",
+    format: "pbf",
+    configHash: "hash",
+    output: { dir: path.join(dir, "tiles"), pathTemplate: "{layer}/{z}/{x}/{y}.{extension}" },
+    tile: { extension: "vector.pbf", yScheme: "xyz" },
+    url: { template: "https://example.test/{z}/{x}/{y}.vector.pbf?access_token={token}" },
+    ranges: [{ zoomStart: 5, zoomEnd: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 19, label: "r" }],
+    platformProfile: { maxRowsInFlight: 1, perRowConcurrency: 1, requestTimeoutMs: 1000 },
+    performance: { maxRetries: 1, retryBackoffMs: 1 },
+    verifyAfterDownload: false,
+  };
+  db.markRowComplete({
+    jobName: config.jobName,
+    configHash: config.configHash,
+    layer: config.layer,
+    z: 5,
+    x: 27,
+    yStart: 19,
+    yEnd: 19,
+    expected: 1,
+    downloaded: 1,
+    missing: 0,
+    failed: 0,
+  });
+
+  let fetches = 0;
+  const result = await runDownloadJob({
+    config,
+    stateDb: db,
+    progress: false,
+    skipVerifyAfterDownload: true,
+    env: { MAPBOX_ACCESS_TOKENS: "pk.test" },
+    fetchImpl: async () => {
+      fetches++;
+      return new Response("tile");
+    },
+  });
+
+  assert.equal(result.rowsSkipped, 0);
+  assert.equal(result.tilesDownloaded, 1);
+  assert.equal(result.tilesFailed, 0);
+  assert.equal(fetches, 1);
+  db.close();
+});
+
 test("Mapbox missing source tiles complete rows and skip on resume", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
@@ -416,7 +467,7 @@ test("engine verifies each range immediately after processing it", async () => {
   db.close();
 });
 
-test("verification repairs missing files from stale complete rows", async () => {
+test("download repairs missing files from stale complete rows before validate", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "tile-engine-"));
   const db = new TileStateDb(path.join(dir, "state.sqlite"));
   db.markRowComplete({
@@ -461,7 +512,7 @@ test("verification repairs missing files from stale complete rows", async () => 
     },
   });
 
-  assert.equal(result.rowsSkipped, 1);
+  assert.equal(result.rowsSkipped, 0);
   assert.equal(result.tilesDownloaded, 1);
   assert.equal(result.tilesCreated, 0);
   assert.equal(result.tilesFailed, 0);

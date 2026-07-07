@@ -40,6 +40,9 @@ export function parseDurationSeconds(value) {
 
 export function parseDownloaderProgressLine(line) {
   const text = String(line || "");
+  const rowProgress = parseTileRowProgressLine(text);
+  if (rowProgress) return rowProgress;
+
   const match = /(?:range|범위)\s+(\d+)\/(\d+)\s+(?:row|행)\s+(\d+)\/(\d+).*?(?:\btiles|타일)\s+(\d+)\/(\d+).*?(?:\bd|내리적재)=(\d+).*?(?:\bs|보관됨)=(\d+).*?(?:\bm|빠짐)=(\d+).*?(?:\bf|실패)=(\d+).*?(?:\bskippedRows|건너뛴행)=(\d+).*?(?:\brate|속도)=([\d.]+)\s+(?:rows\/s|행\/초)\s+([\d.]+)\s+(?:tiles\/s|타일\/초)\s+(?:eta|완료예상)=([^\r\n]+)/i.exec(text);
   if (!match) return null;
   const [
@@ -81,8 +84,49 @@ export function parseDownloaderProgressLine(line) {
   };
 }
 
+export function parseTileRowProgressLine(line) {
+  const text = String(line || "");
+  const match = /(?:range|범위)\s+(\d+)\/(\d+)\s+(?:row-progress|행내)\s+z=(\d+)\s+x=(\d+)\s+(?:\btiles|타일)\s+(\d+)\/(\d+).*?(?:\bd|내리적재)=(\d+).*?(?:\bc|생성)=(\d+).*?(?:\bs|보관됨)=(\d+).*?(?:\bm|빠짐)=(\d+).*?(?:\bf|실패대기)=(\d+)/i.exec(text);
+  if (!match) return null;
+  const [
+    ,
+    rangeIndex,
+    rangeCount,
+    z,
+    x,
+    rowTilesDone,
+    rowTilesTotal,
+    tilesDownloaded,
+    tilesCreated,
+    tileFilesSkipped,
+    tilesMissing,
+    tilesFailed,
+  ] = match;
+  const done = Number(rowTilesDone);
+  const total = Number(rowTilesTotal);
+  return {
+    rangeIndex: Number(rangeIndex),
+    rangeCount: Number(rangeCount),
+    z: Number(z),
+    x: Number(x),
+    rowTilesDone: done,
+    rowTilesTotal: total,
+    tilesDone: done,
+    tilesTotal: total,
+    tilesDownloaded: Number(tilesDownloaded),
+    tilesCreated: Number(tilesCreated),
+    tileFilesSkipped: Number(tileFilesSkipped),
+    tilesMissing: Number(tilesMissing),
+    tilesFailed: Number(tilesFailed),
+    percent: total > 0 ? Math.min(100, Math.max(0, Math.round((done / total) * 100))) : 0,
+  };
+}
+
 export function parseValidateProgressLine(line) {
   const text = String(line || "");
+  const rowProgress = parseTileRowProgressLine(text);
+  if (rowProgress) return rowProgress;
+
   const progressMatch = /(?:range|범위)\s+(\d+)\/(\d+)\s+verify\s+rows=(\d+)\/(\d+)\s+present=(\d+)\s+missing=(\d+)\s+failed=(\d+)/i.exec(text);
   if (progressMatch) {
     const [, rangeIndex, rangeCount, rowsDone, rowsTotal, present, missing, failed] = progressMatch;
