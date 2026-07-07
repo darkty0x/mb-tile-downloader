@@ -678,7 +678,7 @@ function buildPendingYs(yStart, yEnd, presentYs = null) {
 
 async function removeStaleTempFilesForRow(config, provider, z, x, yStart, yEnd) {
   const layout = rowInventoryLayout(config, provider, z, x, yStart, yEnd, { allowUnavailable: true });
-  if (!layout) return;
+  if (!layout) return false;
 
   await Promise.all(
     outputCandidateRoots(config.output, { z, x, y: yStart }).map(async (root) => {
@@ -697,6 +697,7 @@ async function removeStaleTempFilesForRow(config, provider, z, x, yStart, yEnd) 
       );
     })
   );
+  return true;
 }
 
 async function writeResponse(resp, tmpPath) {
@@ -721,11 +722,14 @@ async function downloadOneTile({
   z,
   x,
   y,
+  skipExistingCheck = false,
+  directoryPrepared = false,
+  tempFilesPrepared = false,
 }) {
   const finalPath = tilePath(config, provider, z, x, y);
-  if (await findExistingTilePath(config, provider, z, x, y)) return "skipped";
+  if (!skipExistingCheck && await findExistingTilePath(config, provider, z, x, y)) return "skipped";
 
-  await fsp.mkdir(path.dirname(finalPath), { recursive: true });
+  if (!directoryPrepared) await fsp.mkdir(path.dirname(finalPath), { recursive: true });
   const tmpPath = `${finalPath}.tmp-${process.pid}`;
   const maxRetries = Math.max(
     tileRetryFloor(provider.name),
@@ -742,7 +746,7 @@ async function downloadOneTile({
   while (networkAttempt < maxRetries) {
     try {
       await providerRuntime.waitIfBlocked();
-      await fsp.rm(tmpPath, { force: true });
+      if (!tempFilesPrepared) await fsp.rm(tmpPath, { force: true });
       const tokenUsed = tokenPool ? tokenPool.current() : null;
       const attempt = requestAttempt;
       requestAttempt++;
@@ -916,6 +920,7 @@ async function processRow({
   let skippedFiles = presentYs?.size || 0;
   let missing = 0;
   const pending = buildPendingYs(yStart, yEnd, presentYs);
+  const rowInventoryAvailable = presentYs !== null;
 
   const maxRecoveryPasses = resolveRowRecoveryPasses(
     config.provider,
@@ -924,7 +929,10 @@ async function processRow({
     esriFastMode
   );
   const recoveryDelay = resolveRecoveryBackoffMs(config.provider, recoveryBackoffMs, config);
-  await removeStaleTempFilesForRow(config, provider, z, x, yStart, yEnd);
+  if (rowInventoryAvailable) {
+    await fsp.mkdir(path.dirname(tilePath(config, provider, z, x, yStart)), { recursive: true });
+  }
+  const tempFilesPrepared = await removeStaleTempFilesForRow(config, provider, z, x, yStart, yEnd);
   for (let pass = 0; pass <= maxRecoveryPasses && pending.size > 0; pass++) {
     if (pass > 0) {
       progress.rowRetry({
@@ -968,6 +976,9 @@ async function processRow({
           z,
           x,
           y,
+          skipExistingCheck: rowInventoryAvailable,
+          directoryPrepared: rowInventoryAvailable,
+          tempFilesPrepared,
         });
         if (result === "downloaded") downloaded++;
         else if (result === "created") created++;
