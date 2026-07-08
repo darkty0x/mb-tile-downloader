@@ -183,6 +183,36 @@ function archiveFileName(template, { layer, z, xStart, xEnd, yStart, yEnd, xPadW
     .replaceAll("{yEndRaw}", String(yEnd));
 }
 
+function escapeRegExp(value) {
+  return String(value).replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function splitArchivePattern(baseName) {
+  const extension = path.extname(baseName);
+  const stem = extension ? baseName.slice(0, -extension.length) : baseName;
+  const suffix = extension || "";
+  return new RegExp(`^${escapeRegExp(stem)}\\.part-(\\d{3,})${escapeRegExp(suffix)}$`);
+}
+
+function splitArchivePartName(baseName, partIndex) {
+  const extension = path.extname(baseName);
+  const stem = extension ? baseName.slice(0, -extension.length) : baseName;
+  const suffix = extension || "";
+  return `${stem}.part-${String(partIndex).padStart(3, "0")}${suffix}`;
+}
+
+function findSplitArchives(archives, baseName) {
+  const pattern = splitArchivePattern(baseName);
+  const parts = [];
+  for (const archive of archives) {
+    const match = pattern.exec(archive.name);
+    if (!match) continue;
+    parts.push({ archive, index: Number(match[1]) });
+  }
+  parts.sort((a, b) => a.index - b.index || a.archive.name.localeCompare(b.archive.name));
+  return parts;
+}
+
 function isDownloaderConfig(config) {
   return Boolean(config?.provider && Array.isArray(config?.ranges));
 }
@@ -446,16 +476,40 @@ async function loadArchivePlan(configPath) {
 }
 
 function filterArchivesByPlan(archives, plan) {
-  if (!plan?.expectedNames) return { archives, missing: [] };
+  if (!plan?.expectedNames) return { archives, missing: [], expectedNames: null };
   const byName = new Map(archives.map((archive) => [archive.name, archive]));
   const filtered = [];
   const missing = [];
+  const expectedNames = [];
   for (const name of plan.expectedNames) {
     const archive = byName.get(name);
-    if (archive) filtered.push(archive);
-    else missing.push(name);
+    if (archive) {
+      expectedNames.push(name);
+      filtered.push(archive);
+      continue;
+    }
+
+    const parts = findSplitArchives(archives, name);
+    if (parts.length > 0) {
+      let expectedPartIndex = 1;
+      for (const part of parts) {
+        while (expectedPartIndex < part.index) {
+          const missingPartName = splitArchivePartName(name, expectedPartIndex);
+          expectedNames.push(missingPartName);
+          missing.push(missingPartName);
+          expectedPartIndex++;
+        }
+        expectedNames.push(part.archive.name);
+        filtered.push(part.archive);
+        expectedPartIndex = part.index + 1;
+      }
+      continue;
+    }
+
+    expectedNames.push(name);
+    missing.push(name);
   }
-  return { archives: filtered, missing };
+  return { archives: filtered, missing, expectedNames };
 }
 
 async function classifyMissingArchives({ missing = [], bucket, prefix, configDir }) {
@@ -563,14 +617,14 @@ async function main() {
   const plan = await loadArchivePlan(opts.configPath);
   opts.prefix = opts.prefix || plan?.jobName || process.env.STORJ_PREFIX || DEFAULT_STORJ_PREFIX;
   const allArchives = await listCompletedArchives(opts.archiveDir);
-  const { archives, missing } = filterArchivesByPlan(allArchives, plan);
+  const { archives, missing, expectedNames } = filterArchivesByPlan(allArchives, plan);
   console.log(`Archive directory: ${opts.archiveDir}`);
   if (opts.configPath) console.log(`Config: ${opts.configPath}`);
   console.log(`Storj target: sj://${opts.bucket}/${normalizePrefix(opts.prefix)}`);
   console.log(`Completed ZIPs: ${allArchives.length}`);
   if (plan) {
-    if (plan.expectedNames) {
-      console.log(`Config ZIPs planned: ${plan.expectedNames.length}`);
+    if (expectedNames) {
+      console.log(`Config ZIPs planned: ${expectedNames.length}`);
       console.log(`Config ZIPs available: ${archives.length}`);
       console.log(`Config ZIPs missing: ${missing.length}`);
     }

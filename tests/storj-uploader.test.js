@@ -180,6 +180,60 @@ test("storj uploader filters local archives by downloader config", async () => {
   assert.doesNotMatch(stdout, /tiles_satellite_5_000027-000027_y000019-000019\.zip/);
 });
 
+test("storj uploader treats split archive parts as the config upload artifacts", async () => {
+  const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-parts-"));
+  const archivesDir = path.join(dir, "archives");
+  const configPath = path.join(dir, "13-mapbox-pbf.config.json");
+  await mkdir(archivesDir, { recursive: true });
+  await writeFile(
+    path.join(archivesDir, "tiles_vector_5_000027-000027_y000019-000021.part-001.zip"),
+    "part-1"
+  );
+  await writeFile(
+    path.join(archivesDir, "tiles_vector_5_000027-000027_y000019-000021.part-002.zip"),
+    "part-2"
+  );
+  await writeFile(
+    path.join(archivesDir, "tiles_vector_5_000028-000028_y000019-000021.part-001.zip"),
+    "other-range"
+  );
+  await writeFile(
+    configPath,
+    JSON.stringify({
+      jobName: "13-mapbox-pbf",
+      provider: "mapbox",
+      layer: "vector",
+      ranges: [{ zoom: 5, xStart: 27, xEnd: 27, yStart: 19, yEnd: 21 }],
+    })
+  );
+
+  const { stdout } = await execFileAsync(
+    process.execPath,
+    [
+      "storj-uploader.js",
+      configPath,
+      `--archive-dir=${archivesDir}`,
+      "--bucket=mapbox",
+      "--dry-run",
+    ],
+    { cwd: path.resolve("."), env: { ...process.env } }
+  );
+
+  assert.match(stdout, /Config ZIPs planned: 2/);
+  assert.match(stdout, /Config ZIPs available: 2/);
+  assert.match(stdout, /Config ZIPs missing: 0/);
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/13-mapbox-pbf\/tiles_vector_5_000027-000027_y000019-000021\.part-001\.zip/
+  );
+  assert.match(
+    stdout,
+    /sj:\/\/mapbox\/13-mapbox-pbf\/tiles_vector_5_000027-000027_y000019-000021\.part-002\.zip/
+  );
+  assert.doesNotMatch(stdout, /MISSING local archive: tiles_vector_5_000027-000027_y000019-000021\.zip/);
+  assert.doesNotMatch(stdout, /tiles_vector_5_000028-000028_y000019-000021/);
+});
+
 test("storj uploader does not share incomplete config uploads", async () => {
   const dir = await mkdtemp(path.join(os.tmpdir(), "storj-uploader-"));
   const archivesDir = path.join(dir, "archives");
